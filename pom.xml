@@ -212,6 +212,7 @@
         <module>presto-native-sidecar-plugin</module>
         <module>presto-base-arrow-flight</module>
         <module>presto-function-server</module>
+        <module>presto-clp</module>
     </modules>
 
     <dependencyManagement>
@@ -758,6 +759,12 @@
             <dependency>
                 <groupId>com.facebook.presto</groupId>
                 <artifactId>presto-elasticsearch</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.yscope.presto</groupId>
+                <artifactId>presto-clp</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -2588,6 +2595,7 @@
                             <requireUpperBoundDeps>
                                 <excludes combine.children="append">
                                     <!-- TODO: fix this in Airlift resolver -->
+                                    <exclude>org.alluxio:alluxio-shaded-client</exclude>
                                     <exclude>org.codehaus.plexus:plexus-utils</exclude>
                                     <exclude>com.google.guava:guava</exclude>
                                     <exclude>com.fasterxml.jackson.core:jackson-annotations</exclude>
