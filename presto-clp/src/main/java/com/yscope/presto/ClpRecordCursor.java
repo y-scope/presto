@@ -13,6 +13,7 @@
  */
 package com.yscope.presto;
 
+import com.facebook.presto.common.block.BlockBuilder;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.RecordCursor;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -121,17 +122,21 @@ public class ClpRecordCursor
     {
         checkFieldType(field, createUnboundedVarcharType());
         JsonNode node = fields.get(field);
-        if (node.isArray()) {
-            return Slices.utf8Slice(node.toString());
-        }
-        else {
-            return Slices.utf8Slice(node.asText());
-        }
+        return Slices.utf8Slice(node.asText());
     }
 
     @Override
     public Object getObject(int field)
     {
+        JsonNode node = fields.get(field);
+        if (node.isArray()) {
+            BlockBuilder builder = VARCHAR.createBlockBuilder(null, node.size());
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                VARCHAR.writeString(builder, elements.next().asText());
+            }
+            return builder.build();
+        }
         throw new UnsupportedOperationException();
     }
 
