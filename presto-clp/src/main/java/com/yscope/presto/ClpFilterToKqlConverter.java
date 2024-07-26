@@ -109,11 +109,17 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
         else if (!remainingExpressions.isEmpty()) {
-            return new ClpExpression(Optional.of(queryBuilder.substring(0, queryBuilder.length() - 5) + ")"),
-                    Optional.of(new SpecialFormExpression(node.getSourceLocation(),
-                            AND,
-                            BOOLEAN,
-                            remainingExpressions)));
+            if (remainingExpressions.size() == 1) {
+                return new ClpExpression(Optional.of(queryBuilder.substring(0, queryBuilder.length() - 5) + ")"),
+                        Optional.of(remainingExpressions.get(0)));
+            }
+            else {
+                return new ClpExpression(Optional.of(queryBuilder.substring(0, queryBuilder.length() - 5) + ")"),
+                        Optional.of(new SpecialFormExpression(node.getSourceLocation(),
+                                AND,
+                                BOOLEAN,
+                                remainingExpressions)));
+            }
         }
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 5) + ")");
     }
