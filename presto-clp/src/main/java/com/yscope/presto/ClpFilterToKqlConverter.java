@@ -102,7 +102,7 @@ public class ClpFilterToKqlConverter
                 remainingExpressions.add(expression.getRemainingExpression().get());
                 continue;
             }
-            queryBuilder.append(expression.getDefinition());
+            queryBuilder.append(expression.getDefinition().get());
             queryBuilder.append(" AND ");
         }
         if (remainingExpressions.size() == node.getArguments().size()) {
@@ -125,10 +125,10 @@ public class ClpFilterToKqlConverter
         ArrayList<RowExpression> remainingExpressions = new ArrayList<>();
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getRemainingExpression().isPresent()) {
+            if (expression.getRemainingExpression().isPresent() || !expression.getDefinition().isPresent()) {
                 return new ClpExpression(node);
             }
-            queryBuilder.append(expression.getDefinition());
+            queryBuilder.append(expression.getDefinition().get());
             queryBuilder.append(" OR ");
         }
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 4) + ")");
@@ -160,6 +160,44 @@ public class ClpFilterToKqlConverter
             queryBuilder.append(" OR ");
         }
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 4) + ")");
+    }
+
+    private ClpExpression handleLike(CallExpression node)
+    {
+        if (node.getArguments().size() != 2) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "LIKE operator must have exactly two arguments. Received: " + node);
+        }
+
+        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)) {
+            return new ClpExpression(node);
+        }
+
+        String variableName = getVariableName((VariableReferenceExpression) node.getArguments().get(0));
+        RowExpression argument = node.getArguments().get(1);
+        if (argument instanceof ConstantExpression) {
+            ConstantExpression literal = (ConstantExpression) argument;
+            String literalString = getLiteralString(literal);
+            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*") + "\"");
+        }
+        else if (argument instanceof CallExpression) {
+            CallExpression callExpression = (CallExpression) argument;
+            FunctionHandle functionHandle = callExpression.getFunctionHandle();
+            if (!standardFunctionResolution.isCastFunction(functionHandle)) {
+                return new ClpExpression(node);
+            }
+            if (callExpression.getArguments().size() != 1) {
+                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "CAST function must have exactly one argument. Received: " + callExpression);
+            }
+            if (!(callExpression.getArguments().get(0) instanceof ConstantExpression)) {
+                return new ClpExpression(node);
+            }
+            ConstantExpression literal = (ConstantExpression) callExpression.getArguments().get(0);
+            String literalString = getLiteralString(literal);
+            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*") + "\"");
+        }
+        return new ClpExpression(node);
     }
 
     private ClpExpression handleLogicalBinary(String operator, CallExpression node)
@@ -207,6 +245,10 @@ public class ClpFilterToKqlConverter
         FunctionHandle functionHandle = node.getFunctionHandle();
         if (standardFunctionResolution.isNotFunction(functionHandle)) {
             return handleNot(node);
+        }
+
+        if (standardFunctionResolution.isLikeFunction(functionHandle)) {
+            return handleLike(node);
         }
 
         FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(node.getFunctionHandle());
