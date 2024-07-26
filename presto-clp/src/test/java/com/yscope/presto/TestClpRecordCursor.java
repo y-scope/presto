@@ -17,6 +17,7 @@ import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.relational.FunctionResolution;
 import com.google.common.collect.ImmutableList;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -127,12 +128,16 @@ public class TestClpRecordCursor
                                         "a_bigint",
                                         BigintType.BIGINT),
                                 constant(1L, BigintType.BIGINT)));
-        String query = ClpPlanOptimizer.buildKqlQuery(callExpression);
+        Optional<String> query =
+                callExpression.accept(new ClpFilterToKqlConverter(new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver()),
+                        functionAndTypeManager,
+                        functionAndTypeManager), null).getDefinition();
+        assertTrue(query.isPresent());
         ClpRecordSetProvider recordSetProvider = new ClpRecordSetProvider(clpClient);
         ClpRecordSet recordSet = (ClpRecordSet) recordSetProvider.getRecordSet(
                 ClpTransactionHandle.INSTANCE,
                 SESSION,
-                new ClpSplit("default", "test_1_table", Optional.of(query)),
+                new ClpSplit("default", "test_1_table", query),
                 new ArrayList<>(clpClient.listColumns("test_1_table")));
         assertNotNull(recordSet, "recordSet is null");
         ClpRecordCursor cursor = (ClpRecordCursor) recordSet.cursor();
