@@ -15,6 +15,7 @@ package com.yscope.presto;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.type.TypeManager;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
@@ -27,7 +28,9 @@ import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.VariableReferenceExpression;
 
+import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
@@ -76,10 +79,12 @@ public class ClpPlanOptimizer
             }
 
             TableScanNode tableScanNode = (TableScanNode) node.getSource();
+            Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpExpression clpExpression = node.getPredicate()
-                    .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, typeManager), null);
+                    .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, typeManager, assignments),
+                            null);
             Optional<String> kqlQuery = clpExpression.getDefinition();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
             if (!kqlQuery.isPresent()) {
