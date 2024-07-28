@@ -14,6 +14,7 @@
 package com.yscope.presto;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.ColumnHandle;
@@ -226,11 +227,17 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
-        String variableName = getVariableName((VariableReferenceExpression) node.getArguments().get(0));
-        ConstantExpression literal = (ConstantExpression) node.getArguments().get(1);
-        String literalString = getLiteralString(literal);
+        ClpExpression leftExpression = node.getArguments().get(0).accept(this, null);
+        ClpExpression rightExpression = node.getArguments().get(1).accept(this, null);
+        if (!leftExpression.getDefinition().isPresent() || !rightExpression.getDefinition().isPresent()) {
+            return new ClpExpression(node);
+        }
+
+        String variableName = leftExpression.getDefinition().get();
+        String literalString = rightExpression.getDefinition().get();
+        Type literalType = node.getArguments().get(1).getType();
         if (operator.equals("=")) {
-            if (literal.getType().equals(VarcharType.VARCHAR)) {
+            if (literalType.equals(VarcharType.VARCHAR)) {
                 return new ClpExpression(variableName + ": \"" + literalString + "\"");
             }
             else {
@@ -238,14 +245,14 @@ public class ClpFilterToKqlConverter
             }
         }
         else if (operator.equals("<>")) {
-            if (literal.getType().equals(VarcharType.VARCHAR)) {
+            if (literalType.equals(VarcharType.VARCHAR)) {
                 return new ClpExpression("NOT " + variableName + ": \"" + literalString + "\"");
             }
             else {
                 return new ClpExpression("NOT " + variableName + ": " + literalString);
             }
         }
-        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator)) {
+        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !literalType.equals(VarcharType.VARCHAR)) {
             return new ClpExpression(variableName + " " + operator + " " + literalString);
         }
         else {
