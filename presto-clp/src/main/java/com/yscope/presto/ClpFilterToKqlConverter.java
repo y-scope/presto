@@ -16,6 +16,7 @@ package com.yscope.presto;
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.common.type.VarcharType;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -47,15 +49,18 @@ public class ClpFilterToKqlConverter
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final TypeManager typeManager;
+    private final Map<VariableReferenceExpression, ColumnHandle> assignments;
 
     public ClpFilterToKqlConverter(StandardFunctionResolution standardFunctionResolution,
                                    FunctionMetadataManager functionMetadataManager,
-                                   TypeManager typeManager)
+                                   TypeManager typeManager,
+                                   Map<VariableReferenceExpression, ColumnHandle> assignments)
     {
         this.standardFunctionResolution =
                 requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.typeManager = requireNonNull(typeManager, "type manager is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
     }
 
     private static String getLiteralString(ConstantExpression literal)
@@ -66,9 +71,9 @@ public class ClpFilterToKqlConverter
         return literal.toString();
     }
 
-    private static String getVariableName(VariableReferenceExpression variable)
+    private String getVariableName(VariableReferenceExpression variable)
     {
-        String variableName = variable.getName();
+        String variableName = ((ClpColumnHandle) assignments.get(variable)).getColumnName();
         if (variableName.endsWith("_bigint") || variableName.endsWith("_double") ||
                 variableName.endsWith("_varchar") || variableName.endsWith("_boolean")) {
             return variableName.substring(0, variableName.lastIndexOf('_'));
@@ -96,16 +101,19 @@ public class ClpFilterToKqlConverter
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         ArrayList<RowExpression> remainingExpressions = new ArrayList<>();
+        boolean hasDefinition = false;
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getRemainingExpression().isPresent() || !expression.getDefinition().isPresent()) {
-                remainingExpressions.add(expression.getRemainingExpression().get());
-                continue;
+            if (expression.getDefinition().isPresent()) {
+                hasDefinition = true;
+                queryBuilder.append(expression.getDefinition().get());
+                queryBuilder.append(" AND ");
             }
-            queryBuilder.append(expression.getDefinition().get());
-            queryBuilder.append(" AND ");
+            if (expression.getRemainingExpression().isPresent()) {
+                remainingExpressions.add(expression.getRemainingExpression().get());
+            }
         }
-        if (remainingExpressions.size() == node.getArguments().size()) {
+        if (!hasDefinition) {
             return new ClpExpression(node);
         }
         else if (!remainingExpressions.isEmpty()) {

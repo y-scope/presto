@@ -15,6 +15,7 @@ package com.yscope.presto;
 
 import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
@@ -25,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slices;
 import org.testng.annotations.Test;
 
+import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
@@ -88,11 +90,21 @@ public class TestClpFilterToKqlConverter
                 BOOLEAN,
                 firstOrExpression,
                 secondOrExpression);
+        Map<VariableReferenceExpression, ColumnHandle> assignments = Map.of(
+                new VariableReferenceExpression(Optional.empty(), "a_bigint", BigintType.BIGINT),
+                new ClpColumnHandle("a_bigint", BigintType.BIGINT, false),
+                new VariableReferenceExpression(Optional.empty(), "b_varchar", VARCHAR),
+                new ClpColumnHandle("b_varchar", VARCHAR, false),
+                new VariableReferenceExpression(Optional.empty(), "c.e", VARCHAR),
+                new ClpColumnHandle("c.e", VARCHAR, false),
+                new VariableReferenceExpression(Optional.empty(), "c", VARCHAR),
+                new ClpColumnHandle("c", VARCHAR, false));
         ClpExpression clpExpression =
                 andExpression.accept(new ClpFilterToKqlConverter(
                                 new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver()),
                                 functionAndTypeManager,
-                                functionAndTypeManager),
+                                functionAndTypeManager,
+                                assignments),
                         null);
         Optional<String> definition = clpExpression.getDefinition();
         Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
@@ -103,6 +115,7 @@ public class TestClpFilterToKqlConverter
                 BOOLEAN,
                 call(EQUAL.name(), functionResolution.comparisonFunction(EQUAL, VARCHAR, VARCHAR), BOOLEAN,
                         call("lower",
+
                                 functionAndTypeResolver.lookupFunction("lower", fromTypes(VARCHAR)),
                                 VARCHAR,
                                 new VariableReferenceExpression(Optional.empty(), "c.e",
