@@ -18,6 +18,10 @@
 #include "presto_cpp/presto_protocol/connector/tpch/TpchConnectorProtocol.h"
 
 #include <velox/type/fbhive/HiveTypeParser.h>
+#include "velox/connectors/clp/ClpColumnHandle.h>
+#include "velox/connectors/clp/ClpConnector.h"
+#include "velox/connectors/clp/ClpConnectorSplit.h"
+#include "velox/connectors/clp/ClpTableHandle.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/connectors/hive/HiveDataSink.h"
@@ -1552,4 +1556,52 @@ std::unique_ptr<protocol::ConnectorProtocol>
 TpchPrestoToVeloxConnector::createConnectorProtocol() const {
   return std::make_unique<protocol::tpch::TpchConnectorProtocol>();
 }
+
+std::unique_ptr<velox::connector::ConnectorSplit>
+ClpPrestoToVeloxConnector::toVeloxSplit(
+    const protocol::ConnectorId& catalogId,
+    const protocol::ConnectorSplit* connectorSplit) const {
+  auto clpSplit = dynamic_cast<const protocol::ClpSplit*>(connectorSplit);
+  VELOX_CHECK_NOT_NULL(
+      clpSplit, "Unexpected split type {}", connectorSplit->_type);
+  return std::make_unique<connector::clp::ClpConnectorSplit>(
+      catalogId, clpSplit->schemaName, clpSplit->tableName, clpSplit->query);
+}
+
+std::unique_ptr<velox::connector::ColumnHandle>
+ClpPrestoToVeloxConnector::toVeloxColumnHandle(
+    const protocol::ColumnHandle* column,
+    const TypeParser& typeParser) const {
+  auto clpColumn = dynamic_cast<const protocol::ClpColumnHandle*>(column);
+  VELOX_CHECK_NOT_NULL(
+      clpColumn, "Unexpected column handle type {}", column->_type);
+  // TODO(Ray): need to write a parser for the type
+  return std::make_unique<connector::clp::ColumnHandle>(
+      clpColumn->columnName, clpColumn->columnType, clpColumn->nullable);
+}
+
+std::unique_ptr<velox::connector::ConnectorTableHandle>
+ClpPrestoToVeloxConnector::toVeloxTableHandle(
+    const protocol::TableHandle& tableHandle,
+    const VeloxExprConverter& exprConverter,
+    const TypeParser& typeParser,
+    std::unordered_map<
+        std::string,
+        std::shared_ptr<velox::connector::ColumnHandle>>& assignments) const {
+  auto clpLayout =
+      std::dynamic_pointer_cast<const protocol::ClpTableLayoutHandle>(
+          tableHandle.connectorTableLayout);
+  VELOX_CHECK_NOT_NULL(
+      clpLayout,
+      "Unexpected layout type {}",
+      tableHandle.connectorTableLayout->_type);
+  return std::make_unique<connector::clp::ClpTableHandle>(
+      tableHandle.connectorId, clpLayout->table.tableName);
+}
+
+std::unique_ptr<protocol::ConnectorProtocol>
+ClpPrestoToVeloxConnector::createConnectorProtocol() const {
+  return std::make_unique<protocol::ClpConnectorProtocol>();
+}
+
 } // namespace facebook::presto
