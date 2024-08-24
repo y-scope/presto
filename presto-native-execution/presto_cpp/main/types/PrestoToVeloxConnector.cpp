@@ -18,7 +18,7 @@
 #include "presto_cpp/presto_protocol/connector/tpch/TpchConnectorProtocol.h"
 
 #include <velox/type/fbhive/HiveTypeParser.h>
-#include "velox/connectors/clp/ClpColumnHandle.h>
+#include "velox/connectors/clp/ClpColumnHandle.h"
 #include "velox/connectors/clp/ClpConnector.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/ClpTableHandle.h"
@@ -1565,7 +1565,7 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
   return std::make_unique<connector::clp::ClpConnectorSplit>(
-      catalogId, clpSplit->schemaName, clpSplit->tableName, clpSplit->query);
+      catalogId, clpSplit->schemaName, clpSplit->tableName);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>
@@ -1575,9 +1575,10 @@ ClpPrestoToVeloxConnector::toVeloxColumnHandle(
   auto clpColumn = dynamic_cast<const protocol::ClpColumnHandle*>(column);
   VELOX_CHECK_NOT_NULL(
       clpColumn, "Unexpected column handle type {}", column->_type);
-  // TODO(Ray): need to write a parser for the type
-  return std::make_unique<connector::clp::ColumnHandle>(
-      clpColumn->columnName, clpColumn->columnType, clpColumn->nullable);
+  return std::make_unique<connector::clp::ClpColumnHandle>(
+      clpColumn->columnName,
+      typeParser.parse(clpColumn->columnType),
+      clpColumn->nullable);
 }
 
 std::unique_ptr<velox::connector::ConnectorTableHandle>
@@ -1596,7 +1597,7 @@ ClpPrestoToVeloxConnector::toVeloxTableHandle(
       "Unexpected layout type {}",
       tableHandle.connectorTableLayout->_type);
   return std::make_unique<connector::clp::ClpTableHandle>(
-      tableHandle.connectorId, clpLayout->table.tableName);
+      tableHandle.connectorId, clpLayout->table.tableName, clpLayout->query);
 }
 
 std::unique_ptr<protocol::ConnectorProtocol>
