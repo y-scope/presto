@@ -15,7 +15,6 @@
 #include "presto_cpp/main/types/PrestoToVeloxConnector.h"
 #include <velox/type/fbhive/HiveTypeParser.h>
 #include "velox/connectors/clp/ClpColumnHandle.h"
-#include "velox/connectors/clp/ClpConnector.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/ClpTableHandle.h"
 #include "velox/connectors/hive/HiveConnector.h"
