@@ -22,6 +22,7 @@ add_executable(
   ServerOperationTest.cpp
   TaskManagerTest.cpp
   QueryContextManagerTest.cpp)
+target_link_options(presto_server_test PRIVATE "-no-pie")
 
 add_test(
   NAME presto_server_test
