@@ -50,7 +50,7 @@ public class TestClpRecordCursor
     {
         ClpConfig config = new ClpConfig().setClpArchiveDir("src/test/resources/clp_archive")
                 .setPolymorphicTypeEnabled(true)
-                .setClpExecutablePath("/usr/local/bin/clp-s");
+                .setClpExecutablePath("/usr/local/bin/clp-s-projection");
         clpClient = new ClpClient(config);
         clpClient.start();
     }
@@ -66,10 +66,11 @@ public class TestClpRecordCursor
     public void testTable1RecordCursor()
     {
         ClpRecordSetProvider recordSetProvider = new ClpRecordSetProvider(clpClient);
+        List<String> archiveIds = clpClient.listArchiveIds("test_1_table");
         ClpRecordSet recordSet = (ClpRecordSet) recordSetProvider.getRecordSet(
                 ClpTransactionHandle.INSTANCE,
                 SESSION,
-                new ClpSplit("default", "test_1_table", Optional.empty()),
+                new ClpSplit("default", "test_1_table", archiveIds.get(0), Optional.empty()),
                 new ArrayList<>(clpClient.listColumns("test_1_table")));
         assertNotNull(recordSet, "recordSet is null");
         ClpRecordCursor cursor = (ClpRecordCursor) recordSet.cursor();
@@ -102,10 +103,11 @@ public class TestClpRecordCursor
     public void testTable2RecordCursor()
     {
         ClpRecordSetProvider recordSetProvider = new ClpRecordSetProvider(clpClient);
+        List<String> archiveIds = clpClient.listArchiveIds("test_2_table");
         ClpRecordSet recordSet = (ClpRecordSet) recordSetProvider.getRecordSet(
                 ClpTransactionHandle.INSTANCE,
                 SESSION,
-                new ClpSplit("default", "test_2_table", Optional.empty()),
+                new ClpSplit("default", "test_2_table", archiveIds.get(0), Optional.empty()),
                 new ArrayList<>(clpClient.listColumns("test_2_table")));
         assertNotNull(recordSet, "recordSet is null");
         ClpRecordCursor cursor = (ClpRecordCursor) recordSet.cursor();
@@ -132,17 +134,18 @@ public class TestClpRecordCursor
                                 constant(1L, BigintType.BIGINT)));
         Map<VariableReferenceExpression, ColumnHandle> assignments = Map.of(
                 new VariableReferenceExpression(Optional.empty(), "a_bigint", BigintType.BIGINT),
-                new ClpColumnHandle("a_bigint", BigintType.BIGINT, false));
+                new ClpColumnHandle("a_bigint", "a", BigintType.BIGINT, false));
         Optional<String> query =
                 callExpression.accept(new ClpFilterToKqlConverter(
                         new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver()),
                         functionAndTypeManager, functionAndTypeManager, assignments), null).getDefinition();
         assertTrue(query.isPresent());
         ClpRecordSetProvider recordSetProvider = new ClpRecordSetProvider(clpClient);
+        List<String> archiveIds = clpClient.listArchiveIds("test_1_table");
         ClpRecordSet recordSet = (ClpRecordSet) recordSetProvider.getRecordSet(
                 ClpTransactionHandle.INSTANCE,
                 SESSION,
-                new ClpSplit("default", "test_1_table", query),
+                new ClpSplit("default", "test_1_table", archiveIds.get(0), query),
                 new ArrayList<>(clpClient.listColumns("test_1_table")));
         assertNotNull(recordSet, "recordSet is null");
         ClpRecordCursor cursor = (ClpRecordCursor) recordSet.cursor();

@@ -33,15 +33,18 @@ public class ClpSplit
 {
     private final String schemaName;
     private final String tableName;
+    private final String archiveId;
     private final Optional<String> query;
 
     @JsonCreator
     public ClpSplit(@JsonProperty("schemaName") @Nullable String schemaName,
                     @JsonProperty("tableName") @Nullable String tableName,
+                    @JsonProperty("archiveId") @Nullable String archiveId,
                     @JsonProperty("query") Optional<String> query)
     {
         this.schemaName = schemaName;
         this.tableName = tableName;
+        this.archiveId = archiveId;
         this.query = query;
     }
 
@@ -56,6 +59,12 @@ public class ClpSplit
     public String getTableName()
     {
         return tableName;
+    }
+
+    @JsonProperty
+    public String getArchiveId()
+    {
+        return archiveId;
     }
 
     @JsonProperty

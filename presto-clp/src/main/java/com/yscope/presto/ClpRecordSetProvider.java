@@ -49,8 +49,9 @@ public class ClpRecordSetProvider
         }
         ImmutableList<ClpColumnHandle> clpColumnHandles = handles.build();
         return new ClpRecordSet(clpClient.getRecords(clpSplit.getTableName(),
+                clpSplit.getArchiveId(),
                 clpSplit.getQuery(),
-                clpColumnHandles.stream().map(ClpColumnHandle::getColumnName).collect(ImmutableList.toImmutableList())),
+                clpColumnHandles.stream().map(ClpColumnHandle::getOriginalColumnName).collect(ImmutableList.toImmutableList())),
                 clpClient.getConfig().isPolymorphicTypeEnabled(), clpColumnHandles);
     }
 }
