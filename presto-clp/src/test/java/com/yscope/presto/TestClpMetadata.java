@@ -40,7 +40,7 @@ public class TestClpMetadata
     {
         ClpConfig config = new ClpConfig().setClpArchiveDir("src/test/resources/clp_archive")
                 .setPolymorphicTypeEnabled(true)
-                .setClpExecutablePath("/usr/local/bin/clp-s");
+                .setClpExecutablePath("/usr/local/bin/clp-s-projection");
         metadata = new ClpMetadata(new ClpClient(config));
     }
 
