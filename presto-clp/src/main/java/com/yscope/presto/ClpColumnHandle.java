@@ -34,7 +34,7 @@ public class ClpColumnHandle
     @JsonCreator
     public ClpColumnHandle(
             @JsonProperty("columnName") String columnName,
-            @JsonProperty("columnType") String originalColumnName,
+            @JsonProperty("originalColumnName") String originalColumnName,
             @JsonProperty("columnType") Type columnType,
             @JsonProperty("nullable") boolean nullable)
     {
