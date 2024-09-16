@@ -295,8 +295,10 @@ public class ClpClient
             argumentList.add("--archive-id");
             argumentList.add(archiveId);
             argumentList.add(query);
-            argumentList.add("--projection");
-            argumentList.addAll(columns);
+            if (!columns.isEmpty()) {
+                argumentList.add("--projection");
+                argumentList.addAll(columns);
+            }
             log.info("Argument list: %s", argumentList.toString());
             ProcessBuilder processBuilder = new ProcessBuilder(argumentList);
             Process process = processBuilder.start();
