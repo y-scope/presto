@@ -253,7 +253,7 @@ public class ClpClient
         return polymorphicColumnHandles;
     }
 
-    public BufferedReader getRecords(String tableName, String archiveId, Optional<String> query, List<String> columns)
+    public ProcessBuilder getRecords(String tableName, String archiveId, Optional<String> query, List<String> columns)
     {
         if (!listTables().contains(tableName)) {
             return null;
@@ -284,30 +284,22 @@ public class ClpClient
 //        }
     }
 
-    private BufferedReader searchTable(String tableName, String archiveId, String query, List<String> columns)
+    private ProcessBuilder searchTable(String tableName, String archiveId, String query, List<String> columns)
     {
         Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
-        try {
-            List<String> argumentList = new ArrayList<>();
-            argumentList.add(executablePath.toString());
-            argumentList.add("s");
-            argumentList.add(tableArchiveDir.toString());
-            argumentList.add("--archive-id");
-            argumentList.add(archiveId);
-            argumentList.add(query);
-            if (!columns.isEmpty()) {
-                argumentList.add("--projection");
-                argumentList.addAll(columns);
-            }
-            log.info("Argument list: %s", argumentList.toString());
-            ProcessBuilder processBuilder = new ProcessBuilder(argumentList);
-            Process process = processBuilder.start();
-            return new BufferedReader(new InputStreamReader(process.getInputStream()));
+        List<String> argumentList = new ArrayList<>();
+        argumentList.add(executablePath.toString());
+        argumentList.add("s");
+        argumentList.add(tableArchiveDir.toString());
+        argumentList.add("--archive-id");
+        argumentList.add(archiveId);
+        argumentList.add(query);
+        if (!columns.isEmpty()) {
+            argumentList.add("--projection");
+            argumentList.addAll(columns);
         }
-        catch (IOException e) {
-            log.error(e, "Failed to search records for table %s", tableName);
-            return null;
-        }
+        log.info("Argument list: %s", argumentList.toString());
+        return new ProcessBuilder(argumentList);
     }
 
     private boolean decompressRecords(String tableName)
