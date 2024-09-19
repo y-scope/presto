@@ -26,13 +26,13 @@ import static java.util.Objects.requireNonNull;
 public class ClpRecordSet
         implements RecordSet
 {
-    private final BufferedReader reader;
+    private final ProcessBuilder processBuilder;
     private final List<ClpColumnHandle> columnHandles;
     private final boolean isPolymorphicTypeEnabled;
 
-    public ClpRecordSet(BufferedReader reader, boolean isPolymorphicTypeEnabled, List<ClpColumnHandle> columnHandles)
+    public ClpRecordSet(ProcessBuilder processBuilder, boolean isPolymorphicTypeEnabled, List<ClpColumnHandle> columnHandles)
     {
-        this.reader = requireNonNull(reader, "reader is null");
+        this.processBuilder = requireNonNull(processBuilder, "process builder is null");
         this.isPolymorphicTypeEnabled = isPolymorphicTypeEnabled;
         this.columnHandles = requireNonNull(columnHandles, "column handles is null");
     }
@@ -46,6 +46,6 @@ public class ClpRecordSet
     @Override
     public RecordCursor cursor()
     {
-        return new ClpRecordCursor(reader, isPolymorphicTypeEnabled, columnHandles);
+        return new ClpRecordCursor(processBuilder, isPolymorphicTypeEnabled, columnHandles);
     }
 }

@@ -20,6 +20,7 @@ import com.facebook.presto.spi.RecordSet;
 import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import javax.inject.Inject;
 
@@ -49,8 +50,12 @@ public class ClpRecordSetProvider
         }
         ImmutableList<ClpColumnHandle> clpColumnHandles = handles.build();
         return new ClpRecordSet(clpClient.getRecords(clpSplit.getTableName(),
+                clpSplit.getArchiveId(),
                 clpSplit.getQuery(),
-                clpColumnHandles.stream().map(ClpColumnHandle::getColumnName).collect(ImmutableList.toImmutableList())),
+                clpColumnHandles.stream()
+                        .map(ClpColumnHandle::getOriginalColumnName)
+                        .collect(ImmutableSet.toImmutableSet())
+                        .asList()),
                 clpClient.getConfig().isPolymorphicTypeEnabled(), clpColumnHandles);
     }
 }

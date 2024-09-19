@@ -14,7 +14,6 @@
 package com.yscope.presto;
 
 import com.facebook.presto.spi.ConnectorSession;
-import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.FixedSplitSource;
@@ -23,8 +22,7 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 import javax.inject.Inject;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.stream.Collectors;
 
 public class ClpSplitManager
         implements ConnectorSplitManager
@@ -48,9 +46,13 @@ public class ClpSplitManager
         if (!clpClient.listTables().contains(tableHandle.getTableName())) {
             throw new RuntimeException("Table no longer exists: " + tableHandle.getTableName());
         }
-        List<ConnectorSplit> splits =
-                Collections.singletonList(new ClpSplit("default", tableHandle.getTableName(), layoutHandle.getQuery()));
 
-        return new FixedSplitSource(splits);
+        return new FixedSplitSource(clpClient.listArchiveIds(tableHandle.getTableName())
+                .stream()
+                .map(archiveId -> new ClpSplit("default",
+                        tableHandle.getTableName(),
+                        archiveId,
+                        layoutHandle.getQuery()))
+                .collect(Collectors.toList()));
     }
 }

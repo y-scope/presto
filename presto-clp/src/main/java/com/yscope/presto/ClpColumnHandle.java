@@ -27,24 +27,38 @@ public class ClpColumnHandle
         implements ColumnHandle
 {
     private final String columnName;
+    private final String originalColumnName;
     private final Type columnType;
     private final boolean nullable;
 
     @JsonCreator
     public ClpColumnHandle(
             @JsonProperty("columnName") String columnName,
+            @JsonProperty("originalColumnName") String originalColumnName,
             @JsonProperty("columnType") Type columnType,
             @JsonProperty("nullable") boolean nullable)
     {
         this.columnName = columnName;
+        this.originalColumnName = originalColumnName;
         this.columnType = columnType;
         this.nullable = nullable;
+    }
+
+    public ClpColumnHandle(String columnName, Type columnType, boolean nullable)
+    {
+        this(columnName, columnName, columnType, nullable);
     }
 
     @JsonProperty
     public String getColumnName()
     {
         return columnName;
+    }
+
+    @JsonProperty
+    public String getOriginalColumnName()
+    {
+        return originalColumnName;
     }
 
     @JsonProperty

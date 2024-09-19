@@ -13,6 +13,7 @@
  */
 package com.yscope.presto;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.block.BlockBuilder;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.RecordCursor;
@@ -22,6 +23,8 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -37,14 +40,23 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class ClpRecordCursor
         implements RecordCursor
 {
+    private static final Logger log = Logger.get(ClpRecordCursor.class);
     private final BufferedReader reader;
+    private final Process process;
     private final boolean isPolymorphicTypeEnabled;
     private final List<ClpColumnHandle> columnHandles;
     private final List<JsonNode> fields;
 
-    public ClpRecordCursor(BufferedReader reader, boolean isPolymorphicTypeEnabled, List<ClpColumnHandle> columnHandles)
+    public ClpRecordCursor(ProcessBuilder processBuilder, boolean isPolymorphicTypeEnabled, List<ClpColumnHandle> columnHandles)
     {
-        this.reader = reader;
+        try {
+            this.process = processBuilder.start();
+        }
+        catch (IOException e) {
+            log.error(e, "Failed to search records");
+            throw new RuntimeException(e);
+        }
+        this.reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         this.isPolymorphicTypeEnabled = isPolymorphicTypeEnabled;
         this.columnHandles = columnHandles;
         this.fields = new ArrayList<>(columnHandles.size());
@@ -149,6 +161,7 @@ public class ClpRecordCursor
     @Override
     public void close()
     {
+        process.destroy();
     }
 
     private void parseLine(JsonNode node, String prefix)

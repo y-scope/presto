@@ -21,6 +21,7 @@ import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.github.luben.zstd.ZstdInputStream;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.yscope.presto.schema.SchemaNode;
 import com.yscope.presto.schema.SchemaTree;
@@ -60,6 +61,7 @@ public class ClpClient
     private final ClpConfig config;
     private final Path executablePath;
     private final Map<String, Set<ClpColumnHandle>> tableNameToColumnHandles;
+    private final Map<String, List<String>> tableNameToArchiveIds;
     private final Path decompressDir;
     private Set<String> tableNames;
 
@@ -68,6 +70,7 @@ public class ClpClient
     {
         this.config = requireNonNull(config, "config is null");
         this.tableNameToColumnHandles = new HashMap<>();
+        this.tableNameToArchiveIds = new HashMap<>();
         this.executablePath = getExecutablePath();
         this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
     }
@@ -183,6 +186,32 @@ public class ClpClient
         return this.tableNames;
     }
 
+    public List<String> listArchiveIds(String tableName)
+    {
+        if (tableNameToArchiveIds.containsKey(tableName)) {
+            return tableNameToArchiveIds.get(tableName);
+        }
+        Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
+        if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
+            return ImmutableList.of();
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tableDir)) {
+            ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
+            for (Path path : stream) {
+                if (Files.isDirectory(path)) {
+                    archiveIds.add(path.getFileName().toString());
+                }
+            }
+            List<String> archiveIdsList = archiveIds.build();
+            tableNameToArchiveIds.put(tableName, archiveIdsList);
+            return archiveIdsList;
+        }
+        catch (Exception e) {
+            return ImmutableList.of();
+        }
+    }
+
     public Set<ClpColumnHandle> listColumns(String tableName)
     {
         if (tableNameToColumnHandles.containsKey(tableName)) {
@@ -224,54 +253,53 @@ public class ClpClient
         return polymorphicColumnHandles;
     }
 
-    public BufferedReader getRecords(String tableName, Optional<String> query, List<String> columns)
+    public ProcessBuilder getRecords(String tableName, String archiveId, Optional<String> query, List<String> columns)
     {
         if (!listTables().contains(tableName)) {
             return null;
         }
 
         if (query.isPresent()) {
-            return searchTable(tableName, query.get(), columns);
+            return searchTable(tableName, archiveId, query.get(), columns);
         }
         else {
-            Path decompressFile = decompressDir.resolve(tableName).resolve("original");
-            if (!Files.exists(decompressFile) || !Files.isRegularFile(decompressFile)) {
-                if (!decompressRecords(tableName)) {
-                    return null;
-                }
-                log.info("Decompress records to %s", decompressFile.toString());
-            }
-
-            try {
-                return Files.newBufferedReader(decompressFile);
-            }
-            catch (IOException e) {
-                log.error(e, "Failed to get records for table %s", tableName);
-                return null;
-            }
+            return searchTable(tableName, archiveId, "*", columns);
         }
+//        else {
+//            Path decompressFile = decompressDir.resolve(tableName).resolve("original");
+//            if (!Files.exists(decompressFile) || !Files.isRegularFile(decompressFile)) {
+//                if (!decompressRecords(tableName)) {
+//                    return null;
+//                }
+//                log.info("Decompress records to %s", decompressFile.toString());
+//            }
+//
+//            try {
+//                return Files.newBufferedReader(decompressFile);
+//            }
+//            catch (IOException e) {
+//                log.error(e, "Failed to get records for table %s", tableName);
+//                return null;
+//            }
+//        }
     }
 
-    private BufferedReader searchTable(String tableName, String query, List<String> columns)
+    private ProcessBuilder searchTable(String tableName, String archiveId, String query, List<String> columns)
     {
         Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
-        try {
-            List<String> argumentList = new ArrayList<>();
-            argumentList.add(executablePath.toString());
-            argumentList.add("s");
-            argumentList.add(tableArchiveDir.toString());
-            argumentList.add(query);
+        List<String> argumentList = new ArrayList<>();
+        argumentList.add(executablePath.toString());
+        argumentList.add("s");
+        argumentList.add(tableArchiveDir.toString());
+        argumentList.add("--archive-id");
+        argumentList.add(archiveId);
+        argumentList.add(query);
+        if (!columns.isEmpty()) {
             argumentList.add("--projection");
             argumentList.addAll(columns);
-            log.info("Argument list: %s", argumentList.toString());
-            ProcessBuilder processBuilder = new ProcessBuilder(argumentList);
-            Process process = processBuilder.start();
-            return new BufferedReader(new InputStreamReader(process.getInputStream()));
         }
-        catch (IOException e) {
-            log.error(e, "Failed to search records for table %s", tableName);
-            return null;
-        }
+        log.info("Argument list: %s", argumentList.toString());
+        return new ProcessBuilder(argumentList);
     }
 
     private boolean decompressRecords(String tableName)
@@ -371,6 +399,7 @@ public class ClpClient
                 for (ClpColumnHandle columnHandle : columnHandleList) {
                     polymorphicColumnHandles.add(new ClpColumnHandle(
                             columnHandle.getColumnName() + "_" + columnHandle.getColumnType().getDisplayName(),
+                            columnHandle.getColumnName(),
                             columnHandle.getColumnType(),
                             columnHandle.isNullable()));
                 }
