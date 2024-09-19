@@ -18,7 +18,6 @@ import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordSet;
 import com.google.common.collect.ImmutableList;
 
-import java.io.BufferedReader;
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
