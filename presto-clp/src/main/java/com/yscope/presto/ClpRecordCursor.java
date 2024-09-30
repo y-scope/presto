@@ -161,6 +161,12 @@ public class ClpRecordCursor
     @Override
     public void close()
     {
+        try {
+            reader.close();
+        }
+        catch (IOException e) {
+            log.warn(e, "Failed to close reader");
+        }
         process.destroy();
     }
 
