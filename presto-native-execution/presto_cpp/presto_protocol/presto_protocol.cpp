@@ -13974,6 +13974,7 @@ void to_json(json& j, const ClpSplit& p) {
   to_json_key(
       j, "schemaName", p.schemaName, "ClpSplit", "String", "schemaName");
   to_json_key(j, "tableName", p.tableName, "ClpSplit", "String", "tableName");
+  to_json_key(j, "archiveId", p.archiveId, "ClpSplit", "String", "archiveId");
   to_json_key(j, "query", p.query, "ClpSplit", "String", "query");
 }
 
@@ -13982,6 +13983,7 @@ void from_json(const json& j, ClpSplit& p) {
   from_json_key(
       j, "schemaName", p.schemaName, "ClpSplit", "String", "schemaName");
   from_json_key(j, "tableName", p.tableName, "ClpSplit", "String", "tableName");
+  from_json_key(j, "archiveId", p.archiveId, "ClpSplit", "String", "archiveId");
   from_json_key(j, "query", p.query, "ClpSplit", "String", "query");
 }
 } // namespace facebook::presto::protocol

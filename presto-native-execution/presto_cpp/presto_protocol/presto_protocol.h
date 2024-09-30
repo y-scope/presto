@@ -3264,6 +3264,7 @@ namespace facebook::presto::protocol {
 struct ClpSplit : public ConnectorSplit {
   String schemaName = {};
   String tableName = {};
+  String archiveId = {};
   std::shared_ptr<String> query = {};
 
   ClpSplit() noexcept;
