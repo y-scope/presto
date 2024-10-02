@@ -20,6 +20,7 @@ add_executable(
   PrestoTaskTest.cpp
   QueryContextCacheTest.cpp
   ServerOperationTest.cpp
+  SessionPropertiesTest.cpp
   TaskManagerTest.cpp
   QueryContextManagerTest.cpp)
 target_link_options(presto_server_test PRIVATE "-no-pie")
@@ -45,9 +46,9 @@ target_link_libraries(
   velox_aggregates
   velox_hive_partition_function
   ${RE2}
-  gmock
-  gtest
-  gtest_main)
+  GTest::gmock
+  GTest::gtest
+  GTest::gtest_main)
 
 set_property(TARGET presto_server_test PROPERTY JOB_POOL_LINK
                                                 presto_link_job_pool)
@@ -66,7 +67,7 @@ if(PRESTO_ENABLE_REMOTE_FUNCTIONS)
     presto_server_remote_function
     velox_expression
     velox_temp_path
-    gmock
-    gtest
-    gtest_main)
+    GTest::gmock
+    GTest::gtest
+    GTest::gtest_main)
 endif()

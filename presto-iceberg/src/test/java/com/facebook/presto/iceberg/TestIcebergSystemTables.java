@@ -98,6 +98,12 @@ public class TestIcebergSystemTables
 
         assertUpdate("CREATE TABLE test_schema.test_table_orc (_bigint BIGINT) WITH (format_version = '1', format = 'ORC')");
         assertUpdate("INSERT INTO test_schema.test_table_orc VALUES (0), (1), (2)", 3);
+
+        assertUpdate("CREATE TABLE test_schema.test_metadata_versions_maintain (_bigint BIGINT)" +
+                " WITH (metadata_previous_versions_max = 1, metadata_delete_after_commit = true)");
+
+        assertUpdate("CREATE TABLE test_schema.test_metrics_max_inferred_column (_bigint BIGINT)" +
+                " WITH (metrics_max_inferred_column = 16)");
     }
 
     @Test
@@ -201,6 +207,25 @@ public class TestIcebergSystemTables
     }
 
     @Test
+    public void testRefsTable()
+    {
+        assertQuery("SHOW COLUMNS FROM test_schema.\"test_table$refs\"",
+                "VALUES ('name', 'varchar', '', '')," +
+                        "('type', 'varchar', '', '')," +
+                        "('snapshot_id', 'bigint', '', '')," +
+                        "('max_reference_age_in_ms', 'bigint', '', '')," +
+                        "('min_snapshots_to_keep', 'bigint', '', '')," +
+                        "('max_snapshot_age_in_ms', 'bigint', '', '')");
+        assertQuerySucceeds("SELECT * FROM test_schema.\"test_table$refs\"");
+
+        // Check main branch entry
+        assertQuery("SELECT count(*) FROM test_schema.\"test_table$refs\"", "VALUES 1");
+        assertQuery("SELECT name FROM test_schema.\"test_table$refs\"", "VALUES 'main'");
+
+        assertQuerySucceeds("SELECT * FROM test_schema.\"test_table_multilevel_partitions$refs\"");
+    }
+
+    @Test
     public void testSessionPropertiesInManuallyStartedTransaction()
     {
         try {
@@ -233,11 +258,11 @@ public class TestIcebergSystemTables
     {
         assertQuery(String.format("SHOW COLUMNS FROM test_schema.\"%s$properties\"", tableName),
                 "VALUES ('key', 'varchar', '', '')," + "('value', 'varchar', '', '')");
-        assertQuery(String.format("SELECT COUNT(*) FROM test_schema.\"%s$properties\"", tableName), "VALUES 4");
+        assertQuery(String.format("SELECT COUNT(*) FROM test_schema.\"%s$properties\"", tableName), "VALUES 7");
         List<MaterializedRow> materializedRows = computeActual(getSession(),
                 String.format("SELECT * FROM test_schema.\"%s$properties\"", tableName)).getMaterializedRows();
 
-        assertThat(materializedRows).hasSize(4);
+        assertThat(materializedRows).hasSize(7);
         assertThat(materializedRows)
                 .anySatisfy(row -> assertThat(row)
                         .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.delete.mode", deleteMode)))
@@ -246,18 +271,24 @@ public class TestIcebergSystemTables
                 .anySatisfy(row -> assertThat(row)
                         .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.parquet.compression-codec", "GZIP")))
                 .anySatisfy(row -> assertThat(row)
-                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "commit.retry.num-retries", "4")));
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "commit.retry.num-retries", "4")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.previous-versions-max", "100")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.delete-after-commit.enabled", "false")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.metrics.max-inferred-column-defaults", "100")));
     }
 
     protected void checkORCFormatTableProperties(String tableName, String deleteMode)
     {
         assertQuery(String.format("SHOW COLUMNS FROM test_schema.\"%s$properties\"", tableName),
                 "VALUES ('key', 'varchar', '', '')," + "('value', 'varchar', '', '')");
-        assertQuery(String.format("SELECT COUNT(*) FROM test_schema.\"%s$properties\"", tableName), "VALUES 5");
+        assertQuery(String.format("SELECT COUNT(*) FROM test_schema.\"%s$properties\"", tableName), "VALUES 8");
         List<MaterializedRow> materializedRows = computeActual(getSession(),
                 String.format("SELECT * FROM test_schema.\"%s$properties\"", tableName)).getMaterializedRows();
 
-        assertThat(materializedRows).hasSize(5);
+        assertThat(materializedRows).hasSize(8);
         assertThat(materializedRows)
                 .anySatisfy(row -> assertThat(row)
                         .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.delete.mode", deleteMode)))
@@ -268,7 +299,13 @@ public class TestIcebergSystemTables
                 .anySatisfy(row -> assertThat(row)
                         .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.parquet.compression-codec", "zstd")))
                 .anySatisfy(row -> assertThat(row)
-                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "commit.retry.num-retries", "4")));
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "commit.retry.num-retries", "4")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.previous-versions-max", "100")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.delete-after-commit.enabled", "false")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.metrics.max-inferred-column-defaults", "100")));
     }
 
     @Test
@@ -298,6 +335,26 @@ public class TestIcebergSystemTables
                 "This connector does not support add column with non null");
     }
 
+    @Test
+    public void testMetadataVersionsMaintainingProperties()
+    {
+        MaterializedResult materializedRows = getQueryRunner().execute("select * from  test_schema.\"test_metadata_versions_maintain$properties\"");
+        assertThat(materializedRows)
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.previous-versions-max", "1")))
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.delete-after-commit.enabled", "true")));
+    }
+
+    @Test
+    public void testMetricsMaxInferredColumnProperties()
+    {
+        MaterializedResult materializedRows = getQueryRunner().execute("select * from  test_schema.\"test_metrics_max_inferred_column$properties\"");
+        assertThat(materializedRows)
+                .anySatisfy(row -> assertThat(row)
+                        .isEqualTo(new MaterializedRow(MaterializedResult.DEFAULT_PRECISION, "write.metadata.metrics.max-inferred-column-defaults", "16")));
+    }
+
     @AfterClass(alwaysRun = true)
     public void tearDown()
     {
@@ -307,6 +364,8 @@ public class TestIcebergSystemTables
         assertUpdate("DROP TABLE IF EXISTS test_schema.test_table_multilevel_partitions");
         assertUpdate("DROP TABLE IF EXISTS test_schema.test_table_drop_column");
         assertUpdate("DROP TABLE IF EXISTS test_schema.test_table_add_column");
+        assertUpdate("DROP TABLE IF EXISTS test_schema.test_metadata_versions_maintain");
+        assertUpdate("DROP TABLE IF EXISTS test_schema.test_metrics_max_inferred_column");
         assertUpdate("DROP SCHEMA IF EXISTS test_schema");
     }
 }

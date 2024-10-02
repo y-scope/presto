@@ -2,9 +2,9 @@
 
 Presto is a distributed SQL query engine for big data.
 
-See the [Presto installation documentation](https://prestodb.github.io/docs/current/installation) for deployment instructions.
+See the [Presto installation documentation](https://prestodb.io/docs/current/installation.html) for deployment instructions.
 
-See the [Presto documentation](https://prestodb.github.io/docs/current/) for general documentation.
+See the [Presto documentation](https://prestodb.io/docs/current/) for general documentation.
 
 
 ## Mission and Architecture
@@ -122,7 +122,7 @@ resources will be hot-reloaded and changes are reflected on browser refresh.
 
 [Velox](https://github.com/facebookincubator/velox) is a C++ database library which provides reusable, extensible, and high-performance data processing components.
 
-Check out [building instructions](https://github.com/prestodb/presto/tree/master/presto-native-execution#building) to get started.
+Check out [building instructions](https://github.com/prestodb/presto/tree/master/presto-native-execution#build-from-source) to get started.
 
 
 <hr>

@@ -217,20 +217,13 @@ int64_t dateToInt64(
   return value.value<int32_t>();
 }
 
-double toDouble(
+template <typename T>
+T toFloatingPoint(
     const std::shared_ptr<protocol::Block>& block,
     const VeloxExprConverter& exprConverter,
     const TypePtr& type) {
   auto variant = exprConverter.getConstantValue(type, *block);
-  return variant.value<double>();
-}
-
-float toFloat(
-    const std::shared_ptr<protocol::Block>& block,
-    const VeloxExprConverter& exprConverter,
-    const TypePtr& type) {
-  auto variant = exprConverter.getConstantValue(type, *block);
-  return variant.value<float>();
+  return variant.value<T>();
 }
 
 std::string toString(
@@ -396,47 +389,54 @@ std::unique_ptr<common::Filter> boolRangeToFilter(
   VELOX_UNREACHABLE();
 }
 
-std::unique_ptr<common::DoubleRange> doubleRangeToFilter(
+template <typename T>
+std::unique_ptr<common::Filter> floatingPointRangeToFilter(
     const protocol::Range& range,
     bool nullAllowed,
     const VeloxExprConverter& exprConverter,
     const TypePtr& type) {
   bool lowExclusive = range.low.bound == protocol::Bound::ABOVE;
   bool lowUnbounded = range.low.valueBlock == nullptr && lowExclusive;
-  auto low = lowUnbounded ? std::numeric_limits<double>::lowest()
-                          : toDouble(range.low.valueBlock, exprConverter, type);
+  auto low = lowUnbounded
+      ? (-1.0 * std::numeric_limits<T>::infinity())
+      : toFloatingPoint<T>(range.low.valueBlock, exprConverter, type);
 
   bool highExclusive = range.high.bound == protocol::Bound::BELOW;
   bool highUnbounded = range.high.valueBlock == nullptr && highExclusive;
   auto high = highUnbounded
-      ? std::numeric_limits<double>::max()
-      : toDouble(range.high.valueBlock, exprConverter, type);
-  return std::make_unique<common::DoubleRange>(
-      low,
-      lowUnbounded,
-      lowExclusive,
-      high,
-      highUnbounded,
-      highExclusive,
-      nullAllowed);
-}
+      ? std::numeric_limits<T>::infinity()
+      : toFloatingPoint<T>(range.high.valueBlock, exprConverter, type);
 
-std::unique_ptr<common::FloatRange> floatRangeToFilter(
-    const protocol::Range& range,
-    bool nullAllowed,
-    const VeloxExprConverter& exprConverter,
-    const TypePtr& type) {
-  bool lowExclusive = range.low.bound == protocol::Bound::ABOVE;
-  bool lowUnbounded = range.low.valueBlock == nullptr && lowExclusive;
-  auto low = lowUnbounded ? std::numeric_limits<float>::lowest()
-                          : toFloat(range.low.valueBlock, exprConverter, type);
+  // Handle NaN cases as NaN is not supported as a limit in Velox Filters
+  if (!lowUnbounded && std::isnan(low)) {
+    if (lowExclusive) {
+      // x > NaN is always false as NaN is considered the largest value.
+      return std::make_unique<common::AlwaysFalse>();
+    }
+    // Equivalent to x > infinity as only NaN is greater than infinity
+    // Presto currently converts x >= NaN into the filter with domain
+    // [NaN, max), so ignoring the high value is fine.
+    low = std::numeric_limits<T>::infinity();
+    lowExclusive = true;
+    high = std::numeric_limits<T>::infinity();
+    highUnbounded = true;
+    highExclusive = false;
+  } else if (!highUnbounded && std::isnan(high)) {
+    high = std::numeric_limits<T>::infinity();
+    if (highExclusive) {
+      // equivalent to x in [low , infinity] or (low , infinity]
+      highExclusive = false;
+    } else {
+      if (lowUnbounded) {
+        // Anything <= NaN is true as NaN is the largest possible value.
+        return std::make_unique<common::AlwaysTrue>();
+      }
+      // Equivalent to x > low or x >=low
+      highUnbounded = true;
+    }
+  }
 
-  bool highExclusive = range.high.bound == protocol::Bound::BELOW;
-  bool highUnbounded = range.high.valueBlock == nullptr && highExclusive;
-  auto high = highUnbounded
-      ? std::numeric_limits<float>::max()
-      : toFloat(range.high.valueBlock, exprConverter, type);
-  return std::make_unique<common::FloatRange>(
+  return std::make_unique<common::FloatingPointRange<T>>(
       low,
       lowUnbounded,
       lowExclusive,
@@ -656,14 +656,16 @@ std::unique_ptr<common::Filter> toFilter(
     case TypeKind::HUGEINT:
       return hugeintRangeToFilter(range, nullAllowed, exprConverter, type);
     case TypeKind::DOUBLE:
-      return doubleRangeToFilter(range, nullAllowed, exprConverter, type);
+      return floatingPointRangeToFilter<double>(
+          range, nullAllowed, exprConverter, type);
     case TypeKind::VARCHAR:
     case TypeKind::VARBINARY:
       return varcharRangeToFilter(range, nullAllowed, exprConverter, type);
     case TypeKind::BOOLEAN:
       return boolRangeToFilter(range, nullAllowed, exprConverter, type);
     case TypeKind::REAL:
-      return floatRangeToFilter(range, nullAllowed, exprConverter, type);
+      return floatingPointRangeToFilter<float>(
+          range, nullAllowed, exprConverter, type);
     case TypeKind::TIMESTAMP:
       return timestampRangeToFilter(range, nullAllowed, exprConverter, type);
     default:
@@ -1110,13 +1112,15 @@ HivePrestoToVeloxConnector::toVeloxSplit(
   for (const auto& [key, value] : hiveSplit->storage.serdeParameters) {
     serdeParameters[key] = value;
   }
-  std::unordered_map<std::string, std::string> infoColumns;
-  infoColumns.reserve(2);
-  infoColumns.insert(
-      {"$file_size", std::to_string(hiveSplit->fileSplit.fileSize)});
-  infoColumns.insert(
+  std::unordered_map<std::string, std::string> infoColumns = {
+      {"$path", hiveSplit->fileSplit.path},
+      {"$file_size", std::to_string(hiveSplit->fileSplit.fileSize)},
       {"$file_modified_time",
-       std::to_string(hiveSplit->fileSplit.fileModifiedTime)});
+       std::to_string(hiveSplit->fileSplit.fileModifiedTime)},
+  };
+  if (hiveSplit->tableBucketNumber) {
+    infoColumns["$bucket"] = std::to_string(*hiveSplit->tableBucketNumber);
+  }
   auto veloxSplit =
       std::make_unique<velox::connector::hive::HiveConnectorSplit>(
           catalogId,
@@ -1355,6 +1359,12 @@ IcebergPrestoToVeloxConnector::toVeloxSplit(
     deletes.emplace_back(icebergDeleteFile);
   }
 
+  std::unordered_map<std::string, std::string> metadataColumns;
+  metadataColumns.reserve(1);
+  metadataColumns.insert(
+      {"$data_sequence_number",
+       std::to_string(icebergSplit->dataSequenceNumber)});
+
   return std::make_unique<connector::hive::iceberg::HiveIcebergSplit>(
       catalogId,
       icebergSplit->path,
@@ -1365,7 +1375,8 @@ IcebergPrestoToVeloxConnector::toVeloxSplit(
       std::nullopt,
       customSplitInfo,
       nullptr,
-      deletes);
+      deletes,
+      metadataColumns);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>

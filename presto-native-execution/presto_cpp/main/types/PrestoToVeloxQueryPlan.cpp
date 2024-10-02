@@ -606,6 +606,29 @@ core::PlanNodePtr VeloxQueryPlanConverterBase::toVeloxQueryPlan(
             left->outputType()));
   }
 
+  // For ScanFilter and ScanFilterProject, the planner sometimes put the
+  // remaining filter in a FilterNode after the TableScan.  We need to put it
+  // back to TableScan so that Velox can leverage it to do stripe level
+  // skipping.  Otherwise we only get row level skipping and lose some
+  // optimization opportunity in case of very low selectivity.
+  if (auto tableScan = std::dynamic_pointer_cast<const protocol::TableScanNode>(
+          node->source)) {
+    if (auto* tableLayout = dynamic_cast<protocol::HiveTableLayoutHandle*>(
+            tableScan->table.connectorTableLayout.get())) {
+      auto remainingFilter =
+          exprConverter_.toVeloxExpr(tableLayout->remainingPredicate);
+      if (auto* constant = dynamic_cast<const core::ConstantTypedExpr*>(
+              remainingFilter.get())) {
+        bool value = constant->value().value<bool>();
+        // We should get empty values node instead of table scan if the
+        // remaining filter is constantly false.
+        VELOX_CHECK(value, "Unexpected always-false remaining predicate");
+        tableLayout->remainingPredicate = node->predicate;
+        return toVeloxQueryPlan(tableScan, tableWriteInfo, taskId);
+      }
+    }
+  }
+
   return std::make_shared<core::FilterNode>(
       node->id,
       exprConverter_.toVeloxExpr(node->predicate),
@@ -1802,11 +1825,15 @@ core::PlanFragment VeloxQueryPlanConverterBase::toVeloxQueryPlan(
     // For constant channels create a base vector, add single value to it from
     // our variant and add it to the list of constant expressions.
     if (channel == kConstantChannel) {
-      constValues.emplace_back(
-          velox::BaseVector::create(expr->type(), 1, pool_));
       auto constExpr =
           std::dynamic_pointer_cast<const core::ConstantTypedExpr>(expr);
-      setCellFromVariant(constValues.back(), 0, constExpr->value());
+      if (constExpr->hasValueVector()) {
+        constValues.emplace_back(constExpr->valueVector());
+      } else {
+        constValues.emplace_back(
+            velox::BaseVector::create(expr->type(), 1, pool_));
+        setCellFromVariant(constValues.back(), 0, constExpr->value());
+      }
     }
   }
   auto outputType = toRowType(partitioningScheme.outputLayout, typeParser_);
