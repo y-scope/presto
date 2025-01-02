@@ -21,6 +21,9 @@ import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.github.luben.zstd.ZstdInputStream;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.yscope.presto.schema.SchemaNode;
@@ -43,6 +46,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -52,25 +60,35 @@ import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class ClpClient
 {
     private static final Logger log = Logger.get(ClpClient.class);
     private final ClpConfig config;
     private final Path executablePath;
-    private final Map<String, Set<ClpColumnHandle>> tableNameToColumnHandles;
+    private final LoadingCache<String, Set<ClpColumnHandle>> columnHandleCache;
+    private final LoadingCache<String, Set<String>> tableNameCache;
     private final Map<String, List<String>> tableNameToArchiveIds;
     private final Path decompressDir;
-    private Set<String> tableNames;
 
     @Inject
     public ClpClient(ClpConfig config)
     {
         this.config = requireNonNull(config, "config is null");
-        this.tableNameToColumnHandles = new HashMap<>();
         this.tableNameToArchiveIds = new HashMap<>();
         this.executablePath = getExecutablePath();
         this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
+
+        this.columnHandleCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
+                .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
+                .build(CacheLoader.from(this::loadTableSchema));
+
+        this.tableNameCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(1, SECONDS)  // TODO: Configure
+                .refreshAfterWrite(1, SECONDS)
+                .build(CacheLoader.from(this::loadTable));
     }
 
     @PostConstruct
@@ -154,34 +172,103 @@ public class ClpClient
         return executablePath;
     }
 
-    public Set<String> listTables()
+    public Set<ClpColumnHandle> loadTableSchema(String tableName)
     {
-        if (tableNames != null) {
-            return tableNames;
-        }
-        if (config.getClpArchiveDir() == null || config.getClpArchiveDir().isEmpty()) {
-            tableNames = ImmutableSet.of();
-            return tableNames;
-        }
-        Path archiveDir = Paths.get(config.getClpArchiveDir());
-        if (!Files.exists(archiveDir) || !Files.isDirectory(archiveDir)) {
-            tableNames = ImmutableSet.of();
-            return tableNames;
-        }
+        Connection connection = null;
+        LinkedHashSet<ClpColumnHandle> columnHandles = new LinkedHashSet<>();
+        try {
+            connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+            Statement statement = connection.createStatement();
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(archiveDir)) {
-            ImmutableSet.Builder<String> tableNames = ImmutableSet.builder();
-            for (Path path : stream) {
-                if (Files.isDirectory(path)) {
-                    tableNames.add(path.getFileName().toString());
+            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + tableName;
+            ResultSet resultSet = statement.executeQuery(query);
+
+            while (resultSet.next()) {
+                String columnName = resultSet.getString("name");
+                SchemaNode.NodeType columnType = SchemaNode.NodeType.fromType(resultSet.getByte("type"));
+                Type prestoType = null;
+                switch (columnType) {
+                    case Integer:
+                        prestoType = BigintType.BIGINT;
+                        break;
+                    case Float:
+                        prestoType = DoubleType.DOUBLE;
+                        break;
+                    case ClpString:
+                    case VarString:
+                    case DateString:
+                    case NullValue:
+                        prestoType = VarcharType.VARCHAR;
+                        break;
+                    case UnstructuredArray:
+                        prestoType = new ArrayType(VarcharType.VARCHAR);
+                        break;
+                    case Boolean:
+                        prestoType = BooleanType.BOOLEAN;
+                        break;
+                    default:
+                        break;
+                }
+                columnHandles.add(new ClpColumnHandle(columnName, prestoType, true));
+            }
+        }
+        catch (SQLException e) {
+            log.error(e, "Failed to connect to metadata database");
+            return ImmutableSet.of();
+        }
+        finally {
+            try {
+                if (connection != null) {
+                    connection.close();
                 }
             }
-            this.tableNames = tableNames.build();
+            catch (SQLException ex) {
+                log.warn(ex, "Failed to close metadata database connection");
+            }
         }
-        catch (Exception e) {
-            this.tableNames = ImmutableSet.of();
+        if (!config.isPolymorphicTypeEnabled()) {
+            return columnHandles;
         }
-        return this.tableNames;
+        return handlePolymorphicType(columnHandles);
+    }
+
+    public Set<String> loadTable(String tableName)
+    {
+        ImmutableSet.Builder<String> tableNames = ImmutableSet.builder();
+        Connection connection = null;
+        try {
+            connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+            Statement statement = connection.createStatement();
+
+            String query = "SHOW TABLES";
+            ResultSet resultSet = statement.executeQuery(query);
+
+            // Processing the results
+            String databaseName = config.getMetadataDbUrl().substring(config.getMetadataDbUrl().lastIndexOf('/') + 1);
+            while (resultSet.next()) {
+                tableNames.add(resultSet.getString("Tables_in_" + databaseName).substring(config.getMetadataTablePrefix().length()));
+            }
+        }
+        catch (SQLException e) {
+            log.error(e, "Failed to connect to metadata database");
+        }
+        finally {
+            // Closing the connection
+            try {
+                if (connection != null) {
+                    connection.close();
+                }
+            }
+            catch (SQLException ex) {
+                log.warn(ex, "Failed to close metadata database connection");
+            }
+        }
+        return tableNames.build();
+    }
+
+    public Set<String> listTables()
+    {
+        return tableNameCache.getUnchecked("default");
     }
 
     public List<String> listArchiveIds(String tableName)
@@ -212,43 +299,7 @@ public class ClpClient
 
     public Set<ClpColumnHandle> listColumns(String tableName)
     {
-        if (tableNameToColumnHandles.containsKey(tableName)) {
-            return tableNameToColumnHandles.get(tableName);
-        }
-
-        Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
-        LinkedHashSet<ClpColumnHandle> columnHandles = new LinkedHashSet<>();
-        if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
-            return ImmutableSet.of();
-        }
-
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tableDir)) {
-            for (Path path : stream) {
-                if (Files.isRegularFile(path)) {
-                    continue;
-                }
-
-                // For each directory, get schema_maps file under it
-                Path schemaMapsFile = path.resolve("schema_tree");
-                if (!Files.exists(schemaMapsFile) || !Files.isRegularFile(schemaMapsFile)) {
-                    continue;
-                }
-
-                columnHandles.addAll(parseSchemaTreeFile(schemaMapsFile));
-            }
-        }
-        catch (Exception e) {
-            tableNameToColumnHandles.put(tableName, ImmutableSet.of());
-            return ImmutableSet.of();
-        }
-
-        if (!config.isPolymorphicTypeEnabled()) {
-            tableNameToColumnHandles.put(tableName, columnHandles);
-            return columnHandles;
-        }
-        Set<ClpColumnHandle> polymorphicColumnHandles = handlePolymorphicType(columnHandles);
-        tableNameToColumnHandles.put(tableName, polymorphicColumnHandles);
-        return polymorphicColumnHandles;
+        return columnHandleCache.getUnchecked(tableName);
     }
 
     public ProcessBuilder getRecords(String tableName, String archiveId, Optional<String> query, List<String> columns)
