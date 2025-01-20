@@ -64,30 +64,37 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class ClpClient
 {
+    public static final String TableMetadataPrefix = "table_metadata_";
+    public static final String ArchiveTableSuffix = "archives";
     private static final Logger log = Logger.get(ClpClient.class);
     private final ClpConfig config;
+    private final ClpConfig.FileSource fileSource;
     private final Path executablePath;
+    private final Path decompressDir;
     private final LoadingCache<String, Set<ClpColumnHandle>> columnHandleCache;
     private final LoadingCache<String, Set<String>> tableNameCache;
-    private final Map<String, List<String>> tableNameToArchiveIds;
-    private final Path decompressDir;
 
     @Inject
     public ClpClient(ClpConfig config)
     {
         this.config = requireNonNull(config, "config is null");
-        this.tableNameToArchiveIds = new HashMap<>();
-        this.executablePath = getExecutablePath();
-        this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
-
+        this.fileSource = config.getFileSource();
+        if (fileSource == ClpConfig.FileSource.LOCAL) {
+            this.executablePath = getExecutablePath();
+            this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
+        }
+        else {
+            this.executablePath = null;
+            this.decompressDir = null;
+        }
         this.columnHandleCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
                 .build(CacheLoader.from(this::loadTableSchema));
 
         this.tableNameCache = CacheBuilder.newBuilder()
-                .expireAfterWrite(1, SECONDS)  // TODO: Configure
-                .refreshAfterWrite(1, SECONDS)
+                .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)  // TODO: Configure
+                .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
                 .build(CacheLoader.from(this::loadTable));
     }
 
@@ -180,7 +187,7 @@ public class ClpClient
             connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
-            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + tableName;
+            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + TableMetadataPrefix + tableName;
             ResultSet resultSet = statement.executeQuery(query);
 
             while (resultSet.next()) {
@@ -232,7 +239,7 @@ public class ClpClient
         return handlePolymorphicType(columnHandles);
     }
 
-    public Set<String> loadTable(String tableName)
+    public Set<String> loadTable(String schemaName)
     {
         ImmutableSet.Builder<String> tableNames = ImmutableSet.builder();
         Connection connection = null;
@@ -245,8 +252,12 @@ public class ClpClient
 
             // Processing the results
             String databaseName = config.getMetadataDbUrl().substring(config.getMetadataDbUrl().lastIndexOf('/') + 1);
+            String tableNamePrefix = config.getMetadataTablePrefix() + TableMetadataPrefix;
             while (resultSet.next()) {
-                tableNames.add(resultSet.getString("Tables_in_" + databaseName).substring(config.getMetadataTablePrefix().length()));
+                String tableName = resultSet.getString("Tables_in_" + databaseName);
+                if (tableName.startsWith(config.getMetadataTablePrefix()) && tableName.length() > tableNamePrefix.length()) {
+                    tableNames.add(tableName.substring(tableNamePrefix.length()));
+                }
             }
         }
         catch (SQLException e) {
@@ -273,27 +284,56 @@ public class ClpClient
 
     public List<String> listArchiveIds(String tableName)
     {
-        if (tableNameToArchiveIds.containsKey(tableName)) {
-            return tableNameToArchiveIds.get(tableName);
-        }
-        Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
-        if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
-            return ImmutableList.of();
-        }
+        if (fileSource == ClpConfig.FileSource.LOCAL) {
+            Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
+            if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
+                return ImmutableList.of();
+            }
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(tableDir)) {
-            ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
-            for (Path path : stream) {
-                if (Files.isDirectory(path)) {
-                    archiveIds.add(path.getFileName().toString());
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tableDir)) {
+                ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
+                for (Path path : stream) {
+                    if (Files.isDirectory(path)) {
+                        archiveIds.add(path.getFileName().toString());
+                    }
+                }
+                return archiveIds.build();
+            }
+            catch (Exception e) {
+                return ImmutableList.of();
+            }
+        }
+        else {
+            String bucketName = config.getS3Bucket();
+            Connection connection = null;
+            try {
+                connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+                Statement statement = connection.createStatement();
+
+                String query = "SELECT id FROM " + config.getMetadataTablePrefix() + ArchiveTableSuffix;
+                ResultSet resultSet = statement.executeQuery(query);
+
+                ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
+                while (resultSet.next()) {
+                    archiveIds.add(resultSet.getString("id"));
+                }
+                return archiveIds.build();
+            }
+            catch (SQLException e) {
+                log.error(e, "Failed to connect to metadata database");
+                return ImmutableList.of();
+            }
+            finally {
+                // Closing the connection
+                try {
+                    if (connection != null) {
+                        connection.close();
+                    }
+                }
+                catch (SQLException ex) {
+                    log.warn(ex, "Failed to close metadata database connection");
                 }
             }
-            List<String> archiveIdsList = archiveIds.build();
-            tableNameToArchiveIds.put(tableName, archiveIdsList);
-            return archiveIdsList;
-        }
-        catch (Exception e) {
-            return ImmutableList.of();
         }
     }
 
@@ -308,33 +348,15 @@ public class ClpClient
             return null;
         }
 
-        if (query.isPresent()) {
-            return searchTable(tableName, archiveId, query.get(), columns);
-        }
-        else {
-            return searchTable(tableName, archiveId, "*", columns);
-        }
-//        else {
-//            Path decompressFile = decompressDir.resolve(tableName).resolve("original");
-//            if (!Files.exists(decompressFile) || !Files.isRegularFile(decompressFile)) {
-//                if (!decompressRecords(tableName)) {
-//                    return null;
-//                }
-//                log.info("Decompress records to %s", decompressFile.toString());
-//            }
-//
-//            try {
-//                return Files.newBufferedReader(decompressFile);
-//            }
-//            catch (IOException e) {
-//                log.error(e, "Failed to get records for table %s", tableName);
-//                return null;
-//            }
-//        }
+        return query.map(s -> searchTable(tableName, archiveId, s, columns))
+                .orElseGet(() -> searchTable(tableName, archiveId, "*", columns));
     }
 
     private ProcessBuilder searchTable(String tableName, String archiveId, String query, List<String> columns)
     {
+        if (fileSource == ClpConfig.FileSource.S3) {
+            throw new RuntimeException("Cannot handle S3 source");
+        }
         Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
         List<String> argumentList = new ArrayList<>();
         argumentList.add(executablePath.toString());
@@ -353,6 +375,9 @@ public class ClpClient
 
     private boolean decompressRecords(String tableName)
     {
+        if (fileSource == ClpConfig.FileSource.S3) {
+            throw new RuntimeException("Cannot handle S3 source");
+        }
         Path tableDecompressDir = decompressDir.resolve(tableName);
         Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
 

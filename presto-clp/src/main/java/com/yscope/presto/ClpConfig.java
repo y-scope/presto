@@ -17,8 +17,12 @@ import com.facebook.airlift.configuration.Config;
 
 public class ClpConfig
 {
-    private String clpExecutablePath;
-    private String clpArchiveDir;
+    public enum FileSource
+    {
+        LOCAL,
+        S3
+    }
+
     private boolean polymorphicTypeEnabled;
     private String metadataDbUrl;
     private String metadataDbUser;
@@ -26,37 +30,18 @@ public class ClpConfig
     private String metadataTablePrefix;
     private long metadataRefreshInterval;
     private long metadataExpireInterval;
-
-    public String getClpExecutablePath()
-    {
-        return clpExecutablePath;
-    }
-
-    @Config("executable-path")
-    public ClpConfig setClpExecutablePath(String clpExecutablePath)
-    {
-        this.clpExecutablePath = clpExecutablePath;
-        return this;
-    }
-
-    public String getClpArchiveDir()
-    {
-        return clpArchiveDir;
-    }
-
-    @Config("archive-dir")
-    public ClpConfig setClpArchiveDir(String clpArchiveDir)
-    {
-        this.clpArchiveDir = clpArchiveDir;
-        return this;
-    }
+    private FileSource fileSource = FileSource.LOCAL;
+    private String clpExecutablePath;
+    private String clpArchiveDir;
+    private String s3Bucket;
+    private String s3KeyPrefix;
 
     public boolean isPolymorphicTypeEnabled()
     {
         return polymorphicTypeEnabled;
     }
 
-    @Config("polymorphic-type-enabled")
+    @Config("clp.polymorphic-type-enabled")
     public ClpConfig setPolymorphicTypeEnabled(boolean polymorphicTypeEnabled)
     {
         this.polymorphicTypeEnabled = polymorphicTypeEnabled;
@@ -68,7 +53,7 @@ public class ClpConfig
         return metadataDbUrl;
     }
 
-    @Config("metadata-db-url")
+    @Config("clp.metadata-db-url")
     public ClpConfig setMetadataDbUrl(String metadataDbUrl)
     {
         this.metadataDbUrl = metadataDbUrl;
@@ -80,7 +65,7 @@ public class ClpConfig
         return metadataDbUser;
     }
 
-    @Config("metadata-db-user")
+    @Config("clp.metadata-db-user")
     public ClpConfig setMetadataDbUser(String metadataDbUser)
     {
         this.metadataDbUser = metadataDbUser;
@@ -92,7 +77,7 @@ public class ClpConfig
         return metadataDbPassword;
     }
 
-    @Config("metadata-db-password")
+    @Config("clp.metadata-db-password")
     public ClpConfig setMetadataDbPassword(String metadataDbPassword)
     {
         this.metadataDbPassword = metadataDbPassword;
@@ -104,7 +89,7 @@ public class ClpConfig
         return metadataTablePrefix;
     }
 
-    @Config("metadata-table-prefix")
+    @Config("clp.metadata-table-prefix")
     public ClpConfig setMetadataTablePrefix(String metadataTablePrefix)
     {
         this.metadataTablePrefix = metadataTablePrefix;
@@ -116,7 +101,7 @@ public class ClpConfig
         return metadataRefreshInterval;
     }
 
-    @Config("metadata-refresh-interval")
+    @Config("clp.metadata-refresh-interval")
     public ClpConfig setMetadataRefreshInterval(long metadataRefreshInterval)
     {
         this.metadataRefreshInterval = metadataRefreshInterval;
@@ -128,10 +113,70 @@ public class ClpConfig
         return metadataExpireInterval;
     }
 
-    @Config("metadata-expire-interval")
+    @Config("clp.metadata-expire-interval")
     public ClpConfig setMetadataExpireInterval(long metadataExpireInterval)
     {
         this.metadataExpireInterval = metadataExpireInterval;
+        return this;
+    }
+
+    public FileSource getFileSource()
+    {
+        return fileSource;
+    }
+
+    @Config("clp.file-source")
+    public ClpConfig setFileSource(FileSource fileSource)
+    {
+        this.fileSource = fileSource;
+        return this;
+    }
+
+    public String getClpExecutablePath()
+    {
+        return clpExecutablePath;
+    }
+
+    @Config("clp.executable-path")
+    public ClpConfig setClpExecutablePath(String clpExecutablePath)
+    {
+        this.clpExecutablePath = clpExecutablePath;
+        return this;
+    }
+
+    public String getClpArchiveDir()
+    {
+        return clpArchiveDir;
+    }
+
+    @Config("clp.archive-dir")
+    public ClpConfig setClpArchiveDir(String clpArchiveDir)
+    {
+        this.clpArchiveDir = clpArchiveDir;
+        return this;
+    }
+
+    public String getS3Bucket()
+    {
+        return s3Bucket;
+    }
+
+    @Config("clp.s3-bucket")
+    public ClpConfig setS3Bucket(String s3Bucket)
+    {
+        this.s3Bucket = s3Bucket;
+        return this;
+    }
+
+    public String getS3KeyPrefix()
+    {
+        return s3KeyPrefix;
+    }
+
+    @Config("clp.s3-key-prefix")
+    public ClpConfig setS3KeyPrefix(String s3KeyPrefix)
+    {
+        this.s3KeyPrefix = s3KeyPrefix;
         return this;
     }
 }
