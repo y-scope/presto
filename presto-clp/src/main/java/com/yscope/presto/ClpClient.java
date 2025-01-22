@@ -64,8 +64,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class ClpClient
 {
-    public static final String TableMetadataPrefix = "table_metadata_";
-    public static final String ArchiveTableSuffix = "archives";
+    public static final String columnMetadataPrefix = "column_metadata_";
+    public static final String archiveTableSuffix = "archives";
     private static final Logger log = Logger.get(ClpClient.class);
     private final ClpConfig config;
     private final ClpConfig.FileSource fileSource;
@@ -187,7 +187,7 @@ public class ClpClient
             connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
-            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + TableMetadataPrefix + tableName;
+            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + columnMetadataPrefix + tableName;
             ResultSet resultSet = statement.executeQuery(query);
 
             while (resultSet.next()) {
@@ -252,7 +252,7 @@ public class ClpClient
 
             // Processing the results
             String databaseName = config.getMetadataDbUrl().substring(config.getMetadataDbUrl().lastIndexOf('/') + 1);
-            String tableNamePrefix = config.getMetadataTablePrefix() + TableMetadataPrefix;
+            String tableNamePrefix = config.getMetadataTablePrefix() + columnMetadataPrefix;
             while (resultSet.next()) {
                 String tableName = resultSet.getString("Tables_in_" + databaseName);
                 if (tableName.startsWith(config.getMetadataTablePrefix()) && tableName.length() > tableNamePrefix.length()) {
@@ -310,7 +310,7 @@ public class ClpClient
                 connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
                 Statement statement = connection.createStatement();
 
-                String query = "SELECT id FROM " + config.getMetadataTablePrefix() + ArchiveTableSuffix;
+                String query = "SELECT id FROM " + config.getMetadataTablePrefix() + archiveTableSuffix;
                 ResultSet resultSet = statement.executeQuery(query);
 
                 ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
