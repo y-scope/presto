@@ -95,7 +95,7 @@ public class ClpClient
                 .build(CacheLoader.from(this::loadTableSchema));
 
         this.tableNameCache = CacheBuilder.newBuilder()
-                .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)  // TODO: Configure
+                .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
                 .build(CacheLoader.from(this::loadTable));
     }

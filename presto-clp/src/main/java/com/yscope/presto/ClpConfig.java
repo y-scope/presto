@@ -23,15 +23,15 @@ public class ClpConfig
         S3
     }
 
-    private boolean polymorphicTypeEnabled;
+    private boolean polymorphicTypeEnabled = true;
     private String metadataDbHost;
     private String metadataDbPort;
     private String metadataDbName;
     private String metadataDbUser;
     private String metadataDbPassword;
     private String metadataTablePrefix;
-    private long metadataRefreshInterval;
-    private long metadataExpireInterval;
+    private long metadataRefreshInterval = 60;
+    private long metadataExpireInterval = 600;
     private InputSource inputSource = InputSource.LOCAL;
     private String clpExecutablePath;
     private String clpArchiveDir;
@@ -151,7 +151,7 @@ public class ClpConfig
         return inputSource;
     }
 
-    @Config("clp.file-source")
+    @Config("clp.input-source")
     public ClpConfig setInputSource(InputSource inputSource)
     {
         this.inputSource = inputSource;
