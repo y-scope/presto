@@ -69,7 +69,7 @@ public class ClpClient
     private static final Logger log = Logger.get(ClpClient.class);
     private final ClpConfig config;
     private final String metadataDbUrl;
-    private final ClpConfig.FileSource fileSource;
+    private final ClpConfig.InputSource inputSource;
     private final Path executablePath;
     private final Path decompressDir;
     private final LoadingCache<String, Set<ClpColumnHandle>> columnHandleCache;
@@ -80,8 +80,8 @@ public class ClpClient
     {
         this.config = requireNonNull(config, "config is null");
         this.metadataDbUrl = "jdbc:mysql://" + config.getMetadataDbHost() + ":" + config.getMetadataDbPort() + "/" + config.getMetadataDbName();
-        this.fileSource = config.getFileSource();
-        if (fileSource == ClpConfig.FileSource.LOCAL) {
+        this.inputSource = config.getInputSource();
+        if (inputSource == ClpConfig.InputSource.LOCAL) {
             this.executablePath = getExecutablePath();
             this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
         }
@@ -286,7 +286,7 @@ public class ClpClient
 
     public List<String> listArchiveIds(String tableName)
     {
-        if (fileSource == ClpConfig.FileSource.LOCAL) {
+        if (inputSource == ClpConfig.InputSource.LOCAL) {
             Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
             if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
                 return ImmutableList.of();
@@ -356,7 +356,7 @@ public class ClpClient
 
     private ProcessBuilder searchTable(String tableName, String archiveId, String query, List<String> columns)
     {
-        if (fileSource == ClpConfig.FileSource.S3) {
+        if (inputSource == ClpConfig.InputSource.S3) {
             throw new RuntimeException("Cannot handle S3 source");
         }
         Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
@@ -377,7 +377,7 @@ public class ClpClient
 
     private boolean decompressRecords(String tableName)
     {
-        if (fileSource == ClpConfig.FileSource.S3) {
+        if (inputSource == ClpConfig.InputSource.S3) {
             throw new RuntimeException("Cannot handle S3 source");
         }
         Path tableDecompressDir = decompressDir.resolve(tableName);

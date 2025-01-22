@@ -17,7 +17,7 @@ import com.facebook.airlift.configuration.Config;
 
 public class ClpConfig
 {
-    public enum FileSource
+    public enum InputSource
     {
         LOCAL,
         S3
@@ -32,7 +32,7 @@ public class ClpConfig
     private String metadataTablePrefix;
     private long metadataRefreshInterval;
     private long metadataExpireInterval;
-    private FileSource fileSource = FileSource.LOCAL;
+    private InputSource inputSource = InputSource.LOCAL;
     private String clpExecutablePath;
     private String clpArchiveDir;
     private String s3Bucket;
@@ -146,15 +146,15 @@ public class ClpConfig
         return this;
     }
 
-    public FileSource getFileSource()
+    public InputSource getInputSource()
     {
-        return fileSource;
+        return inputSource;
     }
 
     @Config("clp.file-source")
-    public ClpConfig setFileSource(FileSource fileSource)
+    public ClpConfig setInputSource(InputSource inputSource)
     {
-        this.fileSource = fileSource;
+        this.inputSource = inputSource;
         return this;
     }
 
