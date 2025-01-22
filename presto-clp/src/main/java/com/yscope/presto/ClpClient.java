@@ -68,6 +68,7 @@ public class ClpClient
     public static final String archiveTableSuffix = "archives";
     private static final Logger log = Logger.get(ClpClient.class);
     private final ClpConfig config;
+    private final String metadataDbUrl;
     private final ClpConfig.FileSource fileSource;
     private final Path executablePath;
     private final Path decompressDir;
@@ -78,6 +79,7 @@ public class ClpClient
     public ClpClient(ClpConfig config)
     {
         this.config = requireNonNull(config, "config is null");
+        this.metadataDbUrl = "jdbc:mysql://" + config.getMetadataDbHost() + ":" + config.getMetadataDbPort() + "/" + config.getMetadataDbName();
         this.fileSource = config.getFileSource();
         if (fileSource == ClpConfig.FileSource.LOCAL) {
             this.executablePath = getExecutablePath();
@@ -184,7 +186,7 @@ public class ClpClient
         Connection connection = null;
         LinkedHashSet<ClpColumnHandle> columnHandles = new LinkedHashSet<>();
         try {
-            connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+            connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
             String query = "SELECT * FROM" + config.getMetadataTablePrefix() + columnMetadataPrefix + tableName;
@@ -244,14 +246,14 @@ public class ClpClient
         ImmutableSet.Builder<String> tableNames = ImmutableSet.builder();
         Connection connection = null;
         try {
-            connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+            connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
             String query = "SHOW TABLES";
             ResultSet resultSet = statement.executeQuery(query);
 
             // Processing the results
-            String databaseName = config.getMetadataDbUrl().substring(config.getMetadataDbUrl().lastIndexOf('/') + 1);
+            String databaseName = config.getMetadataDbName();
             String tableNamePrefix = config.getMetadataTablePrefix() + columnMetadataPrefix;
             while (resultSet.next()) {
                 String tableName = resultSet.getString("Tables_in_" + databaseName);
@@ -307,7 +309,7 @@ public class ClpClient
             String bucketName = config.getS3Bucket();
             Connection connection = null;
             try {
-                connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+                connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
                 Statement statement = connection.createStatement();
 
                 String query = "SELECT id FROM " + config.getMetadataTablePrefix() + archiveTableSuffix;

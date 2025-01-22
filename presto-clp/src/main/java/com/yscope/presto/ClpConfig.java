@@ -24,7 +24,9 @@ public class ClpConfig
     }
 
     private boolean polymorphicTypeEnabled;
-    private String metadataDbUrl;
+    private String metadataDbHost;
+    private String metadataDbPort;
+    private String metadataDbName;
     private String metadataDbUser;
     private String metadataDbPassword;
     private String metadataTablePrefix;
@@ -48,15 +50,39 @@ public class ClpConfig
         return this;
     }
 
-    public String getMetadataDbUrl()
+    public String getMetadataDbHost()
     {
-        return metadataDbUrl;
+        return metadataDbHost;
     }
 
-    @Config("clp.metadata-db-url")
-    public ClpConfig setMetadataDbUrl(String metadataDbUrl)
+    @Config("clp.metadata-db-host")
+    public ClpConfig setMetadataDbHost(String metadataDbHost)
     {
-        this.metadataDbUrl = metadataDbUrl;
+        this.metadataDbHost = metadataDbHost;
+        return this;
+    }
+
+    public String getMetadataDbPort()
+    {
+        return metadataDbPort;
+    }
+
+    @Config("clp.metadata-db-port")
+    public ClpConfig setMetadataDbPort(String metadataDbPort)
+    {
+        this.metadataDbPort = metadataDbPort;
+        return this;
+    }
+
+    public String getMetadataDbName()
+    {
+        return metadataDbName;
+    }
+
+    @Config("clp.metadata-db-name")
+    public ClpConfig setMetadataDbName(String metadataDbName)
+    {
+        this.metadataDbName = metadataDbName;
         return this;
     }
 
