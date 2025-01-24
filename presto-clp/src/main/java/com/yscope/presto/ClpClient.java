@@ -80,6 +80,12 @@ public class ClpClient
     {
         this.config = requireNonNull(config, "config is null");
         this.metadataDbUrl = "jdbc:mysql://" + config.getMetadataDbHost() + ":" + config.getMetadataDbPort() + "/" + config.getMetadataDbName();
+        try {
+            Class.forName("com.mysql.jdbc.Driver");
+        }
+        catch (ClassNotFoundException e) {
+            log.error(e, "Failed to load MySQL JDBC driver");
+        }
         this.inputSource = config.getInputSource();
         if (inputSource == ClpConfig.InputSource.LOCAL) {
             this.executablePath = getExecutablePath();
@@ -104,7 +110,9 @@ public class ClpClient
     public void start()
     {
         try {
-            Files.createDirectories(decompressDir);
+            if (inputSource == ClpConfig.InputSource.LOCAL) {
+                Files.createDirectories(decompressDir);
+            }
         }
         catch (IOException e) {
             log.error(e, "Failed to create decompression directory");
@@ -115,27 +123,29 @@ public class ClpClient
     public void close()
     {
         try {
-            Files.walkFileTree(decompressDir, new SimpleFileVisitor<Path>()
-            {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException
+            if (inputSource == ClpConfig.InputSource.LOCAL) {
+                Files.walkFileTree(decompressDir, new SimpleFileVisitor<Path>()
                 {
-                    Files.delete(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException
-                {
-                    if (exc == null) {
-                        Files.delete(dir);
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException
+                    {
+                        Files.delete(file);
                         return FileVisitResult.CONTINUE;
                     }
-                    else {
-                        throw exc; // Directory iteration failed
+
+                    @Override
+                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException
+                    {
+                        if (exc == null) {
+                            Files.delete(dir);
+                            return FileVisitResult.CONTINUE;
+                        }
+                        else {
+                            throw exc; // Directory iteration failed
+                        }
                     }
-                }
-            });
+                });
+            }
         }
         catch (IOException e) {
             log.error(e, "Failed to delete decompression directory");
@@ -189,7 +199,7 @@ public class ClpClient
             connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
-            String query = "SELECT * FROM" + config.getMetadataTablePrefix() + columnMetadataPrefix + tableName;
+            String query = "SELECT * FROM " + config.getMetadataTablePrefix() + columnMetadataPrefix + tableName;
             ResultSet resultSet = statement.executeQuery(query);
 
             while (resultSet.next()) {
