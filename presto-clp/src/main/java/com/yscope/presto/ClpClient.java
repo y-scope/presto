@@ -409,64 +409,6 @@ public class ClpClient
         }
     }
 
-    private Set<ClpColumnHandle> parseSchemaTreeFile(Path schemaMapsFile)
-    {
-        SchemaTree schemaTree = new SchemaTree();
-        try (InputStream fileInputStream = Files.newInputStream(schemaMapsFile);
-                ZstdInputStream zstdInputStream = new ZstdInputStream(fileInputStream);
-                DataInputStream dataInputStream = new DataInputStream(zstdInputStream)) {
-            byte[] longBytes = new byte[8];
-            byte[] intBytes = new byte[4];
-            dataInputStream.readFully(longBytes);
-            long numberOfNodes = ByteBuffer.wrap(longBytes).order(ByteOrder.nativeOrder()).getLong();
-            for (int i = 0; i < numberOfNodes; i++) {
-                dataInputStream.readFully(intBytes);
-                int parentId = ByteBuffer.wrap(intBytes).order(ByteOrder.nativeOrder()).getInt();
-                dataInputStream.readFully(longBytes);
-                long stringSize = ByteBuffer.wrap(longBytes).order(ByteOrder.nativeOrder()).getLong();
-                byte[] stringBytes = new byte[(int) stringSize];
-                dataInputStream.readFully(stringBytes);
-                String name = new String(stringBytes, StandardCharsets.UTF_8);
-                SchemaNode.NodeType type = SchemaNode.NodeType.fromType(dataInputStream.readByte());
-                schemaTree.addNode(parentId, name, type);
-            }
-
-            ArrayList<SchemaNode.NodeTuple> primitiveTypeFields = schemaTree.getPrimitiveFields();
-            LinkedHashSet<ClpColumnHandle> columnHandles = new LinkedHashSet<>();
-            for (SchemaNode.NodeTuple nodeTuple : primitiveTypeFields) {
-                SchemaNode.NodeType nodeType = nodeTuple.getType();
-                Type prestoType = null;
-                switch (nodeType) {
-                    case Integer:
-                        prestoType = BigintType.BIGINT;
-                        break;
-                    case Float:
-                        prestoType = DoubleType.DOUBLE;
-                        break;
-                    case ClpString:
-                    case VarString:
-                    case DateString:
-                    case NullValue:
-                        prestoType = VarcharType.VARCHAR;
-                        break;
-                    case UnstructuredArray:
-                        prestoType = new ArrayType(VarcharType.VARCHAR);
-                        break;
-                    case Boolean:
-                        prestoType = BooleanType.BOOLEAN;
-                        break;
-                    default:
-                        break;
-                }
-                columnHandles.add(new ClpColumnHandle(nodeTuple.getName(), prestoType, true));
-            }
-            return columnHandles;
-        }
-        catch (IOException e) {
-            return ImmutableSet.of();
-        }
-    }
-
     private Set<ClpColumnHandle> handlePolymorphicType(Set<ClpColumnHandle> columnHandles)
     {
         Map<String, List<ClpColumnHandle>> columnNameToColumnHandles = new HashMap<>();
