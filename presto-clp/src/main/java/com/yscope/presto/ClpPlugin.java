@@ -20,16 +20,9 @@ import com.google.common.collect.ImmutableList;
 public class ClpPlugin
         implements Plugin
 {
-    private final ConnectorFactory connectorFactory;
-
-    public ClpPlugin()
-    {
-        connectorFactory = new ClpConnectorFactory();
-    }
-
     @Override
     public Iterable<ConnectorFactory> getConnectorFactories()
     {
-        return ImmutableList.of(connectorFactory);
+        return ImmutableList.of(new ClpConnectorFactory());
     }
 }
