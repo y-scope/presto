@@ -15,16 +15,13 @@ package com.yscope.presto;
 
 import com.facebook.airlift.bootstrap.LifeCycleManager;
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.spi.connector.Connector;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
-import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
-import com.facebook.presto.spi.relation.RowExpressionService;
 import com.facebook.presto.spi.transaction.IsolationLevel;
 
 import javax.inject.Inject;
@@ -39,36 +36,27 @@ public class ClpConnector
     private final LifeCycleManager lifeCycleManager;
     private final ClpMetadata metadata;
     private final ClpSplitManager splitManager;
-    private final ClpRecordSetProvider recordSetProvider;
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final RowExpressionService rowExpressionService;
-    private final TypeManager typeManager;
 
     @Inject
     public ClpConnector(LifeCycleManager lifeCycleManager,
                         ClpMetadata metadata,
                         ClpSplitManager splitManager,
-                        ClpRecordSetProvider recordSetProvider,
                         FunctionMetadataManager functionManager,
-                        StandardFunctionResolution functionResolution,
-                        RowExpressionService rowExpressionService,
-                        TypeManager typeManager)
+                        StandardFunctionResolution functionResolution)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.splitManager = requireNonNull(splitManager, "splitManager is null");
-        this.recordSetProvider = requireNonNull(recordSetProvider, "recordSetProvider is null");
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.rowExpressionService = requireNonNull(rowExpressionService, "rowExpressionService is null");
-        this.typeManager = requireNonNull(typeManager, "typeManager is null");
     }
 
     @Override
     public ConnectorPlanOptimizerProvider getConnectorPlanOptimizerProvider()
     {
-        return new ClpPlanOptimizerProvider(functionManager, functionResolution, typeManager);
+        return new ClpPlanOptimizerProvider(functionManager, functionResolution);
     }
 
     @Override
@@ -87,12 +75,6 @@ public class ClpConnector
     public ConnectorSplitManager getSplitManager()
     {
         return splitManager;
-    }
-
-    @Override
-    public ConnectorRecordSetProvider getRecordSetProvider()
-    {
-        return recordSetProvider;
     }
 
     @Override

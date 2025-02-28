@@ -16,6 +16,7 @@ package com.yscope.presto;
 import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
@@ -31,7 +32,10 @@ import java.util.Optional;
 
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.function.OperatorType.GREATER_THAN;
+import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.CastType.CAST;
 import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
@@ -43,8 +47,59 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
-public class TestClpFilterToKqlConverter
+public class TestClpPlanOptimizer
 {
+    private static ConnectorId druidConnectorId = new ConnectorId("id");
+    private static ClpTableHandle realtimeOnlyTable = new ClpTableHandle("schema", "realtimeOnly", Optional.empty());
+    private static ClpTableHandle hybridTable = new ClpTableHandle("schema", "hybrid", Optional.empty());
+    private static ClpColumnHandle regionId = new ClpColumnHandle("region.Id", BIGINT, REGULAR);
+    private static ClpColumnHandle city = new ClpColumnHandle("city", VARCHAR, REGULAR);
+    private static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE, REGULAR);
+    private static final ClpColumnHandle secondsSinceEpoch = new ClpColumnHandle("secondsSinceEpoch", BIGINT, REGULAR);
+    private static final ClpColumnHandle datetime = new ClpColumnHandle("datetime", TIMESTAMP, REGULAR);
+    
+    @Test
+    public void testStringMatchPushdown() {
+
+    }
+
+    @Test
+    public void testNumericComparisonPushdown() {
+
+    }
+
+    @Test
+    public void testOrPushdown() {
+
+    }
+
+    @Test
+    public void testAndPushdown() {
+
+    }
+
+    @Test
+    public void testNotPushdown() {
+
+    }
+
+    @Test
+    public void testInPushdown() {
+
+    }
+
+    @Test
+    public void testComplexPushdown() {
+
+    }
+
+
+
+
+
+
+
+
     @Test
     public void testSqlToKqlConverter()
     {
@@ -102,7 +157,6 @@ public class TestClpFilterToKqlConverter
         ClpExpression clpExpression =
                 andExpression.accept(new ClpFilterToKqlConverter(
                                 new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver()),
-                                functionAndTypeManager,
                                 functionAndTypeManager,
                                 assignments),
                         null);

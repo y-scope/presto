@@ -13,7 +13,6 @@
  */
 package com.yscope.presto;
 
-import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -29,16 +28,13 @@ public class ClpPlanOptimizerProvider
 {
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final TypeManager typeManager;
 
     @Inject
     public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager,
-                                    StandardFunctionResolution functionResolution,
-                                    TypeManager typeManager)
+                                    StandardFunctionResolution functionResolution)
     {
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
-        this.typeManager = typeManager;
     }
 
     @Override
@@ -50,6 +46,6 @@ public class ClpPlanOptimizerProvider
     @Override
     public Set<ConnectorPlanOptimizer> getPhysicalPlanOptimizers()
     {
-        return ImmutableSet.of(new ClpPlanOptimizer(functionManager, functionResolution, typeManager));
+        return ImmutableSet.of(new ClpPlanOptimizer(functionManager, functionResolution));
     }
 }

@@ -34,11 +34,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+
+import static java.util.Objects.requireNonNull;
 
 public class ClpMetadata
         implements ConnectorMetadata
 {
     private final ClpClient clpClient;
+    private static final String DEFAULT_SCHEMA_NAME = "default";
 
     @Inject
     public ClpMetadata(ClpClient clpClient)
@@ -49,29 +53,35 @@ public class ClpMetadata
     @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
-        return ImmutableList.of("default");
+        return ImmutableList.of(DEFAULT_SCHEMA_NAME);
     }
 
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
     {
-        return clpClient.listTables().stream()
-                .map(tableName -> new SchemaTableName("default", tableName))
+        String schemaNameValue = schemaName.orElse(DEFAULT_SCHEMA_NAME);
+        if (!listSchemaNames(session).contains(schemaNameValue)) {
+            return ImmutableList.of();
+        }
+
+        return clpClient.listTables(schemaNameValue).stream()
+                .map(tableName -> new SchemaTableName(schemaNameValue, tableName))
                 .collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
     {
-        if (!listSchemaNames(session).contains(tableName.getSchemaName())) {
+        String schemaName = tableName.getSchemaName();
+        if (!listSchemaNames(session).contains(schemaName)) {
             return null;
         }
 
-        if (!clpClient.listTables().contains(tableName.getTableName())) {
+        if (!clpClient.listTables(schemaName).contains(tableName.getTableName())) {
             return null;
         }
 
-        return new ClpTableHandle(tableName.getTableName());
+        return new ClpTableHandle(tableName);
     }
 
     @Override
@@ -95,30 +105,44 @@ public class ClpMetadata
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
     {
         ClpTableHandle clpTableHandle = (ClpTableHandle) table;
-        String tableName = clpTableHandle.getTableName();
-        List<ColumnMetadata> columns = clpClient.listColumns(tableName).stream()
+        SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+        List<ColumnMetadata> columns = clpClient.listColumns(schemaTableName).stream()
                 .map(ClpColumnHandle::getColumnMetadata)
                 .collect(ImmutableList.toImmutableList());
 
-        return new ConnectorTableMetadata(new SchemaTableName("default", tableName), columns);
+        return new ConnectorTableMetadata(schemaTableName, columns);
     }
 
     @Override
     public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session,
                                                                        SchemaTablePrefix prefix)
     {
-        return clpClient.listTables().stream()
+        requireNonNull(prefix, "prefix is null");
+        String schemaName = prefix.getSchemaName();
+        if (schemaName != null && !schemaName.equals(DEFAULT_SCHEMA_NAME)) {
+            return ImmutableMap.of();
+        }
+
+        List<SchemaTableName> schemaTableNames;
+        if (prefix.getTableName() == null) {
+            schemaTableNames = listTables(session, Optional.of(prefix.getSchemaName()));
+        }
+        else {
+            schemaTableNames = ImmutableList.of(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()));
+        }
+
+        return schemaTableNames.stream()
                 .collect(ImmutableMap.toImmutableMap(
-                        tableName -> new SchemaTableName("default", tableName),
-                        tableName -> getTableMetadata(session,
-                                new ClpTableHandle(tableName)).getColumns()));
+                        Function.identity(),
+                        tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()
+                ));
     }
 
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle;
-        return clpClient.listColumns(clpTableHandle.getTableName()).stream()
+        return clpClient.listColumns(clpTableHandle.getSchemaTableName()).stream()
                 .collect(ImmutableMap.toImmutableMap(
                         ClpColumnHandle::getColumnName,
                         column -> column));

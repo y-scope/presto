@@ -14,6 +14,7 @@
 package com.yscope.presto;
 
 import com.facebook.presto.spi.ConnectorTableHandle;
+import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -22,24 +23,24 @@ import java.util.Objects;
 public class ClpTableHandle
         implements ConnectorTableHandle
 {
-    private final String tableName;
+    private final SchemaTableName schemaTableName;
 
     @JsonCreator
-    public ClpTableHandle(@JsonProperty("tableName") String tableName)
+    public ClpTableHandle(@JsonProperty("schemaTableName") SchemaTableName schemaTableName)
     {
-        this.tableName = tableName;
+        this.schemaTableName = schemaTableName;
     }
 
     @JsonProperty
-    public String getTableName()
+    public SchemaTableName getSchemaTableName()
     {
-        return tableName;
+        return schemaTableName;
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(tableName);
+        return Objects.hash(schemaTableName);
     }
 
     @Override
@@ -52,12 +53,12 @@ public class ClpTableHandle
             return false;
         }
         ClpTableHandle other = (ClpTableHandle) obj;
-        return this.tableName.equals(other.tableName);
+        return this.schemaTableName.equals(other.schemaTableName);
     }
 
     @Override
     public String toString()
     {
-        return tableName;
+        return schemaTableName.toString();
     }
 }

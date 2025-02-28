@@ -15,7 +15,6 @@ package com.yscope.presto;
 
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
@@ -49,18 +48,15 @@ public class ClpFilterToKqlConverter
 
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
-    private final TypeManager typeManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
 
     public ClpFilterToKqlConverter(StandardFunctionResolution standardFunctionResolution,
                                    FunctionMetadataManager functionMetadataManager,
-                                   TypeManager typeManager,
                                    Map<VariableReferenceExpression, ColumnHandle> assignments)
     {
         this.standardFunctionResolution =
                 requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
-        this.typeManager = requireNonNull(typeManager, "type manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
     }
 

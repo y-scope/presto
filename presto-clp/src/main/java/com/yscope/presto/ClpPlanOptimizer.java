@@ -14,7 +14,6 @@
 package com.yscope.presto;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
@@ -41,15 +40,12 @@ public class ClpPlanOptimizer
     private static final Logger log = Logger.get(ClpPlanOptimizer.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final TypeManager typeManager;
 
     public ClpPlanOptimizer(FunctionMetadataManager functionManager,
-                            StandardFunctionResolution functionResolution,
-                            TypeManager typeManager)
+                            StandardFunctionResolution functionResolution)
     {
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
-        this.typeManager = typeManager;
     }
 
     @Override
@@ -83,7 +79,7 @@ public class ClpPlanOptimizer
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpExpression clpExpression = node.getPredicate()
-                    .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, typeManager, assignments),
+                    .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, assignments),
                             null);
             Optional<String> kqlQuery = clpExpression.getDefinition();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();

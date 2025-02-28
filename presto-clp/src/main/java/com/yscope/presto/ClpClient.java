@@ -20,32 +20,19 @@ import com.facebook.presto.common.type.BooleanType;
 import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
-import com.github.luben.zstd.ZstdInputStream;
+import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.yscope.presto.schema.SchemaNode;
-import com.yscope.presto.schema.SchemaTree;
-
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -56,7 +43,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -64,37 +50,31 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class ClpClient
 {
-    public static final String columnMetadataPrefix = "column_metadata_";
-    public static final String archiveTableSuffix = "archives";
+    private static final String COLUMN_METADATA_PREFIX = "column_metadata_";
+    private static final String ARCHIVE_TABLE_SUFFIX = "archives";
     private static final Logger log = Logger.get(ClpClient.class);
+    private static final String QUERY_SELECT_COLUMNS = "SELECT * FROM %s" + COLUMN_METADATA_PREFIX + "?";
+    private static final String QUERY_SHOW_TABLES = "SHOW TABLES";
+    private static final String QUERY_SELECT_ARCHIVE_IDS = "SELECT id FROM %s" + ARCHIVE_TABLE_SUFFIX;
+
     private final ClpConfig config;
     private final String metadataDbUrl;
     private final ClpConfig.InputSource inputSource;
-    private final Path executablePath;
-    private final Path decompressDir;
-    private final LoadingCache<String, Set<ClpColumnHandle>> columnHandleCache;
+    private final LoadingCache<SchemaTableName, Set<ClpColumnHandle>> columnHandleCache;
     private final LoadingCache<String, Set<String>> tableNameCache;
 
     @Inject
     public ClpClient(ClpConfig config)
     {
         this.config = requireNonNull(config, "config is null");
-        this.metadataDbUrl = "jdbc:mysql://" + config.getMetadataDbHost() + ":" + config.getMetadataDbPort() + "/" + config.getMetadataDbName();
         try {
             Class.forName("com.mysql.jdbc.Driver");
         }
         catch (ClassNotFoundException e) {
             log.error(e, "Failed to load MySQL JDBC driver");
         }
+        this.metadataDbUrl = "jdbc:mysql://" + config.getMetadataDbHost() + ":" + config.getMetadataDbPort() + "/" + config.getMetadataDbName();
         this.inputSource = config.getInputSource();
-        if (inputSource == ClpConfig.InputSource.LOCAL) {
-            this.executablePath = getExecutablePath();
-            this.decompressDir = Paths.get(System.getProperty("java.io.tmpdir"), "clp_decompress");
-        }
-        else {
-            this.executablePath = null;
-            this.decompressDir = null;
-        }
         this.columnHandleCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
@@ -106,100 +86,21 @@ public class ClpClient
                 .build(CacheLoader.from(this::loadTable));
     }
 
-    @PostConstruct
-    public void start()
-    {
-        try {
-            if (inputSource == ClpConfig.InputSource.LOCAL) {
-                Files.createDirectories(decompressDir);
-            }
-        }
-        catch (IOException e) {
-            log.error(e, "Failed to create decompression directory");
-        }
-    }
-
-    @PreDestroy
-    public void close()
-    {
-        try {
-            if (inputSource == ClpConfig.InputSource.LOCAL) {
-                Files.walkFileTree(decompressDir, new SimpleFileVisitor<Path>()
-                {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException
-                    {
-                        Files.delete(file);
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException
-                    {
-                        if (exc == null) {
-                            Files.delete(dir);
-                            return FileVisitResult.CONTINUE;
-                        }
-                        else {
-                            throw exc; // Directory iteration failed
-                        }
-                    }
-                });
-            }
-        }
-        catch (IOException e) {
-            log.error(e, "Failed to delete decompression directory");
-        }
-    }
-
     public ClpConfig getConfig()
     {
         return config;
     }
 
-    private Path getExecutablePath()
+    public Set<ClpColumnHandle> loadTableSchema(SchemaTableName schemaTableName)
     {
-        String executablePathString = config.getClpExecutablePath();
-        if (executablePathString == null || executablePathString.isEmpty()) {
-            Path executablePath = getExecutablePathFromEnvironment();
-            if (executablePath == null) {
-                throw new RuntimeException("CLP executable path is not set");
-            }
-            return executablePath;
-        }
-        Path executablePath = Paths.get(executablePathString);
-        if (!Files.exists(executablePath) || !Files.isRegularFile(executablePath)) {
-            executablePath = getExecutablePathFromEnvironment();
-            if (executablePath == null) {
-                throw new RuntimeException("CLP executable path is not set");
-            }
-        }
-        return executablePath;
-    }
+        String query = "SELECT * FROM " + config.getMetadataTablePrefix() + COLUMN_METADATA_PREFIX + schemaTableName.getTableName();
 
-    private Path getExecutablePathFromEnvironment()
-    {
-        String executablePathString = System.getenv("CLP_EXECUTABLE_PATH");
-        if (executablePathString == null || executablePathString.isEmpty()) {
-            return null;
-        }
-
-        Path executablePath = Paths.get(executablePathString);
-        if (!Files.exists(executablePath) || !Files.isRegularFile(executablePath)) {
-            return null;
-        }
-        return executablePath;
-    }
-
-    public Set<ClpColumnHandle> loadTableSchema(String tableName)
-    {
         Connection connection = null;
         LinkedHashSet<ClpColumnHandle> columnHandles = new LinkedHashSet<>();
         try {
             connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
             Statement statement = connection.createStatement();
 
-            String query = "SELECT * FROM " + config.getMetadataTablePrefix() + columnMetadataPrefix + tableName;
             ResultSet resultSet = statement.executeQuery(query);
 
             while (resultSet.next()) {
@@ -264,7 +165,7 @@ public class ClpClient
 
             // Processing the results
             String databaseName = config.getMetadataDbName();
-            String tableNamePrefix = config.getMetadataTablePrefix() + columnMetadataPrefix;
+            String tableNamePrefix = config.getMetadataTablePrefix() + COLUMN_METADATA_PREFIX;
             while (resultSet.next()) {
                 String tableName = resultSet.getString("Tables_in_" + databaseName);
                 if (tableName.startsWith(config.getMetadataTablePrefix()) && tableName.length() > tableNamePrefix.length()) {
@@ -289,9 +190,9 @@ public class ClpClient
         return tableNames.build();
     }
 
-    public Set<String> listTables()
+    public Set<String> listTables(String schemaName)
     {
-        return tableNameCache.getUnchecked("default");
+        return tableNameCache.getUnchecked(schemaName);
     }
 
     public List<String> listArchiveIds(String tableName)
@@ -316,13 +217,12 @@ public class ClpClient
             }
         }
         else {
-            String bucketName = config.getS3Bucket();
             Connection connection = null;
             try {
                 connection = DriverManager.getConnection(metadataDbUrl, config.getMetadataDbUser(), config.getMetadataDbPassword());
                 Statement statement = connection.createStatement();
 
-                String query = "SELECT id FROM " + config.getMetadataTablePrefix() + archiveTableSuffix;
+                String query = "SELECT id FROM " + config.getMetadataTablePrefix() + ARCHIVE_TABLE_SUFFIX;
                 ResultSet resultSet = statement.executeQuery(query);
 
                 ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
@@ -349,64 +249,9 @@ public class ClpClient
         }
     }
 
-    public Set<ClpColumnHandle> listColumns(String tableName)
+    public Set<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
     {
-        return columnHandleCache.getUnchecked(tableName);
-    }
-
-    public ProcessBuilder getRecords(String tableName, String archiveId, Optional<String> query, List<String> columns)
-    {
-        if (!listTables().contains(tableName)) {
-            return null;
-        }
-
-        return query.map(s -> searchTable(tableName, archiveId, s, columns))
-                .orElseGet(() -> searchTable(tableName, archiveId, "*", columns));
-    }
-
-    private ProcessBuilder searchTable(String tableName, String archiveId, String query, List<String> columns)
-    {
-        if (inputSource == ClpConfig.InputSource.S3) {
-            throw new RuntimeException("Cannot handle S3 source");
-        }
-        Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
-        List<String> argumentList = new ArrayList<>();
-        argumentList.add(executablePath.toString());
-        argumentList.add("s");
-        argumentList.add(tableArchiveDir.toString());
-        argumentList.add("--archive-id");
-        argumentList.add(archiveId);
-        argumentList.add(query);
-        if (!columns.isEmpty()) {
-            argumentList.add("--projection");
-            argumentList.addAll(columns);
-        }
-        log.info("Argument list: %s", argumentList.toString());
-        return new ProcessBuilder(argumentList);
-    }
-
-    private boolean decompressRecords(String tableName)
-    {
-        if (inputSource == ClpConfig.InputSource.S3) {
-            throw new RuntimeException("Cannot handle S3 source");
-        }
-        Path tableDecompressDir = decompressDir.resolve(tableName);
-        Path tableArchiveDir = Paths.get(config.getClpArchiveDir(), tableName);
-
-        try {
-            ProcessBuilder processBuilder =
-                    new ProcessBuilder(executablePath.toString(),
-                            "x",
-                            tableArchiveDir.toString(),
-                            tableDecompressDir.toString());
-            Process process = processBuilder.start();
-            process.waitFor();
-            return process.exitValue() == 0;
-        }
-        catch (IOException | InterruptedException e) {
-            log.error(e, "Failed to decompress records for table %s", tableName);
-            return false;
-        }
+        return columnHandleCache.getUnchecked(schemaTableName);
     }
 
     private Set<ClpColumnHandle> handlePolymorphicType(Set<ClpColumnHandle> columnHandles)
