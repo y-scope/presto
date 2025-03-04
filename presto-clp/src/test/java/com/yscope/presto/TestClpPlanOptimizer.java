@@ -13,170 +13,111 @@
  */
 package com.yscope.presto;
 
-import com.facebook.presto.common.type.BigintType;
-import com.facebook.presto.metadata.FunctionAndTypeManager;
-import com.facebook.presto.spi.ColumnHandle;
-import com.facebook.presto.spi.ConnectorId;
-import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
-import com.facebook.presto.spi.relation.SpecialFormExpression;
-import com.facebook.presto.spi.relation.VariableReferenceExpression;
-import com.facebook.presto.sql.analyzer.FunctionAndTypeResolver;
-import com.facebook.presto.sql.relational.FunctionResolution;
-import com.google.common.collect.ImmutableList;
-import io.airlift.slice.Slices;
 import org.testng.annotations.Test;
 
-import java.util.Map;
 import java.util.Optional;
 
-import static com.facebook.presto.common.function.OperatorType.EQUAL;
-import static com.facebook.presto.common.function.OperatorType.GREATER_THAN;
-import static com.facebook.presto.common.type.BigintType.BIGINT;
-import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
-import static com.facebook.presto.common.type.DoubleType.DOUBLE;
-import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.common.type.VarcharType.VARCHAR;
-import static com.facebook.presto.metadata.CastType.CAST;
-import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
-import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
-import static com.facebook.presto.sql.relational.Expressions.call;
-import static com.facebook.presto.sql.relational.Expressions.constant;
-import static com.facebook.presto.type.LikePatternType.LIKE_PATTERN;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.*;
 
-@Test(singleThreaded = true)
-public class TestClpPlanOptimizer
-{
-    private static ConnectorId druidConnectorId = new ConnectorId("id");
-    private static ClpTableHandle realtimeOnlyTable = new ClpTableHandle("schema", "realtimeOnly", Optional.empty());
-    private static ClpTableHandle hybridTable = new ClpTableHandle("schema", "hybrid", Optional.empty());
-    private static ClpColumnHandle regionId = new ClpColumnHandle("region.Id", BIGINT, REGULAR);
-    private static ClpColumnHandle city = new ClpColumnHandle("city", VARCHAR, REGULAR);
-    private static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE, REGULAR);
-    private static final ClpColumnHandle secondsSinceEpoch = new ClpColumnHandle("secondsSinceEpoch", BIGINT, REGULAR);
-    private static final ClpColumnHandle datetime = new ClpColumnHandle("datetime", TIMESTAMP, REGULAR);
-    
+@Test()
+public class TestClpPlanOptimizer extends TestClpQueryBase {
+    private void testFilter(String sqlExpression, Optional<String> expectedKqlExpression,
+                            Optional<String> expectedRemainingExpression, SessionHolder sessionHolder) {
+        RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
+        ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(
+                        standardFunctionResolution,
+                        functionAndTypeManager,
+                        variableToColumnHandleMap),
+                null);
+        Optional<String> kqlExpression = clpExpression.getDefinition();
+        Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
+        if (expectedKqlExpression.isPresent()) {
+            assertTrue(kqlExpression.isPresent());
+            assertEquals(kqlExpression.get(), expectedKqlExpression.get());
+        } else {
+            assertFalse(kqlExpression.isPresent());
+        }
+
+        if (expectedRemainingExpression.isPresent()) {
+            assertTrue(remainingExpression.isPresent());
+            assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression.get(), sessionHolder));
+        } else {
+            assertFalse(remainingExpression.isPresent());
+        }
+    }
+
     @Test
     public void testStringMatchPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("city = 'hello world'", Optional.of("city: \"hello world\""), Optional.empty(), sessionHolder);
+        testFilter("city != 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
+        testFilter("city like 'hello%'", Optional.of("city: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("city not like 'hello%'", Optional.of("NOT city: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("city like 'hello_'", Optional.of("city: \"hello?\""), Optional.empty(), sessionHolder);
+        testFilter("city not like 'hello_'", Optional.of("NOT city: \"hello?\""), Optional.empty(), sessionHolder);
+        testFilter("city like 'hello_w%'", Optional.of("city: \"hello?w*\""), Optional.empty(), sessionHolder);
+        testFilter("city not like 'hello_w%'", Optional.of("NOT city: \"hello?w*\""), Optional.empty(), sessionHolder);
     }
 
     @Test
     public void testNumericComparisonPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("fare > 0", Optional.of("fare > 0"), Optional.empty(), sessionHolder);
+        testFilter("fare >= 0", Optional.of("fare >= 0"), Optional.empty(), sessionHolder);
+        testFilter("fare < 0", Optional.of("fare < 0"), Optional.empty(), sessionHolder);
+        testFilter("fare <= 0", Optional.of("fare <= 0"), Optional.empty(), sessionHolder);
+        testFilter("fare = 0", Optional.of("fare: 0"), Optional.empty(), sessionHolder);
+        testFilter("fare != 0", Optional.of("NOT fare: 0"), Optional.empty(), sessionHolder);
     }
 
     @Test
     public void testOrPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("fare > 0 OR city like 'b%'", Optional.of("(fare > 0 OR city: \"b*\")"), Optional.empty(),
+                sessionHolder);
+        testFilter("\"lower(region.Name)\" = 'hello world' OR region.Id != 1", Optional.empty(), Optional.of("(lower(\"region.Name\") = 'hello world' OR NOT region.Id: 1)"),
+                sessionHolder);
     }
 
     @Test
     public void testAndPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("fare > 0 AND city like 'b%'", Optional.of("(fare > 0 AND city: \"b*\""), Optional.empty(), sessionHolder);
+        testFilter("lower(\"region.Name\") = 'hello world' AND region.Id != 1", Optional.of("NOT region.Id: 1"), Optional.of("lower(\"region.Name\") = 'hello world'"),
+                sessionHolder);
     }
 
     @Test
     public void testNotPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("region.Name NOT LIKE 'hello%'", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("NOT (region.Name LIKE 'hello%')", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("city != 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
+        testFilter("city <> 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
+        testFilter("NOT (city = 'hello world')", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
+        testFilter("fare != 0", Optional.of("NOT fare: 0"), Optional.empty(), sessionHolder);
+        testFilter("fare <> 0", Optional.of("NOT fare: 0"), Optional.empty(), sessionHolder);
+        testFilter("NOT (fare = 0)", Optional.of("NOT fare: 0"), Optional.empty(), sessionHolder);
     }
 
     @Test
     public void testInPushdown() {
+        SessionHolder sessionHolder = new SessionHolder();
 
+        testFilter("city IN ('hello world', 'hello world 2')", Optional.of("city: (\"hello world\" OR \"hello world 2\")"), Optional.empty(), sessionHolder);
     }
 
     @Test
     public void testComplexPushdown() {
-
-    }
-
-
-
-
-
-
-
-
-    @Test
-    public void testSqlToKqlConverter()
-    {
-        FunctionAndTypeManager functionAndTypeManager = createTestFunctionAndTypeManager();
-        FunctionResolution functionResolution =
-                new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
-        FunctionAndTypeResolver functionAndTypeResolver = functionAndTypeManager.getFunctionAndTypeResolver();
-        // (a > 0 OR b like 'b%') AND (lower(c.e) = 'hello world' OR c IS NULL)
-        SpecialFormExpression firstOrExpression =
-                new SpecialFormExpression(SpecialFormExpression.Form.OR,
-                        BOOLEAN,
-                        new CallExpression(GREATER_THAN.name(),
-                                functionAndTypeManager.resolveOperator(GREATER_THAN, fromTypes(
-                                        BigintType.BIGINT, BigintType.BIGINT)),
-                                BOOLEAN,
-                                ImmutableList.of(new VariableReferenceExpression(Optional.empty(),
-                                                "a_bigint",
-                                                BigintType.BIGINT),
-                                        constant(0L, BigintType.BIGINT))),
-                        call("LIKE",
-                                functionResolution.likeVarcharFunction(),
-                                BOOLEAN,
-                                new VariableReferenceExpression(Optional.empty(), "b_varchar",
-                                        VARCHAR),
-                                call(CAST.name(),
-                                        functionAndTypeResolver.lookupCast("CAST", VARCHAR, LIKE_PATTERN),
-                                        LIKE_PATTERN,
-                                        constant(Slices.utf8Slice("b%"), VARCHAR))));
-        SpecialFormExpression secondOrExpression =
-                new SpecialFormExpression(SpecialFormExpression.Form.OR,
-                        BOOLEAN,
-                        call(EQUAL.name(), functionResolution.comparisonFunction(EQUAL, VARCHAR, VARCHAR), BOOLEAN,
-                                call("lower",
-                                        functionAndTypeResolver.lookupFunction("lower", fromTypes(VARCHAR)),
-                                        VARCHAR,
-                                        new VariableReferenceExpression(Optional.empty(), "c.e",
-                                                VARCHAR)),
-                                constant(Slices.utf8Slice("hello world"), VARCHAR)),
-                        new SpecialFormExpression(SpecialFormExpression.Form.IS_NULL,
-                                BOOLEAN,
-                                new VariableReferenceExpression(Optional.empty(), "c", VARCHAR)));
-        SpecialFormExpression andExpression = new SpecialFormExpression(SpecialFormExpression.Form.AND,
-                BOOLEAN,
-                firstOrExpression,
-                secondOrExpression);
-        Map<VariableReferenceExpression, ColumnHandle> assignments = Map.of(
-                new VariableReferenceExpression(Optional.empty(), "a_bigint", BigintType.BIGINT),
-                new ClpColumnHandle("a_bigint", BigintType.BIGINT, false),
-                new VariableReferenceExpression(Optional.empty(), "b_varchar", VARCHAR),
-                new ClpColumnHandle("b_varchar", VARCHAR, false),
-                new VariableReferenceExpression(Optional.empty(), "c.e", VARCHAR),
-                new ClpColumnHandle("c.e", VARCHAR, false),
-                new VariableReferenceExpression(Optional.empty(), "c", VARCHAR),
-                new ClpColumnHandle("c", VARCHAR, false));
-        ClpExpression clpExpression =
-                andExpression.accept(new ClpFilterToKqlConverter(
-                                new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver()),
-                                functionAndTypeManager,
-                                assignments),
-                        null);
-        Optional<String> definition = clpExpression.getDefinition();
-        Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
-        assertTrue(definition.isPresent());
-        assertTrue(remainingExpression.isPresent());
-        assertEquals(definition.get(), "((a > 0 OR b: \"b*\"))");
-        assertEquals(remainingExpression.get(), new SpecialFormExpression(SpecialFormExpression.Form.OR,
-                BOOLEAN,
-                call(EQUAL.name(), functionResolution.comparisonFunction(EQUAL, VARCHAR, VARCHAR), BOOLEAN,
-                        call("lower",
-
-                                functionAndTypeResolver.lookupFunction("lower", fromTypes(VARCHAR)),
-                                VARCHAR,
-                                new VariableReferenceExpression(Optional.empty(), "c.e",
-                                        VARCHAR)),
-                        constant(Slices.utf8Slice("hello world"), VARCHAR)),
-                new SpecialFormExpression(SpecialFormExpression.Form.IS_NULL,
-                        BOOLEAN,
-                        new VariableReferenceExpression(Optional.empty(), "c", VARCHAR))));
+        testFilter("(fare > 0 OR city like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
+                Optional.of("((fare > 0 OR city: \"b*\"))"),
+                Optional.of("(lower(\"region.Name\") = 'hello world' OR city IS NULL)"),
+                new SessionHolder());
     }
 }

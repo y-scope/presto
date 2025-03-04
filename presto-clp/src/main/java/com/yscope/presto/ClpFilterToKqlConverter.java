@@ -41,6 +41,8 @@ import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static com.yscope.presto.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static java.util.Objects.requireNonNull;
 
+// TODO: Correctly handle escaping of special characters in LIKE expressions
+// TODO: Consider whether it handles is NULL and is NOT NULL expressions correctly
 public class ClpFilterToKqlConverter
         implements RowExpressionVisitor<ClpExpression, Void>
 {
@@ -189,7 +191,7 @@ public class ClpFilterToKqlConverter
         if (argument instanceof ConstantExpression) {
             ConstantExpression literal = (ConstantExpression) argument;
             String literalString = getLiteralString(literal);
-            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*") + "\"");
+            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*").replace("_", "?") + "\"");
         }
         else if (argument instanceof CallExpression) {
             CallExpression callExpression = (CallExpression) argument;
@@ -206,7 +208,7 @@ public class ClpFilterToKqlConverter
             }
             ConstantExpression literal = (ConstantExpression) callExpression.getArguments().get(0);
             String literalString = getLiteralString(literal);
-            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*") + "\"");
+            return new ClpExpression(variableName + ": \"" + literalString.replace("%", "*").replace("_", "?") + "\"");
         }
         return new ClpExpression(node);
     }

@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.yscope.presto.schema;
+package com.yscope.presto.metadata;
 
 import java.util.ArrayList;
 import java.util.Objects;
 
-public class SchemaNode
+public class ClpSchemaNode
 {
     private final int id;
     private final int parentId;
@@ -24,7 +24,7 @@ public class SchemaNode
     private final String name;
     private final NodeType type;
 
-    public SchemaNode(int id, int parentId, String name, NodeType type)
+    public ClpSchemaNode(int id, int parentId, String name, NodeType type)
     {
         this.id = id;
         this.parentId = parentId;

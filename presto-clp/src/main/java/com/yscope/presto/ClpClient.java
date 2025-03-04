@@ -26,7 +26,8 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.yscope.presto.schema.SchemaNode;
+import com.yscope.presto.metadata.ClpSchemaNode;
+
 import javax.inject.Inject;
 
 import java.nio.file.DirectoryStream;
@@ -105,7 +106,7 @@ public class ClpClient
 
             while (resultSet.next()) {
                 String columnName = resultSet.getString("name");
-                SchemaNode.NodeType columnType = SchemaNode.NodeType.fromType(resultSet.getByte("type"));
+                ClpSchemaNode.NodeType columnType = ClpSchemaNode.NodeType.fromType(resultSet.getByte("type"));
                 Type prestoType = null;
                 switch (columnType) {
                     case Integer:
