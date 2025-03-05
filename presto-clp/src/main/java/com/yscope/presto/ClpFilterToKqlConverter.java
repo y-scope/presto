@@ -41,8 +41,8 @@ import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static com.yscope.presto.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static java.util.Objects.requireNonNull;
 
-// TODO: Correctly handle escaping of special characters in LIKE expressions
-// TODO: Consider whether it handles is NULL and is NOT NULL expressions correctly
+// TODO(Rui): Correctly handle escaping of special characters in LIKE expressions
+// TODO(Rui): Consider whether it handles `is NULL` and `is NOT NULL` expressions correctly
 public class ClpFilterToKqlConverter
         implements RowExpressionVisitor<ClpExpression, Void>
 {

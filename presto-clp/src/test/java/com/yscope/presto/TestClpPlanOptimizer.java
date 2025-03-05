@@ -110,7 +110,7 @@ public class TestClpPlanOptimizer extends TestClpQueryBase {
     public void testInPushdown() {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter("city IN ('hello world', 'hello world 2')", Optional.of("city: (\"hello world\" OR \"hello world 2\")"), Optional.empty(), sessionHolder);
+        testFilter("city IN ('hello world', 'hello world 2')", Optional.of("(city: \"hello world\" OR city: \"hello world 2\")"), Optional.empty(), sessionHolder);
     }
 
     @Test

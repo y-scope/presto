@@ -17,23 +17,37 @@ import com.facebook.airlift.configuration.Config;
 
 public class ClpConfig
 {
-    public enum InputSource
+    // TODO(Rui): We also need to change it in Velox and in the example configuration files
+    public enum ArchiveSource
     {
         LOCAL,
         S3
     }
 
+    public enum MetadataSource
+    {
+        MYSQL
+    }
+
+    // TODO(Rui): come up with a better name
+    public enum SplitSource
+    {
+        MYSQL
+    }
+
     private boolean polymorphicTypeEnabled = true;
-    private String metadataDbHost;
-    private String metadataDbPort;
+    private MetadataSource metadataSource = MetadataSource.MYSQL;
+    // TODO(Rui): We need to change it in the example configuration files and in Velox
+    private String metadataDbUrl;
     private String metadataDbName;
     private String metadataDbUser;
     private String metadataDbPassword;
     private String metadataTablePrefix;
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
-    private InputSource inputSource = InputSource.LOCAL;
-    private String clpExecutablePath;
+    private ArchiveSource archiveSource = ArchiveSource.LOCAL;
+    // TODO(Rui): We need to add it in the example configuration files and in Velox
+    private SplitSource splitSource = SplitSource.MYSQL;
     private String clpArchiveDir;
     private String s3Bucket;
     private String s3KeyPrefix;
@@ -50,27 +64,27 @@ public class ClpConfig
         return this;
     }
 
-    public String getMetadataDbHost()
+    public MetadataSource getMetadataSource()
     {
-        return metadataDbHost;
+        return metadataSource;
     }
 
-    @Config("clp.metadata-db-host")
-    public ClpConfig setMetadataDbHost(String metadataDbHost)
+    @Config("clp.metadata-source")
+    public ClpConfig setMetadataSource(MetadataSource metadataSource)
     {
-        this.metadataDbHost = metadataDbHost;
+        this.metadataSource = metadataSource;
         return this;
     }
 
-    public String getMetadataDbPort()
+    public String getMetadataDbUrl()
     {
-        return metadataDbPort;
+        return metadataDbUrl;
     }
 
-    @Config("clp.metadata-db-port")
-    public ClpConfig setMetadataDbPort(String metadataDbPort)
+    @Config("clp.metadata-db-url")
+    public ClpConfig setMetadataDbUrl(String metadataDbUrl)
     {
-        this.metadataDbPort = metadataDbPort;
+        this.metadataDbUrl = metadataDbUrl;
         return this;
     }
 
@@ -146,27 +160,27 @@ public class ClpConfig
         return this;
     }
 
-    public InputSource getInputSource()
+    public ArchiveSource getInputSource()
     {
-        return inputSource;
+        return archiveSource;
     }
 
     @Config("clp.input-source")
-    public ClpConfig setInputSource(InputSource inputSource)
+    public ClpConfig setInputSource(ArchiveSource archiveSource)
     {
-        this.inputSource = inputSource;
+        this.archiveSource = archiveSource;
         return this;
     }
 
-    public String getClpExecutablePath()
+    public SplitSource getSplitSource()
     {
-        return clpExecutablePath;
+        return splitSource;
     }
 
-    @Config("clp.executable-path")
-    public ClpConfig setClpExecutablePath(String clpExecutablePath)
+    @Config("clp.split-source")
+    public ClpConfig setSplitSource(SplitSource splitSource)
     {
-        this.clpExecutablePath = clpExecutablePath;
+        this.splitSource = splitSource;
         return this;
     }
 
