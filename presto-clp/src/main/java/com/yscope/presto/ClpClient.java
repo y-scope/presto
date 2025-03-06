@@ -25,7 +25,13 @@ import com.yscope.presto.split.ClpMySQLSplitProvider;
 import com.yscope.presto.split.ClpSplitProvider;
 
 import javax.inject.Inject;
-import java.util.*;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -35,7 +41,6 @@ public class ClpClient
     private static final Logger log = Logger.get(ClpClient.class);
 
     private final ClpConfig config;
-    private final ClpConfig.ArchiveSource archiveSource;
     private final LoadingCache<SchemaTableName, Set<ClpColumnHandle>> columnHandleCache;
     private final LoadingCache<String, Set<String>> tableNameCache;
     private final ClpMetadataProvider clpMetadataProvider;
@@ -59,10 +64,8 @@ public class ClpClient
         else {
             log.error("Unsupported split source: %s", config.getSplitSource());
             throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE, "Unsupported split source: " + config.getSplitSource());
-
         }
 
-        this.archiveSource = config.getInputSource();
         this.columnHandleCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
@@ -115,7 +118,6 @@ public class ClpClient
 //                return ImmutableList.of();
 //            }
 //        }
-
     }
 
     public Set<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
@@ -126,7 +128,7 @@ public class ClpClient
     private Set<ClpColumnHandle> handlePolymorphicType(Set<ClpColumnHandle> columnHandles)
     {
         Map<String, List<ClpColumnHandle>> columnNameToColumnHandles = new HashMap<>();
-        LinkedHashSet<ClpColumnHandle> polymorphicColumnHandles = new LinkedHashSet<>();
+        HashSet<ClpColumnHandle> polymorphicColumnHandles = new HashSet<>();
 
         for (ClpColumnHandle columnHandle : columnHandles) {
             columnNameToColumnHandles.computeIfAbsent(columnHandle.getColumnName(), k -> new ArrayList<>())

@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.yscope.presto;
 
 import com.facebook.presto.Session;
@@ -24,7 +37,6 @@ import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.testing.TestingSession;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -38,7 +50,8 @@ import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionT
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
 import static java.util.stream.Collectors.toMap;
 
-public class TestClpQueryBase {
+public class TestClpQueryBase
+{
     protected static final FunctionAndTypeManager functionAndTypeManager = createTestFunctionAndTypeManager();
     protected static final StandardFunctionResolution standardFunctionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
     protected static final Metadata metadata = MetadataManager.createTestMetadataManager();
@@ -52,33 +65,38 @@ public class TestClpQueryBase {
             Stream.of(regionId, regionName, city, fare, isHoliday)
                     .collect(toMap(
                             ch -> new VariableReferenceExpression(Optional.empty(), ch.getColumnName(), ch.getColumnType()),
-                            ch -> ch
-                    ));
+                            ch -> ch));
     protected final TypeProvider typeProvider = TypeProvider.fromVariables(variableToColumnHandleMap.keySet());
 
-    protected static class SessionHolder {
+    protected static class SessionHolder
+    {
         private final ConnectorSession connectorSession;
         private final Session session;
 
-        public SessionHolder() {
+        public SessionHolder()
+        {
             connectorSession = SESSION;
             session = TestingSession.testSessionBuilder(new SessionPropertyManager(new SystemSessionProperties().getSessionProperties())).build();
         }
 
-        public ConnectorSession getConnectorSession() {
+        public ConnectorSession getConnectorSession()
+        {
             return connectorSession;
         }
 
-        public Session getSession() {
+        public Session getSession()
+        {
             return session;
         }
     }
 
-    public static Expression expression(String sql) {
+    public static Expression expression(String sql)
+    {
         return ExpressionUtils.rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(sql, new ParsingOptions(ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL)));
     }
 
-    protected RowExpression toRowExpression(Expression expression, Session session) {
+    protected RowExpression toRowExpression(Expression expression, Session session)
+    {
         Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(
                 session,
                 metadata,
@@ -90,7 +108,8 @@ public class TestClpQueryBase {
         return SqlToRowExpressionTranslator.translate(expression, expressionTypes, ImmutableMap.of(), functionAndTypeManager, session);
     }
 
-    protected RowExpression getRowExpression(String sqlExpression, SessionHolder sessionHolder) {
+    protected RowExpression getRowExpression(String sqlExpression, SessionHolder sessionHolder)
+    {
         return toRowExpression(expression(sqlExpression), sessionHolder.getSession());
     }
 }

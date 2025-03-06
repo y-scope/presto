@@ -162,7 +162,7 @@ public class ClpFilterToKqlConverter
             ConstantExpression literal = (ConstantExpression) argument;
             String literalString = getLiteralString(literal);
             queryBuilder.append(variableName).append(": ");
-            if (literal.getType().equals(VarcharType.VARCHAR)) {
+            if (literal.getType() instanceof VarcharType) {
                 queryBuilder.append("\"");
                 queryBuilder.append(literalString);
                 queryBuilder.append("\"");
@@ -235,7 +235,7 @@ public class ClpFilterToKqlConverter
         String literalString = rightExpression.getDefinition().get();
         Type literalType = node.getArguments().get(1).getType();
         if (operator.equals("=")) {
-            if (literalType.equals(VarcharType.VARCHAR)) {
+            if (literalType instanceof VarcharType) {
                 return new ClpExpression(variableName + ": \"" + literalString + "\"");
             }
             else {
@@ -243,14 +243,14 @@ public class ClpFilterToKqlConverter
             }
         }
         else if (operator.equals("<>")) {
-            if (literalType.equals(VarcharType.VARCHAR)) {
+            if (literalType instanceof VarcharType) {
                 return new ClpExpression("NOT " + variableName + ": \"" + literalString + "\"");
             }
             else {
                 return new ClpExpression("NOT " + variableName + ": " + literalString);
             }
         }
-        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !literalType.equals(VarcharType.VARCHAR)) {
+        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
             return new ClpExpression(variableName + " " + operator + " " + literalString);
         }
         else {

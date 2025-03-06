@@ -134,8 +134,7 @@ public class ClpMetadata
         return schemaTableNames.stream()
                 .collect(ImmutableMap.toImmutableMap(
                         Function.identity(),
-                        tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()
-                ));
+                        tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()));
     }
 
     @Override

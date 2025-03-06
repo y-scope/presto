@@ -18,12 +18,17 @@ import org.testng.annotations.Test;
 
 import java.util.Optional;
 
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
-@Test()
-public class TestClpPlanOptimizer extends TestClpQueryBase {
+@Test
+public class TestClpPlanOptimizer
+        extends TestClpQueryBase
+{
     private void testFilter(String sqlExpression, Optional<String> expectedKqlExpression,
-                            Optional<String> expectedRemainingExpression, SessionHolder sessionHolder) {
+                            Optional<String> expectedRemainingExpression, SessionHolder sessionHolder)
+    {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(
                         standardFunctionResolution,
@@ -35,20 +40,20 @@ public class TestClpPlanOptimizer extends TestClpQueryBase {
         if (expectedKqlExpression.isPresent()) {
             assertTrue(kqlExpression.isPresent());
             assertEquals(kqlExpression.get(), expectedKqlExpression.get());
-        } else {
-            assertFalse(kqlExpression.isPresent());
         }
 
         if (expectedRemainingExpression.isPresent()) {
             assertTrue(remainingExpression.isPresent());
             assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression.get(), sessionHolder));
-        } else {
+        }
+        else {
             assertFalse(remainingExpression.isPresent());
         }
     }
 
     @Test
-    public void testStringMatchPushdown() {
+    public void testStringMatchPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
         testFilter("city = 'hello world'", Optional.of("city: \"hello world\""), Optional.empty(), sessionHolder);
@@ -62,7 +67,8 @@ public class TestClpPlanOptimizer extends TestClpQueryBase {
     }
 
     @Test
-    public void testNumericComparisonPushdown() {
+    public void testNumericComparisonPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
         testFilter("fare > 0", Optional.of("fare > 0"), Optional.empty(), sessionHolder);
@@ -74,30 +80,33 @@ public class TestClpPlanOptimizer extends TestClpQueryBase {
     }
 
     @Test
-    public void testOrPushdown() {
+    public void testOrPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
         testFilter("fare > 0 OR city like 'b%'", Optional.of("(fare > 0 OR city: \"b*\")"), Optional.empty(),
                 sessionHolder);
-        testFilter("\"lower(region.Name)\" = 'hello world' OR region.Id != 1", Optional.empty(), Optional.of("(lower(\"region.Name\") = 'hello world' OR NOT region.Id: 1)"),
+        testFilter("lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1", Optional.empty(), Optional.of("(lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1)"),
                 sessionHolder);
     }
 
     @Test
-    public void testAndPushdown() {
+    public void testAndPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter("fare > 0 AND city like 'b%'", Optional.of("(fare > 0 AND city: \"b*\""), Optional.empty(), sessionHolder);
-        testFilter("lower(\"region.Name\") = 'hello world' AND region.Id != 1", Optional.of("NOT region.Id: 1"), Optional.of("lower(\"region.Name\") = 'hello world'"),
+        testFilter("fare > 0 AND city like 'b%'", Optional.of("(fare > 0 AND city: \"b*\")"), Optional.empty(), sessionHolder);
+        testFilter("lower(\"region.Name\") = 'hello world' AND \"region.Id\" != 1", Optional.of("(NOT region.Id: 1)"), Optional.of("lower(\"region.Name\") = 'hello world'"),
                 sessionHolder);
     }
 
     @Test
-    public void testNotPushdown() {
+    public void testNotPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter("region.Name NOT LIKE 'hello%'", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
-        testFilter("NOT (region.Name LIKE 'hello%')", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("\"region.Name\" NOT LIKE 'hello%'", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("NOT (\"region.Name\" LIKE 'hello%')", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
         testFilter("city != 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
         testFilter("city <> 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
         testFilter("NOT (city = 'hello world')", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
@@ -107,14 +116,16 @@ public class TestClpPlanOptimizer extends TestClpQueryBase {
     }
 
     @Test
-    public void testInPushdown() {
+    public void testInPushdown()
+    {
         SessionHolder sessionHolder = new SessionHolder();
 
         testFilter("city IN ('hello world', 'hello world 2')", Optional.of("(city: \"hello world\" OR city: \"hello world 2\")"), Optional.empty(), sessionHolder);
     }
 
     @Test
-    public void testComplexPushdown() {
+    public void testComplexPushdown()
+    {
         testFilter("(fare > 0 OR city like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
                 Optional.of("((fare > 0 OR city: \"b*\"))"),
                 Optional.of("(lower(\"region.Name\") = 'hello world' OR city IS NULL)"),

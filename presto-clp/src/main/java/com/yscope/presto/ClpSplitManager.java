@@ -22,8 +22,6 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 import javax.inject.Inject;
 
-import java.util.stream.Collectors;
-
 public class ClpSplitManager
         implements ConnectorSplitManager
 {
@@ -46,7 +44,7 @@ public class ClpSplitManager
 //        if (!clpClient.listTables(tableHandle.getSchemaTableName().getSchemaName()).contains(tableHandle.getTableName())) {
 //            throw new RuntimeException("Table no longer exists: " + tableHandle.getTableName());
 //        }
-          return new FixedSplitSource(clpClient.listSplits(layoutHandle));
+        return new FixedSplitSource(clpClient.listSplits(layoutHandle));
 //        return new FixedSplitSource(clpClient.listArchiveIds(tableHandle.getTableName())
 //                .stream()
 //                .map(archiveId -> new ClpSplit("default",

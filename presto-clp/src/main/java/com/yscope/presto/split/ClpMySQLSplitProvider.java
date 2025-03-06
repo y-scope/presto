@@ -1,17 +1,31 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.yscope.presto.split;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.spi.SchemaTableName;
 import com.yscope.presto.ClpConfig;
 import com.yscope.presto.ClpSplit;
 import com.yscope.presto.ClpTableLayoutHandle;
-import com.yscope.presto.metadata.ClpMySQLMetadataProvider;
 
-import java.sql.*;
-import java.util.ArrayList;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.List;
 
-public class ClpMySQLSplitProvider implements ClpSplitProvider {
+public class ClpMySQLSplitProvider
+        implements ClpSplitProvider
+{
     private static final Logger log = Logger.get(ClpMySQLSplitProvider.class);
 
     private static final String ARCHIVE_TABLE_SUFFIX = "archives";
@@ -21,7 +35,8 @@ public class ClpMySQLSplitProvider implements ClpSplitProvider {
 
     private final ClpConfig config;
 
-    public ClpMySQLSplitProvider(ClpConfig config) {
+    public ClpMySQLSplitProvider(ClpConfig config)
+    {
         try {
             Class.forName("com.mysql.jdbc.Driver");
         }
@@ -31,13 +46,15 @@ public class ClpMySQLSplitProvider implements ClpSplitProvider {
         this.config = config;
     }
 
-    private Connection getConnection() throws SQLException {
+    private Connection getConnection() throws SQLException
+    {
         return DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
     }
 
     @Override
     // TODO(Rui): This method is not complete yet
-    public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle) {
+    public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
+    {
 //        List<ClpSplit> splits = new ArrayList<>();
 //        String tableName = clpTableLayoutHandle.getTable().getSchemaTableName().getTableName();
 //        String query = String.format(QUERY_SELECT_TABLE_METADATA, config.getMetadataTablePrefix());
