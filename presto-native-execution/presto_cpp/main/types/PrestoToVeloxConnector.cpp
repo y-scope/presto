@@ -13,6 +13,7 @@
  */
 
 #include "presto_cpp/main/types/PrestoToVeloxConnector.h"
+#include "presto_cpp/presto_protocol/connector/clp/ClpConnectorProtocol.h"
 #include "presto_cpp/presto_protocol/connector/hive/HiveConnectorProtocol.h"
 #include "presto_cpp/presto_protocol/connector/iceberg/IcebergConnectorProtocol.h"
 #include "presto_cpp/presto_protocol/connector/tpch/TpchConnectorProtocol.h"
