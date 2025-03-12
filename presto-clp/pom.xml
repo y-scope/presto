@@ -11,8 +11,8 @@
 
     <groupId>com.yscope.presto</groupId>
     <artifactId>presto-clp</artifactId>
-    <name>presto-clp</name>
     <description>Presto - CLP connector</description>
+    <packaging>presto-plugin</packaging>
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>

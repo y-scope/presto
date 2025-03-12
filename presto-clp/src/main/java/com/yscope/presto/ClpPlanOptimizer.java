@@ -100,7 +100,8 @@ public class ClpPlanOptimizer
                     tableScanNode.getAssignments(),
                     tableScanNode.getTableConstraints(),
                     tableScanNode.getCurrentConstraint(),
-                    tableScanNode.getEnforcedConstraint());
+                    tableScanNode.getEnforcedConstraint(),
+                    tableScanNode.getCteMaterializationInfo());
             if (!remainingPredicate.isPresent()) {
                 return newTableScanNode;
             }
