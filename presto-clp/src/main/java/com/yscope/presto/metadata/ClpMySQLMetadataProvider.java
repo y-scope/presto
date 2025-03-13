@@ -28,7 +28,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashSet;
@@ -41,7 +40,8 @@ public class ClpMySQLMetadataProvider
 
     public static final String COLUMN_METADATA_PREFIX = "column_metadata_";
     private static final String QUERY_SELECT_COLUMNS = "SELECT * FROM %s" + COLUMN_METADATA_PREFIX + "%s";
-    private static final String QUERY_SHOW_TABLES = "SHOW TABLES";
+    private static final String TABLE_METADATA_TABLE_SUFFIX = "table_metadata";
+    private static final String QUERY_SELECT_TABLES = "SELECT table_name FROM %s" + TABLE_METADATA_TABLE_SUFFIX;
 
     private final ClpConfig config;
 
@@ -84,7 +84,7 @@ public class ClpMySQLMetadataProvider
     }
 
     @Override
-    public Set<ClpColumnHandle> listTableSchema(SchemaTableName schemaTableName)
+    public Set<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
     {
         Set<ClpColumnHandle> columnHandles = new HashSet<>();
         String query = String.format(QUERY_SELECT_COLUMNS, config.getMetadataTablePrefix(), schemaTableName.getTableName());
@@ -101,32 +101,27 @@ public class ClpMySQLMetadataProvider
             }
         }
         catch (SQLException e) {
-            log.error("Failed to load table schema for: " + schemaTableName.getTableName(), e);
+            log.error("Failed to load table schema for %s: %s" + schemaTableName.getTableName(), e);
         }
         return columnHandles;
     }
 
     @Override
-    public Set<String> listTables(String schema)
+    public Set<String> listTableNames(String schema)
     {
         Set<String> tableNames = new HashSet<>();
 
+        String query = String.format(QUERY_SELECT_TABLES, config.getMetadataTablePrefix());
         try (Connection connection = getConnection();
                 Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery(QUERY_SHOW_TABLES)) {
-            ResultSetMetaData metaData = resultSet.getMetaData();
-            String tableColumnName = metaData.getColumnName(1);
+                ResultSet resultSet = statement.executeQuery(query)) {
             while (resultSet.next()) {
-                String tableName = resultSet.getString(tableColumnName);
-                if (tableName.startsWith(config.getMetadataTablePrefix() + COLUMN_METADATA_PREFIX)) {
-                    tableNames.add(tableName.substring((config.getMetadataTablePrefix() + COLUMN_METADATA_PREFIX).length()));
-                }
+                tableNames.add(resultSet.getString("table_name"));
             }
         }
         catch (SQLException e) {
-            log.error("Failed to load table names", e);
+            log.error("Failed to load table names: %s", e);
         }
-
         return tableNames;
     }
 }

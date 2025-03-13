@@ -40,17 +40,6 @@ public class ClpSplitManager
                                           SplitSchedulingContext splitSchedulingContext)
     {
         ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) layout;
-//        ClpTableHandle tableHandle = layoutHandle.getTable();
-//        if (!clpClient.listTables(tableHandle.getSchemaTableName().getSchemaName()).contains(tableHandle.getTableName())) {
-//            throw new RuntimeException("Table no longer exists: " + tableHandle.getTableName());
-//        }
         return new FixedSplitSource(clpClient.listSplits(layoutHandle));
-//        return new FixedSplitSource(clpClient.listArchiveIds(tableHandle.getTableName())
-//                .stream()
-//                .map(archiveId -> new ClpSplit("default",
-//                        tableHandle.getTableName(),
-//                        archiveId,
-//                        layoutHandle.getQuery()))
-//                .collect(Collectors.toList()));
     }
 }

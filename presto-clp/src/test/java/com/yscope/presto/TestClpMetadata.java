@@ -46,7 +46,6 @@ import static org.testng.Assert.fail;
 public class TestClpMetadata
 {
     private ClpMetadata metadata;
-    private String metadataDbUrl;
 
     private static final String TABLE_NAME = "test";
     private static final String TABLE_SCHEMA = "default";
@@ -54,9 +53,13 @@ public class TestClpMetadata
     @BeforeMethod
     public void setUp()
     {
-        metadataDbUrl = "jdbc:h2:file:/tmp/testdb;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
-        String metadataDbTablePrefix = "clp_";
-        String columnMetadataTablePrefix = "column_metadata_";
+        final String metadataDbUrl = "jdbc:h2:file:/tmp/metadata_testdb;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
+        final String metadataDbUser = "sa";
+        final String metadataDbPassword = "";
+        final String metadataDbTablePrefix = "clp_";
+        final String columnMetadataTablePrefix = "column_metadata_";
+        final String tableMetadataSuffix = "table_metadata";
+
         ClpConfig config = new ClpConfig().setPolymorphicTypeEnabled(true)
                 .setMetadataDbUrl(metadataDbUrl)
                 .setMetadataDbUser("sa")
@@ -64,12 +67,39 @@ public class TestClpMetadata
                 .setMetadataTablePrefix(metadataDbTablePrefix);
         metadata = new ClpMetadata(new ClpClient(config));
 
-        try (Connection conn = DriverManager.getConnection(metadataDbUrl, "sa", "");
-                Statement stmt = conn.createStatement()) {
-            String createTable = "CREATE TABLE IF NOT EXISTS " + metadataDbTablePrefix + columnMetadataTablePrefix
-                    + TABLE_NAME + " (name VARCHAR(512) NOT NULL, type TINYINT NOT NULL, PRIMARY KEY (name, type))";
-            stmt.execute(createTable);
+        final String tableMetadataTableName = metadataDbTablePrefix + tableMetadataSuffix;
+        final String columnMetadataTableName = metadataDbTablePrefix + columnMetadataTablePrefix + TABLE_NAME;
 
+        final String createTableMetadataSQL = String.format(
+                "CREATE TABLE IF NOT EXISTS %s (" +
+                        " table_name VARCHAR(512) PRIMARY KEY," +
+                        " table_path VARCHAR(1024) NOT NULL)", tableMetadataTableName);
+
+        final String createColumnMetadataSQL = String.format(
+                "CREATE TABLE IF NOT EXISTS %s (" +
+                        " name VARCHAR(512) NOT NULL," +
+                        " type TINYINT NOT NULL," +
+                        " PRIMARY KEY (name, type))", columnMetadataTableName);
+
+        final String insertTableMetadataSQL = String.format(
+                "INSERT INTO %s (table_name, table_path) VALUES (?, ?)", tableMetadataTableName);
+
+        final String insertColumnMetadataSQL = String.format(
+                "INSERT INTO %s (name, type) VALUES (?, ?)", columnMetadataTableName);
+
+        try (Connection conn = DriverManager.getConnection(metadataDbUrl, metadataDbUser, metadataDbPassword);
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(createTableMetadataSQL);
+            stmt.execute(createColumnMetadataSQL);
+
+            // Insert table metadata
+            try (PreparedStatement pstmt = conn.prepareStatement(insertTableMetadataSQL)) {
+                pstmt.setString(1, TABLE_NAME);
+                pstmt.setString(2, "/tmp/archives/" + TABLE_NAME);
+                pstmt.executeUpdate();
+            }
+
+            // Insert column metadata in batch
             List<Pair<String, ClpNodeType>> records = Arrays.asList(
                     new Pair<>("a", ClpNodeType.Integer),
                     new Pair<>("a", ClpNodeType.VarString),
@@ -79,9 +109,7 @@ public class TestClpMetadata
                     new Pair<>("c.d", ClpNodeType.Boolean),
                     new Pair<>("c.e", ClpNodeType.VarString));
 
-            String insertSQL = "INSERT INTO " + metadataDbTablePrefix + columnMetadataTablePrefix + TABLE_NAME
-                    + " (name, type) VALUES (?, ?)";
-            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL)) {
+            try (PreparedStatement pstmt = conn.prepareStatement(insertColumnMetadataSQL)) {
                 for (Pair<String, ClpNodeType> record : records) {
                     pstmt.setString(1, record.getFirst());
                     pstmt.setByte(2, record.getSecond().getType());
@@ -98,8 +126,8 @@ public class TestClpMetadata
     @AfterMethod
     public void tearDown()
     {
-        File dbFile = new File("/tmp/testdb.mv.db");
-        File lockFile = new File("/tmp/testdb.trace.db"); // Optional, H2 sometimes creates this
+        File dbFile = new File("/tmp/metadata_testdb.mv.db");
+        File lockFile = new File("/tmp/metadata_testdb.trace.db"); // Optional, H2 sometimes creates this
         if (dbFile.exists()) {
             dbFile.delete();
             System.out.println("Deleted database file: " + dbFile.getAbsolutePath());

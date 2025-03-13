@@ -69,26 +69,26 @@ public class ClpClient
         this.columnHandleCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
-                .build(CacheLoader.from(this::loadTableSchema));
+                .build(CacheLoader.from(this::loadColumnHandles));
 
         this.tableNameCache = CacheBuilder.newBuilder()
                 .expireAfterWrite(config.getMetadataExpireInterval(), SECONDS)
                 .refreshAfterWrite(config.getMetadataRefreshInterval(), SECONDS)
-                .build(CacheLoader.from(this::loadTable));
+                .build(CacheLoader.from(this::loadTableNames));
     }
 
-    public Set<ClpColumnHandle> loadTableSchema(SchemaTableName schemaTableName)
+    public Set<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
     {
-        Set<ClpColumnHandle> columnHandles = clpMetadataProvider.listTableSchema(schemaTableName);
+        Set<ClpColumnHandle> columnHandles = clpMetadataProvider.listColumnHandles(schemaTableName);
         if (!config.isPolymorphicTypeEnabled()) {
             return columnHandles;
         }
         return handlePolymorphicType(columnHandles);
     }
 
-    public Set<String> loadTable(String schemaName)
+    public Set<String> loadTableNames(String schemaName)
     {
-        return clpMetadataProvider.listTables(schemaName);
+        return clpMetadataProvider.listTableNames(schemaName);
     }
 
     public Set<String> listTables(String schemaName)
@@ -99,25 +99,6 @@ public class ClpClient
     public List<ClpSplit> listSplits(ClpTableLayoutHandle layoutHandle)
     {
         return clpSplitProvider.listSplits(layoutHandle);
-//        if (archiveSource == ClpConfig.ArchiveSource.LOCAL) {
-//            Path tableDir = Paths.get(config.getClpArchiveDir(), tableName);
-//            if (!Files.exists(tableDir) || !Files.isDirectory(tableDir)) {
-//                return ImmutableList.of();
-//            }
-//
-//            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tableDir)) {
-//                ImmutableList.Builder<String> archiveIds = ImmutableList.builder();
-//                for (Path path : stream) {
-//                    if (Files.isDirectory(path)) {
-//                        archiveIds.add(path.getFileName().toString());
-//                    }
-//                }
-//                return archiveIds.build();
-//            }
-//            catch (Exception e) {
-//                return ImmutableList.of();
-//            }
-//        }
     }
 
     public Set<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)

@@ -14,13 +14,18 @@
 package com.yscope.presto.split;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.spi.SchemaTableName;
+import com.google.common.collect.ImmutableList;
 import com.yscope.presto.ClpConfig;
 import com.yscope.presto.ClpSplit;
 import com.yscope.presto.ClpTableLayoutHandle;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ClpMySQLSplitProvider
@@ -28,10 +33,10 @@ public class ClpMySQLSplitProvider
 {
     private static final Logger log = Logger.get(ClpMySQLSplitProvider.class);
 
-    private static final String ARCHIVE_TABLE_SUFFIX = "archives";
-    private static final String TABLE_METADATA_TABLE_SUFFIX = "tables";
-    private static final String QUERY_SELECT_ARCHIVE_IDS = "SELECT id FROM %s" + ARCHIVE_TABLE_SUFFIX;
-    private static final String QUERY_SELECT_TABLE_METADATA = "SELECT * FROM %s" + TABLE_METADATA_TABLE_SUFFIX + " WHERE AND table_name = ?";
+    private static final String ARCHIVE_TABLE_SUFFIX = "_archives";
+    private static final String TABLE_METADATA_TABLE_SUFFIX = "table_metadata";
+    private static final String QUERY_SELECT_ARCHIVE_IDS = "SELECT id FROM %s%s" + ARCHIVE_TABLE_SUFFIX;
+    private static final String QUERY_SELECT_TABLE_METADATA = "SELECT table_path FROM %s" + TABLE_METADATA_TABLE_SUFFIX + " WHERE table_name = '%s'";
 
     private final ClpConfig config;
 
@@ -52,38 +57,46 @@ public class ClpMySQLSplitProvider
     }
 
     @Override
-    // TODO(Rui): This method is not complete yet
     public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
     {
-//        List<ClpSplit> splits = new ArrayList<>();
-//        String tableName = clpTableLayoutHandle.getTable().getSchemaTableName().getTableName();
-//        String query = String.format(QUERY_SELECT_TABLE_METADATA, config.getMetadataTablePrefix());
-//        try (Connection connection = getConnection();
-//            PreparedStatement statement = connection.prepareStatement(query)) {
-//            statement.setString(1, schemaTableName.getTableName());
-//            ResultSet resultSet = statement.executeQuery();
-//            while (resultSet.next()) {
-//                String archiveId = resultSet.getString("archive_id");
-//            }
-//        }
-//        catch (SQLException e) {
-//            log.error("Failed to retrieve table metadata", e);
-//        }
-//
-//        List<String> archiveIds = new ArrayList<>();
-//        String query = String.format(QUERY_SELECT_ARCHIVE_IDS, config.getMetadataTablePrefix());
-//
-//        try (Connection connection = getConnection();
-//             PreparedStatement statement = connection.prepareStatement(query);
-//             ResultSet resultSet = statement.executeQuery()) {
-//
-//            while (resultSet.next()) {
-//                archiveIds.add(resultSet.getString("id"));
-//            }
-//        } catch (SQLException e) {
-//            log.error("Failed to retrieve archive IDs", e);
-//        }
+        List<ClpSplit> splits = new ArrayList<>();
+        SchemaTableName tableSchemaName = clpTableLayoutHandle.getTable().getSchemaTableName();
+        String tableName = tableSchemaName.getTableName();
 
-        return null;
+        String tablePathQuery = String.format(QUERY_SELECT_TABLE_METADATA, config.getMetadataTablePrefix(), tableName);
+        String archivePathQuery = String.format(QUERY_SELECT_ARCHIVE_IDS, config.getMetadataTablePrefix(), tableName);
+
+        try (Connection connection = getConnection()) {
+            // Fetch table path
+            String tablePath;
+            try (PreparedStatement statement = connection.prepareStatement(tablePathQuery);
+                    ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    log.error("Table metadata not found for table: %s", tableName);
+                    return ImmutableList.of();
+                }
+                tablePath = resultSet.getString("table_path");
+            }
+
+            if (tablePath == null || tablePath.isEmpty()) {
+                log.error("Table path is null for table: %s", tableName);
+                return ImmutableList.of();
+            }
+
+            // Fetch archive IDs and create splits
+            try (PreparedStatement statement = connection.prepareStatement(archivePathQuery);
+                    ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    final String archiveId = resultSet.getString("id");
+                    final String archivePath = tablePath + "/" + archiveId;
+                    splits.add(new ClpSplit(tableSchemaName, archivePath, clpTableLayoutHandle.getQuery()));
+                }
+            }
+        }
+        catch (SQLException e) {
+            log.error("Database error while processing splits for %s: %s", tableName, e);
+        }
+
+        return splits;
     }
 }

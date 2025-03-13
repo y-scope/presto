@@ -16,6 +16,7 @@ package com.yscope.presto;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.NodeProvider;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.schedule.NodeSelectionStrategy;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -31,40 +32,31 @@ import static com.facebook.presto.spi.schedule.NodeSelectionStrategy.NO_PREFEREN
 public class ClpSplit
         implements ConnectorSplit
 {
-    private final String schemaName;
-    private final String tableName;
-    private final String archiveId;
+    private final SchemaTableName schemaTableName;
+    private final String archivePath;
     private final Optional<String> query;
 
     @JsonCreator
-    public ClpSplit(@JsonProperty("schemaName") @Nullable String schemaName,
-                    @JsonProperty("tableName") @Nullable String tableName,
-                    @JsonProperty("archiveId") @Nullable String archiveId,
+    public ClpSplit(@JsonProperty("schemaTableName") @Nullable SchemaTableName schemaTableName,
+                    @JsonProperty("archivePath") @Nullable String archivePath,
                     @JsonProperty("query") Optional<String> query)
     {
-        this.schemaName = schemaName;
-        this.tableName = tableName;
-        this.archiveId = archiveId;
+        this.schemaTableName = schemaTableName;
+        this.archivePath = archivePath;
         this.query = query;
     }
 
     @JsonProperty
     @Nullable
-    public String getSchemaName()
+    public SchemaTableName getSchemaTableName()
     {
-        return schemaName;
+        return schemaTableName;
     }
 
     @JsonProperty
-    public String getTableName()
+    public String getArchivePath()
     {
-        return tableName;
-    }
-
-    @JsonProperty
-    public String getArchiveId()
-    {
-        return archiveId;
+        return archivePath;
     }
 
     @JsonProperty
