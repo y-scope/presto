@@ -1560,7 +1560,8 @@ TpchPrestoToVeloxConnector::createConnectorProtocol() const {
 std::unique_ptr<velox::connector::ConnectorSplit>
 ClpPrestoToVeloxConnector::toVeloxSplit(
     const protocol::ConnectorId& catalogId,
-    const protocol::ConnectorSplit* connectorSplit) const {
+    const protocol::ConnectorSplit* connectorSplit,
+    const protocol::SplitContext* splitContext) const {
   auto clpSplit = dynamic_cast<const protocol::clp::ClpSplit*>(connectorSplit);
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);

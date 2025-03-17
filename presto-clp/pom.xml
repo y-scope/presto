@@ -11,7 +11,7 @@
 
     <groupId>com.yscope.presto</groupId>
     <artifactId>presto-clp</artifactId>
-    <description>Presto - CLP connector</description>
+    <description>Presto - CLP Connector</description>
     <packaging>presto-plugin</packaging>
 
     <properties>
