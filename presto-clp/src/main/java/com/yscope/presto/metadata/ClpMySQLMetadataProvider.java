@@ -58,7 +58,12 @@ public class ClpMySQLMetadataProvider
 
     private Connection getConnection() throws SQLException
     {
-        return DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+        Connection connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+        String dbName = config.getMetadataDbName();
+        if (dbName != null && !dbName.isEmpty()) {
+            connection.createStatement().execute("USE " + dbName);
+        }
+        return connection;
     }
 
     // TODO(Rui): Consider move it to a util class
