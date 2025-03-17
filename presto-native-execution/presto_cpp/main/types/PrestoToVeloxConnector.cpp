@@ -1561,21 +1561,21 @@ std::unique_ptr<velox::connector::ConnectorSplit>
 ClpPrestoToVeloxConnector::toVeloxSplit(
     const protocol::ConnectorId& catalogId,
     const protocol::ConnectorSplit* connectorSplit) const {
-  auto clpSplit = dynamic_cast<const protocol::ClpSplit*>(connectorSplit);
+  auto clpSplit = dynamic_cast<const protocol::clp::ClpSplit*>(connectorSplit);
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
   return std::make_unique<connector::clp::ClpConnectorSplit>(
       catalogId,
-      clpSplit->schemaName,
-      clpSplit->tableName,
-      clpSplit->archiveId);
+      clpSplit->schemaTableName.schema,
+      clpSplit->schemaTableName.table,
+      clpSplit->archivePath);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>
 ClpPrestoToVeloxConnector::toVeloxColumnHandle(
     const protocol::ColumnHandle* column,
     const TypeParser& typeParser) const {
-  auto clpColumn = dynamic_cast<const protocol::ClpColumnHandle*>(column);
+  auto clpColumn = dynamic_cast<const protocol::clp::ClpColumnHandle*>(column);
   VELOX_CHECK_NOT_NULL(
       clpColumn, "Unexpected column handle type {}", column->_type);
   return std::make_unique<connector::clp::ClpColumnHandle>(
@@ -1593,7 +1593,7 @@ ClpPrestoToVeloxConnector::toVeloxTableHandle(
         std::string,
         std::shared_ptr<velox::connector::ColumnHandle>>& assignments) const {
   auto clpLayout =
-      std::dynamic_pointer_cast<const protocol::ClpTableLayoutHandle>(
+      std::dynamic_pointer_cast<const protocol::clp::ClpTableLayoutHandle>(
           tableHandle.connectorTableLayout);
   VELOX_CHECK_NOT_NULL(
       clpLayout,
@@ -1605,7 +1605,7 @@ ClpPrestoToVeloxConnector::toVeloxTableHandle(
 
 std::unique_ptr<protocol::ConnectorProtocol>
 ClpPrestoToVeloxConnector::createConnectorProtocol() const {
-  return std::make_unique<protocol::ClpConnectorProtocol>();
+  return std::make_unique<protocol::clp::ClpConnectorProtocol>();
 }
 
 } // namespace facebook::presto
