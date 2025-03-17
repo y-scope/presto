@@ -45,24 +45,17 @@
     "struct": true,
     "fields": [
       {
-        "field_type": "String",
-        "field_name": "schemaName",
-        "field_text": "String",
+        "field_type": "SchemaTableName",
+        "field_name": "schemaTableName",
+        "field_text": "SchemaTableName",
         "_N": 1,
         "field_local": true
       },
       {
         "field_type": "String",
-        "field_name": "tableName",
+        "field_name": "archivePath",
         "field_text": "String",
         "_N": 2,
-        "field_local": true
-      },
-      {
-        "field_type": "String",
-        "field_name": "archiveId",
-        "field_text": "String",
-        "_N": 3,
         "field_local": true
       },
       {
@@ -70,7 +63,7 @@
         "field_name": "query",
         "field_text": "String",
         "optional": true,
-        "_N": 4,
+        "_N": 3,
         "field_local": true
       }
     ],

@@ -65,9 +65,8 @@ void from_json(const json& j, ClpColumnHandle& p);
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
 struct ClpSplit : public ConnectorSplit {
-  String schemaName = {};
-  String tableName = {};
-  String archiveId = {};
+  SchemaTableName schemaTableName = {};
+  String archivePath = {};
   std::shared_ptr<String> query = {};
 
   ClpSplit() noexcept;

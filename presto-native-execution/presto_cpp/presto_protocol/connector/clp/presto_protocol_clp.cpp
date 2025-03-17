@@ -81,18 +81,28 @@ void to_json(json& j, const ClpSplit& p) {
   j = json::object();
   j["@type"] = "clp";
   to_json_key(
-      j, "schemaName", p.schemaName, "ClpSplit", "String", "schemaName");
-  to_json_key(j, "tableName", p.tableName, "ClpSplit", "String", "tableName");
-  to_json_key(j, "archiveId", p.archiveId, "ClpSplit", "String", "archiveId");
+      j,
+      "schemaTableName",
+      p.schemaTableName,
+      "ClpSplit",
+      "SchemaTableName",
+      "schemaTableName");
+  to_json_key(
+      j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   to_json_key(j, "query", p.query, "ClpSplit", "String", "query");
 }
 
 void from_json(const json& j, ClpSplit& p) {
   p._type = j["@type"];
   from_json_key(
-      j, "schemaName", p.schemaName, "ClpSplit", "String", "schemaName");
-  from_json_key(j, "tableName", p.tableName, "ClpSplit", "String", "tableName");
-  from_json_key(j, "archiveId", p.archiveId, "ClpSplit", "String", "archiveId");
+      j,
+      "schemaTableName",
+      p.schemaTableName,
+      "ClpSplit",
+      "SchemaTableName",
+      "schemaTableName");
+  from_json_key(
+      j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   from_json_key(j, "query", p.query, "ClpSplit", "String", "query");
 }
 } // namespace facebook::presto::protocol::clp
