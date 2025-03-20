@@ -28,6 +28,11 @@ public class ClpExpression
         this.remainingExpression = remainingExpression;
     }
 
+    public ClpExpression()
+    {
+        this (Optional.empty(), Optional.empty());
+    }
+
     public ClpExpression(String definition)
     {
         this(Optional.of(definition), Optional.empty());

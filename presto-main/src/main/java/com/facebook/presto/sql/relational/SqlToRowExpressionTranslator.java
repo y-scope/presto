@@ -914,10 +914,10 @@ public final class SqlToRowExpressionTranslator
                 return likeFunctionCall(value, call(getSourceLocation(node), "LIKE_PATTERN", functionResolution.likePatternFunction(), LIKE_PATTERN, pattern, escape));
             }
 
-//            RowExpression prefixOrSuffixMatch = generateLikePrefixOrSuffixMatch(value, pattern);
-//            if (prefixOrSuffixMatch != null) {
-//                return prefixOrSuffixMatch;
-//            }
+            RowExpression prefixOrSuffixMatch = generateLikePrefixOrSuffixMatch(value, pattern);
+            if (prefixOrSuffixMatch != null) {
+                return prefixOrSuffixMatch;
+            }
 
             if (!functionResolution.supportsLikePatternFunction()) {
                 return likeFunctionCall(value, pattern);
