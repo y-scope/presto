@@ -1,9 +1,7 @@
 *.iml
 *.ipr
 *.iws
-target/
-etc/
-data/
+target
 /var
 /*/var/
 /presto-product-tests/**/var/
