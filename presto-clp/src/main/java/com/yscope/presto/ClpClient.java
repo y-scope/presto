@@ -28,10 +28,8 @@ import javax.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -41,8 +39,8 @@ public class ClpClient
     private static final Logger log = Logger.get(ClpClient.class);
 
     private final ClpConfig config;
-    private final LoadingCache<SchemaTableName, Set<ClpColumnHandle>> columnHandleCache;
-    private final LoadingCache<String, Set<String>> tableNameCache;
+    private final LoadingCache<SchemaTableName, List<ClpColumnHandle>> columnHandleCache;
+    private final LoadingCache<String, List<String>> tableNameCache;
     private final ClpMetadataProvider clpMetadataProvider;
     private final ClpSplitProvider clpSplitProvider;
 
@@ -77,21 +75,21 @@ public class ClpClient
                 .build(CacheLoader.from(this::loadTableNames));
     }
 
-    public Set<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
+    public List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
     {
-        Set<ClpColumnHandle> columnHandles = clpMetadataProvider.listColumnHandles(schemaTableName);
+        List<ClpColumnHandle> columnHandles = clpMetadataProvider.listColumnHandles(schemaTableName);
         if (!config.isPolymorphicTypeEnabled()) {
             return columnHandles;
         }
         return handlePolymorphicType(columnHandles);
     }
 
-    public Set<String> loadTableNames(String schemaName)
+    public List<String> loadTableNames(String schemaName)
     {
         return clpMetadataProvider.listTableNames(schemaName);
     }
 
-    public Set<String> listTables(String schemaName)
+    public List<String> listTables(String schemaName)
     {
         return tableNameCache.getUnchecked(schemaName);
     }
@@ -101,15 +99,15 @@ public class ClpClient
         return clpSplitProvider.listSplits(layoutHandle);
     }
 
-    public Set<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
+    public List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
     {
         return columnHandleCache.getUnchecked(schemaTableName);
     }
 
-    private Set<ClpColumnHandle> handlePolymorphicType(Set<ClpColumnHandle> columnHandles)
+    private List<ClpColumnHandle> handlePolymorphicType(List<ClpColumnHandle> columnHandles)
     {
         Map<String, List<ClpColumnHandle>> columnNameToColumnHandles = new HashMap<>();
-        HashSet<ClpColumnHandle> polymorphicColumnHandles = new HashSet<>();
+        List<ClpColumnHandle> polymorphicColumnHandles = new ArrayList<>();
 
         for (ClpColumnHandle columnHandle : columnHandles) {
             columnNameToColumnHandles.computeIfAbsent(columnHandle.getColumnName(), k -> new ArrayList<>())

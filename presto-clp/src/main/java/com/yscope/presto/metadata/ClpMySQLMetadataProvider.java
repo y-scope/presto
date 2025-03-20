@@ -30,8 +30,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ClpMySQLMetadataProvider
         implements ClpMetadataProvider
@@ -89,9 +89,9 @@ public class ClpMySQLMetadataProvider
     }
 
     @Override
-    public Set<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
+    public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
     {
-        Set<ClpColumnHandle> columnHandles = new HashSet<>();
+        List<ClpColumnHandle> columnHandles = new ArrayList<>();
         String query = String.format(QUERY_SELECT_COLUMNS, config.getMetadataTablePrefix(), schemaTableName.getTableName());
 
         try (Connection connection = getConnection();
@@ -112,9 +112,9 @@ public class ClpMySQLMetadataProvider
     }
 
     @Override
-    public Set<String> listTableNames(String schema)
+    public List<String> listTableNames(String schema)
     {
-        Set<String> tableNames = new HashSet<>();
+        List<String> tableNames = new ArrayList<>();
 
         String query = String.format(QUERY_SELECT_TABLES, config.getMetadataTablePrefix());
         try (Connection connection = getConnection();

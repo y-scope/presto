@@ -16,12 +16,11 @@ package com.yscope.presto.metadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.yscope.presto.ClpColumnHandle;
 
-import java.util.Set;
+import java.util.List;
 
 public interface ClpMetadataProvider
 {
-    // TODO(Rui): Think about if it is necessary to return a set of ClpColumnHandle instead of a list of ClpColumnHandle
-    public Set<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName);
+    public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName);
 
-    public Set<String> listTableNames(String schema);
+    public List<String> listTableNames(String schema);
 }
