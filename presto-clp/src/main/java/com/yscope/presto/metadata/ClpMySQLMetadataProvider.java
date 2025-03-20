@@ -52,6 +52,7 @@ public class ClpMySQLMetadataProvider
         }
         catch (ClassNotFoundException e) {
             log.error(e, "Failed to load MySQL JDBC driver");
+            throw new RuntimeException("MySQL JDBC driver not found", e);
         }
         this.config = config;
     }

@@ -64,4 +64,4 @@ presto_protocol.proto: presto_protocol-json
 	pystache presto_protocol-protobuf.mustache connector/hive/presto_protocol_hive.json > connector/hive/presto_protocol_hive.proto
 	pystache presto_protocol-protobuf.mustache connector/iceberg/presto_protocol_iceberg.json > connector/iceberg/presto_protocol_iceberg.proto
 	pystache presto_protocol-protobuf.mustache connector/tpch/presto_protocol_tpch.json > connector/tpch/presto_protocol_tpch.proto
-	pystache presto_protocol-protobuf.mustache connector/clp/presto_protocol_clp.json > connector/clp/presto_protocol_tpch.proto
+	pystache presto_protocol-protobuf.mustache connector/clp/presto_protocol_clp.json > connector/clp/presto_protocol_clp.proto
