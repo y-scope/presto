@@ -48,9 +48,6 @@ public class ClpConfig
     private ArchiveSource archiveSource = ArchiveSource.LOCAL;
     // TODO(Rui): We need to add it in the example configuration files and in Velox
     private SplitSource splitSource = SplitSource.MYSQL;
-    private String clpArchiveDir;
-    private String s3Bucket;
-    private String s3KeyPrefix;
 
     public boolean isPolymorphicTypeEnabled()
     {
@@ -181,42 +178,6 @@ public class ClpConfig
     public ClpConfig setSplitSource(SplitSource splitSource)
     {
         this.splitSource = splitSource;
-        return this;
-    }
-
-    public String getClpArchiveDir()
-    {
-        return clpArchiveDir;
-    }
-
-    @Config("clp.archive-dir")
-    public ClpConfig setClpArchiveDir(String clpArchiveDir)
-    {
-        this.clpArchiveDir = clpArchiveDir;
-        return this;
-    }
-
-    public String getS3Bucket()
-    {
-        return s3Bucket;
-    }
-
-    @Config("clp.s3-bucket")
-    public ClpConfig setS3Bucket(String s3Bucket)
-    {
-        this.s3Bucket = s3Bucket;
-        return this;
-    }
-
-    public String getS3KeyPrefix()
-    {
-        return s3KeyPrefix;
-    }
-
-    @Config("clp.s3-key-prefix")
-    public ClpConfig setS3KeyPrefix(String s3KeyPrefix)
-    {
-        this.s3KeyPrefix = s3KeyPrefix;
         return this;
     }
 }

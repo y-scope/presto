@@ -14,7 +14,7 @@
 BUILD_BASE_DIR=_build
 BUILD_DIR=release
 BUILD_TYPE=Release
-TREAT_WARNINGS_AS_ERRORS = 0
+TREAT_WARNINGS_AS_ERRORS ?= 1
 ENABLE_WALL ?= 1
 NUM_THREADS ?= $(shell getconf _NPROCESSORS_CONF 2>/dev/null || echo 1)
 CPU_TARGET ?= "avx"
@@ -94,7 +94,7 @@ release:				#: Build the release version
 
 cmake-and-build:			#: cmake and build without updating submodules which requires git
 	cmake -B "$(BUILD_BASE_DIR)/$(BUILD_DIR)" $(FORCE_COLOR) $(CMAKE_FLAGS) $(EXTRA_CMAKE_FLAGS)
-	cmake --build $(BUILD_BASE_DIR)/$(BUILD_DIR) --target presto_server -j $(NUM_THREADS)
+	cmake --build $(BUILD_BASE_DIR)/$(BUILD_DIR) -j $(NUM_THREADS)
 
 unittest: debug			#: Build with debugging and run unit tests
 	cd $(BUILD_BASE_DIR)/debug && ctest -j $(NUM_THREADS) -VV --output-on-failure --exclude-regex velox.*
