@@ -192,14 +192,15 @@ public class TestClpPlanOptimizer
     @Test
     public void testComplexPushdown()
     {
+        SessionHolder sessionHolder = new SessionHolder();
+
         testFilter("(fare > 0 OR city like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
                 Optional.of("((fare > 0 OR city: \"b*\"))"),
                 Optional.of("(lower(\"region.Name\") = 'hello world' OR city IS NULL)"),
-                new SessionHolder());
-        // complex cases with and, or and not
+                sessionHolder);
         testFilter("\"region.Id\" = 1 AND (fare > 0 OR city not like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
                 Optional.of("((region.Id: 1 AND (fare > 0 OR NOT city: \"b*\")))"),
                 Optional.of("lower(\"region.Name\") = 'hello world' OR city IS NULL"),
-                new SessionHolder());
+                sessionHolder);
     }
 }

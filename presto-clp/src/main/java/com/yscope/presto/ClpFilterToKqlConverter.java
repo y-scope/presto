@@ -318,12 +318,11 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * If lengthExpression is a constant integer or LENGTH('someString') that matches targetString.length(),
+     * If lengthExpression is a constant integer that matches targetString.length(),
      * return that length. Otherwise empty.
      */
     private Optional<Integer> parseLengthLiteralOrFunction(RowExpression lengthExpression, String targetString)
     {
-        // 1) If it’s a constant, just compare to targetString.length()
         if (lengthExpression instanceof ConstantExpression) {
             String val = getLiteralString((ConstantExpression) lengthExpression);
             try {
@@ -333,22 +332,6 @@ public class ClpFilterToKqlConverter
                 }
             }
             catch (NumberFormatException ignored) { }
-            return Optional.empty();
-        }
-        // 2) If it’s a function call, see if it’s LENGTH('xyz') that matches
-        if (lengthExpression instanceof CallExpression) {
-            CallExpression call = (CallExpression) lengthExpression;
-            FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(call.getFunctionHandle());
-            String functionName = functionMetadata.getName().getObjectName();
-            if (functionName.equals("length") && call.getArguments().size() == 1) {
-                RowExpression arg0 = call.getArguments().get(0);
-                if (arg0 instanceof ConstantExpression) {
-                    String inside = getLiteralString((ConstantExpression) arg0);
-                    if (inside.equals(targetString)) {
-                        return Optional.of(targetString.length());
-                    }
-                }
-            }
         }
         return Optional.empty();
     }
@@ -365,7 +348,7 @@ public class ClpFilterToKqlConverter
             if (maybeStart.isPresent() && maybeLen.isPresent()) {
                 int start = maybeStart.get();
                 int len = maybeLen.get();
-                if (len == targetString.length()) {
+                if (start > 0 && len == targetString.length()) {
                     StringBuilder result = new StringBuilder();
                     result.append(info.variableName).append(": \"");
                     for (int i = 1; i < start; i++) {
