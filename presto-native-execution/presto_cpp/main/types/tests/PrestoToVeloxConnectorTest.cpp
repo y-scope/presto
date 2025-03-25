@@ -33,6 +33,8 @@ TEST_F(PrestoToVeloxConnectorTest, registerVariousConnectors) {
       "iceberg", std::make_unique<IcebergPrestoToVeloxConnector>("iceberg")));
   connectorList.emplace_back(
       std::pair("tpch", std::make_unique<HivePrestoToVeloxConnector>("tpch")));
+  connectorList.emplace_back(
+      std::pair("clp", std::make_unique<ClpPrestoToVeloxConnector>("clp")));
 
   for (auto& [connectorName, connector] : connectorList) {
     registerPrestoToVeloxConnector(std::move(connector));
