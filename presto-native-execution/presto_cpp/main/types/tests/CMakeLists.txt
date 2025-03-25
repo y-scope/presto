@@ -26,7 +26,6 @@ target_link_libraries(
   velox_dwio_orc_reader
   velox_hive_connector
   velox_tpch_connector
-  velox_clp_connector
   velox_exec
   velox_dwio_common_exception
   presto_type_converter
@@ -63,7 +62,6 @@ target_link_libraries(
   velox_functions_lib
   velox_hive_connector
   velox_tpch_connector
-  velox_clp_connector
   velox_hive_partition_function
   velox_presto_serializer
   velox_serialization
@@ -95,7 +93,6 @@ target_link_libraries(
   velox_dwio_common
   velox_hive_connector
   velox_tpch_connector
-  velox_clp_connector
   GTest::gtest
   GTest::gtest_main)
 
