@@ -67,49 +67,23 @@ public class ClpMySQLMetadataProvider
         return connection;
     }
 
-    // TODO(Rui): Consider move it to a util class
-    private Type mapColumnType(byte type)
-    {
-        switch (ClpNodeType.fromType(type)) {
-            case Integer:
-                return BigintType.BIGINT;
-            case Float:
-                return DoubleType.DOUBLE;
-            case ClpString:
-            case VarString:
-            case DateString:
-            case NullValue:
-                return VarcharType.VARCHAR;
-            case UnstructuredArray:
-                return new ArrayType(VarcharType.VARCHAR);
-            case Boolean:
-                return BooleanType.BOOLEAN;
-            default:
-                throw new IllegalArgumentException("Unknown column type: " + type);
-        }
-    }
-
     @Override
     public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
     {
-        List<ClpColumnHandle> columnHandles = new ArrayList<>();
         String query = String.format(QUERY_SELECT_COLUMNS, config.getMetadataTablePrefix(), schemaTableName.getTableName());
-
+        ClpSchemaTree schemaTree = new ClpSchemaTree(config.isPolymorphicTypeEnabled());
         try (Connection connection = getConnection();
                 PreparedStatement statement = connection.prepareStatement(query)) {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    columnHandles.add(new ClpColumnHandle(
-                            resultSet.getString("name"),
-                            mapColumnType(resultSet.getByte("type")),
-                            true));
+                    schemaTree.addColumn(resultSet.getString("name"), resultSet.getByte("type"));
                 }
             }
         }
         catch (SQLException e) {
             log.error("Failed to load table schema for %s: %s" + schemaTableName.getTableName(), e);
         }
-        return columnHandles;
+        return schemaTree.collectColumnHandles();
     }
 
     @Override
