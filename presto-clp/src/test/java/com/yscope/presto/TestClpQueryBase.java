@@ -15,6 +15,7 @@ package com.yscope.presto;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
@@ -34,6 +35,7 @@ import com.facebook.presto.sql.relational.SqlToRowExpressionTranslator;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.testing.TestingSession;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
@@ -56,13 +58,15 @@ public class TestClpQueryBase
     protected static final StandardFunctionResolution standardFunctionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
     protected static final Metadata metadata = MetadataManager.createTestMetadataManager();
 
-    protected static ClpColumnHandle regionId = new ClpColumnHandle("region.Id", BIGINT, true);
-    protected static ClpColumnHandle regionName = new ClpColumnHandle("region.Name", VARCHAR, true);
+    protected static ClpColumnHandle region = new ClpColumnHandle("region", RowType.from(ImmutableList.of(
+            RowType.field("Id", BIGINT),
+            RowType.field("Name", VARCHAR)
+    )), true);
     protected static ClpColumnHandle city = new ClpColumnHandle("city", VARCHAR, true);
     protected static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE, true);
     protected static final ClpColumnHandle isHoliday = new ClpColumnHandle("isHoliday", BOOLEAN, true);
     protected static final Map<VariableReferenceExpression, ColumnHandle> variableToColumnHandleMap =
-            Stream.of(regionId, regionName, city, fare, isHoliday)
+            Stream.of(region, city, fare, isHoliday)
                     .collect(toMap(
                             ch -> new VariableReferenceExpression(Optional.empty(), ch.getColumnName(), ch.getColumnType()),
                             ch -> ch));

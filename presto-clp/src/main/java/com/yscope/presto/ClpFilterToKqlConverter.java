@@ -14,6 +14,7 @@
 package com.yscope.presto;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.ColumnHandle;
@@ -32,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -200,6 +202,62 @@ public class ClpFilterToKqlConverter
 
         String variableName = expression.getDefinition().get();
         return new ClpExpression(String.format("NOT %s: *", variableName));
+    }
+
+    private ClpExpression handleDeferenceImpl(RowExpression node)
+    {
+        if (node instanceof VariableReferenceExpression) {
+            return node.accept(this, null);
+        }
+
+        if (!(node instanceof SpecialFormExpression)) {
+            return new ClpExpression(node);
+        }
+
+        SpecialFormExpression specialForm = (SpecialFormExpression) node;
+        List<RowExpression> arguments = specialForm.getArguments();
+        if (arguments.size() != 2) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "DEREFERENCE expects 2 arguments");
+        }
+
+        RowExpression base = arguments.get(0);
+        RowExpression index = arguments.get(1);
+        if (!(index instanceof ConstantExpression)) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "DEREFERENCE index must be a constant");
+        }
+
+        ConstantExpression constExpr = (ConstantExpression) index;
+        Object value = constExpr.getValue();
+        if (!(value instanceof Long)) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "DEREFERENCE index constant is not a long");
+        }
+
+        int fieldIndex = ((Long) value).intValue();
+
+        Type baseType = base.getType();
+        if (!(baseType instanceof RowType)) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "DEREFERENCE base is not a RowType: " + baseType);
+        }
+
+        RowType rowType = (RowType) baseType;
+        if (fieldIndex < 0 || fieldIndex >= rowType.getFields().size()) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Invalid field index " + fieldIndex + " for RowType: " + rowType);
+        }
+
+        RowType.Field field = rowType.getFields().get(fieldIndex);
+        String fieldName = field.getName().orElse("field" + fieldIndex);
+
+        ClpExpression baseString = handleDeferenceImpl(base);
+        if (!baseString.getDefinition().isPresent()) {
+            return new ClpExpression(node);
+        }
+        return new ClpExpression(baseString.getDefinition() + "." + fieldName);
+    }
+
+    private ClpExpression handleDereference(SpecialFormExpression expression)
+    {
+        return handleDeferenceImpl(expression);
     }
 
     // Only handles the case where there is a SQL wildcard in the middle of the string
@@ -537,6 +595,8 @@ public class ClpFilterToKqlConverter
                 return handleIn(node);
             case IS_NULL:
                 return handleIsNull(node);
+            case DEREFERENCE:
+                return handleDereference(node);
             default:
                 return new ClpExpression(node);
         }
