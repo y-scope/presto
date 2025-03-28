@@ -252,7 +252,7 @@ public class ClpFilterToKqlConverter
         if (!baseString.getDefinition().isPresent()) {
             return new ClpExpression(node);
         }
-        return new ClpExpression(baseString.getDefinition() + "." + fieldName);
+        return new ClpExpression(baseString.getDefinition().get() + "." + fieldName);
     }
 
     private ClpExpression handleDereference(SpecialFormExpression expression)
@@ -332,12 +332,12 @@ public class ClpFilterToKqlConverter
             return Optional.empty();
         }
 
-        RowExpression arg0 = callExpression.getArguments().get(0);
-        if (!(arg0 instanceof VariableReferenceExpression)) {
+        ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
+        if (!variable.getDefinition().isPresent()) {
             return Optional.empty();
         }
 
-        String varName = getVariableName((VariableReferenceExpression) arg0);
+        String varName = variable.getDefinition().get();
         RowExpression startExpression = callExpression.getArguments().get(1);
         RowExpression lengthExpression = null;
         if (argCount == 3) {
@@ -518,15 +518,13 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
-        boolean leftIsVariable = (left instanceof VariableReferenceExpression);
-        boolean rightIsVariable = (right instanceof VariableReferenceExpression);
         boolean leftIsConstant = (left instanceof ConstantExpression);
         boolean rightIsConstant = (right instanceof ConstantExpression);
 
         Type leftType = left.getType();
         Type rightType = right.getType();
 
-        if (leftIsVariable && rightIsConstant) {
+        if (rightIsConstant) {
             return buildClpExpression(
                     leftDefinition.get(),    // variable
                     rightDefinition.get(),   // literal
@@ -534,7 +532,7 @@ public class ClpFilterToKqlConverter
                     rightType,
                     node);
         }
-        else if (leftIsConstant && rightIsVariable) {
+        else if (leftIsConstant) {
             OperatorType newOperator = OperatorType.flip(operator);
             return buildClpExpression(
                     rightDefinition.get(),   // variable

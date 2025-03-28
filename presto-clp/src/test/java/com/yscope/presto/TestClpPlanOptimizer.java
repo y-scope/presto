@@ -119,15 +119,15 @@ public class TestClpPlanOptimizer
 
         testFilter("fare > 0 OR city like 'b%'", Optional.of("(fare > 0 OR city: \"b*\")"), Optional.empty(),
                 sessionHolder);
-        testFilter("lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1", Optional.empty(), Optional.of("(lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1)"),
+        testFilter("lower(region.Name) = 'hello world' OR region.Id != 1", Optional.empty(), Optional.of("(lower(region.Name) = 'hello world' OR region.Id != 1)"),
                 sessionHolder);
 
         // Multiple ORs
-        testFilter("fare > 0 OR city like 'b%' OR lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1",
+        testFilter("fare > 0 OR city like 'b%' OR lower(region.Name) = 'hello world' OR region.Id != 1",
                 Optional.empty(),
-                Optional.of("fare > 0 OR city like 'b%' OR lower(\"region.Name\") = 'hello world' OR \"region.Id\" != 1"),
+                Optional.of("fare > 0 OR city like 'b%' OR lower(region.Name) = 'hello world' OR region.Id != 1"),
                 sessionHolder);
-        testFilter("fare > 0 OR city like 'b%' OR \"region.Id\" != 1",
+        testFilter("fare > 0 OR city like 'b%' OR region.Id != 1",
                 Optional.of("((fare > 0 OR city: \"b*\") OR NOT region.Id: 1)"),
                 Optional.empty(),
                 sessionHolder);
@@ -139,17 +139,17 @@ public class TestClpPlanOptimizer
         SessionHolder sessionHolder = new SessionHolder();
 
         testFilter("fare > 0 AND city like 'b%'", Optional.of("(fare > 0 AND city: \"b*\")"), Optional.empty(), sessionHolder);
-        testFilter("lower(\"region.Name\") = 'hello world' AND \"region.Id\" != 1", Optional.of("(NOT region.Id: 1)"), Optional.of("lower(\"region.Name\") = 'hello world'"),
+        testFilter("lower(region.Name) = 'hello world' AND region.Id != 1", Optional.of("(NOT region.Id: 1)"), Optional.of("lower(region.Name) = 'hello world'"),
                 sessionHolder);
 
         // Multiple ANDs
-        testFilter("fare > 0 AND city like 'b%' AND lower(\"region.Name\") = 'hello world' AND \"region.Id\" != 1",
+        testFilter("fare > 0 AND city like 'b%' AND lower(region.Name) = 'hello world' AND region.Id != 1",
                 Optional.of("(((fare > 0 AND city: \"b*\")) AND NOT region.Id: 1)"),
-                Optional.of("(lower(\"region.Name\") = 'hello world')"),
+                Optional.of("(lower(region.Name) = 'hello world')"),
                 sessionHolder);
-        testFilter("fare > 0 AND city like '%b%' AND lower(\"region.Name\") = 'hello world' AND \"region.Id\" != 1",
+        testFilter("fare > 0 AND city like '%b%' AND lower(region.Name) = 'hello world' AND region.Id != 1",
                 Optional.of("(((fare > 0)) AND NOT region.Id: 1)"),
-                Optional.of("city like '%b%' AND lower(\"region.Name\") = 'hello world'"),
+                Optional.of("city like '%b%' AND lower(region.Name) = 'hello world'"),
                 sessionHolder);
     }
 
@@ -158,8 +158,8 @@ public class TestClpPlanOptimizer
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter("\"region.Name\" NOT LIKE 'hello%'", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
-        testFilter("NOT (\"region.Name\" LIKE 'hello%')", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("region.Name NOT LIKE 'hello%'", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
+        testFilter("NOT (region.Name LIKE 'hello%')", Optional.of("NOT region.Name: \"hello*\""), Optional.empty(), sessionHolder);
         testFilter("city != 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
         testFilter("city <> 'hello world'", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
         testFilter("NOT (city = 'hello world')", Optional.of("NOT city: \"hello world\""), Optional.empty(), sessionHolder);
@@ -194,13 +194,13 @@ public class TestClpPlanOptimizer
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter("(fare > 0 OR city like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
+        testFilter("(fare > 0 OR city like 'b%') AND (lower(region.Name) = 'hello world' OR city IS NULL)",
                 Optional.of("((fare > 0 OR city: \"b*\"))"),
-                Optional.of("(lower(\"region.Name\") = 'hello world' OR city IS NULL)"),
+                Optional.of("(lower(region.Name) = 'hello world' OR city IS NULL)"),
                 sessionHolder);
-        testFilter("\"region.Id\" = 1 AND (fare > 0 OR city not like 'b%') AND (lower(\"region.Name\") = 'hello world' OR city IS NULL)",
+        testFilter("region.Id = 1 AND (fare > 0 OR city not like 'b%') AND (lower(region.Name) = 'hello world' OR city IS NULL)",
                 Optional.of("((region.Id: 1 AND (fare > 0 OR NOT city: \"b*\")))"),
-                Optional.of("lower(\"region.Name\") = 'hello world' OR city IS NULL"),
+                Optional.of("lower(region.Name) = 'hello world' OR city IS NULL"),
                 sessionHolder);
     }
 }

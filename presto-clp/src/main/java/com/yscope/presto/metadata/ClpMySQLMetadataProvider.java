@@ -14,12 +14,6 @@
 package com.yscope.presto.metadata;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.common.type.ArrayType;
-import com.facebook.presto.common.type.BigintType;
-import com.facebook.presto.common.type.BooleanType;
-import com.facebook.presto.common.type.DoubleType;
-import com.facebook.presto.common.type.Type;
-import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.SchemaTableName;
 import com.yscope.presto.ClpColumnHandle;
 import com.yscope.presto.ClpConfig;

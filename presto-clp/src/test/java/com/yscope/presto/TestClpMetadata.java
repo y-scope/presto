@@ -16,6 +16,7 @@ package com.yscope.presto;
 import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.common.type.BooleanType;
 import com.facebook.presto.common.type.DoubleType;
+import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
@@ -105,7 +106,6 @@ public class TestClpMetadata
                     new Pair<>("a", ClpNodeType.VarString),
                     new Pair<>("b", ClpNodeType.Float),
                     new Pair<>("b", ClpNodeType.ClpString),
-                    new Pair<>("c", ClpNodeType.Float),
                     new Pair<>("c.d", ClpNodeType.Boolean),
                     new Pair<>("c.e", ClpNodeType.VarString));
 
@@ -179,16 +179,12 @@ public class TestClpMetadata
                 .setNullable(true)
                 .build());
         columnMetadata.add(ColumnMetadata.builder()
-                .setName("c.d")
-                .setType(BooleanType.BOOLEAN)
+                .setName("c")
+                .setType(RowType.from(ImmutableList.of(
+                        RowType.field("d", BooleanType.BOOLEAN),
+                        RowType.field("e", VarcharType.VARCHAR))))
                 .setNullable(true)
                 .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("c.e")
-                .setType(VarcharType.VARCHAR)
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder().setName("c").setType(DoubleType.DOUBLE).setNullable(true).build());
         assertEquals(columnMetadata, new HashSet<>(tableMetadata.getColumns()));
     }
 }

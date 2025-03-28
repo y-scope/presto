@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.yscope.presto.metadata;
 
 import com.facebook.presto.common.type.ArrayType;
@@ -10,7 +23,6 @@ import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.PrestoException;
 import com.yscope.presto.ClpColumnHandle;
 import com.yscope.presto.ClpErrorCode;
-import com.yscope.presto.ClpExpression;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,13 +32,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public class ClpSchemaTree {
-    static class ClpNode {
+public class ClpSchemaTree
+{
+    static class ClpNode
+    {
         Type type; // Only non-null for leaf nodes
         Map<String, ClpNode> children = new HashMap<>();
         Set<String> conflictingBaseNames = new HashSet<>();
 
-        boolean isLeaf() {
+        boolean isLeaf()
+        {
             return children.isEmpty();
         }
     }
@@ -60,7 +75,8 @@ public class ClpSchemaTree {
         }
     }
 
-    public void addColumn(String fullName, byte type) {
+    public void addColumn(String fullName, byte type)
+    {
         Type prestoType = mapColumnType(type);
         String[] path = fullName.split("\\.");
         ClpNode current = root;
@@ -81,7 +97,7 @@ public class ClpSchemaTree {
                 ClpNode existing = current.children.get(leafName);
 
                 if (existing.type != null && !existing.type.equals(prestoType)) {
-                    String existingSuffix = existing.type.getDisplayName().toLowerCase();
+                    String existingSuffix = existing.type.getDisplayName();
                     String renamedExisting = leafName + "_" + existingSuffix;
 
                     current.children.remove(leafName);
@@ -90,12 +106,13 @@ public class ClpSchemaTree {
                     current.conflictingBaseNames.add(leafName);
                     conflictDetected = true;
                 }
-            } else if (current.conflictingBaseNames.contains(leafName)) {
+            }
+            else if (current.conflictingBaseNames.contains(leafName)) {
                 conflictDetected = true;
             }
 
             if (conflictDetected) {
-                String newSuffix = prestoType.getDisplayName().toLowerCase();
+                String newSuffix = prestoType.getDisplayName();
                 finalLeafName = leafName + "_" + newSuffix;
             }
         }
@@ -105,14 +122,16 @@ public class ClpSchemaTree {
         current.children.put(finalLeafName, leaf);
     }
 
-    public List<ClpColumnHandle> collectColumnHandles() {
+    public List<ClpColumnHandle> collectColumnHandles()
+    {
         List<ClpColumnHandle> columns = new ArrayList<>();
         for (Map.Entry<String, ClpNode> entry : root.children.entrySet()) {
             String name = entry.getKey();
             ClpNode child = entry.getValue();
             if (child.isLeaf()) {
                 columns.add(new ClpColumnHandle(name, child.type, true));
-            } else {
+            }
+            else {
                 Type rowType = buildRowType(child);
                 columns.add(new ClpColumnHandle(name, rowType, true));
             }
@@ -120,7 +139,8 @@ public class ClpSchemaTree {
         return columns;
     }
 
-    private Type buildRowType(ClpNode node) {
+    private Type buildRowType(ClpNode node)
+    {
         List<RowType.Field> fields = new ArrayList<>();
         for (Map.Entry<String, ClpNode> entry : node.children.entrySet()) {
             String name = entry.getKey();
