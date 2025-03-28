@@ -159,10 +159,11 @@ public class ClpFilterToKqlConverter
 
     private ClpExpression handleIn(SpecialFormExpression node)
     {
-        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)) {
+        ClpExpression variable = node.getArguments().get(0).accept(this, null);
+        if (!variable.getDefinition().isPresent()) {
             return new ClpExpression(node);
         }
-        String variableName = getVariableName((VariableReferenceExpression) node.getArguments().get(0));
+        String variableName = variable.getDefinition().get();
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments().subList(1, node.getArguments().size())) {
@@ -189,10 +190,6 @@ public class ClpFilterToKqlConverter
         if (node.getArguments().size() != 1) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "IS NULL operator must have exactly one argument. Received: " + node);
-        }
-
-        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)) {
-            return new ClpExpression(node);
         }
 
         ClpExpression expression = node.getArguments().get(0).accept(this, null);
@@ -267,11 +264,12 @@ public class ClpFilterToKqlConverter
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "LIKE operator must have exactly two arguments. Received: " + node);
         }
-        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)) {
+        ClpExpression variable = node.getArguments().get(0).accept(this, null);
+        if (!variable.getDefinition().isPresent()) {
             return new ClpExpression(node);
         }
 
-        String variableName = getVariableName((VariableReferenceExpression) node.getArguments().get(0));
+        String variableName = variable.getDefinition().get();
         RowExpression argument = node.getArguments().get(1);
 
         String pattern;

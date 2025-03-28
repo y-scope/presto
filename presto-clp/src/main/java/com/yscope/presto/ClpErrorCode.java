@@ -22,10 +22,10 @@ import static com.facebook.presto.common.ErrorType.EXTERNAL;
 public enum ClpErrorCode
         implements ErrorCodeSupplier
 {
-    CLP_UNSUPPORTED_TYPE(0, EXTERNAL),
     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION(0, EXTERNAL),
     CLP_UNSUPPORTED_METADATA_SOURCE(1, EXTERNAL),
-    CLP_UNSUPPORTED_SPLIT_SOURCE(2, EXTERNAL);
+    CLP_UNSUPPORTED_SPLIT_SOURCE(2, EXTERNAL),
+    CLP_UNSUPPORTED_TYPE(3, EXTERNAL);
 
     private final ErrorCode errorCode;
 
