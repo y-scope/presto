@@ -13,6 +13,7 @@
  */
 package com.yscope.presto;
 
+import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.common.type.BooleanType;
 import com.facebook.presto.common.type.DoubleType;
@@ -107,7 +108,8 @@ public class TestClpMetadata
                     new Pair<>("b", ClpNodeType.Float),
                     new Pair<>("b", ClpNodeType.ClpString),
                     new Pair<>("c.d", ClpNodeType.Boolean),
-                    new Pair<>("c.e", ClpNodeType.VarString));
+                    new Pair<>("c.e", ClpNodeType.VarString),
+                    new Pair<>("f.g.h", ClpNodeType.UnstructuredArray));
 
             try (PreparedStatement pstmt = conn.prepareStatement(insertColumnMetadataSQL)) {
                 for (Pair<String, ClpNodeType> record : records) {
@@ -183,6 +185,14 @@ public class TestClpMetadata
                 .setType(RowType.from(ImmutableList.of(
                         RowType.field("d", BooleanType.BOOLEAN),
                         RowType.field("e", VarcharType.VARCHAR))))
+                .setNullable(true)
+                .build());
+        columnMetadata.add(ColumnMetadata.builder()
+                .setName("f")
+                .setType(RowType.from(ImmutableList.of(
+                        RowType.field("g",
+                                RowType.from(ImmutableList.of(
+                                        RowType.field("h", new ArrayType(VarcharType.VARCHAR))))))))
                 .setNullable(true)
                 .build());
         assertEquals(columnMetadata, new HashSet<>(tableMetadata.getColumns()));

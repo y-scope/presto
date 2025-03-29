@@ -58,15 +58,16 @@ public class TestClpQueryBase
     protected static final StandardFunctionResolution standardFunctionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
     protected static final Metadata metadata = MetadataManager.createTestMetadataManager();
 
-    protected static ClpColumnHandle region = new ClpColumnHandle("region", RowType.from(ImmutableList.of(
-            RowType.field("Id", BIGINT),
-            RowType.field("Name", VARCHAR)
-    )), true);
-    protected static ClpColumnHandle city = new ClpColumnHandle("city", VARCHAR, true);
+    protected static ClpColumnHandle city = new ClpColumnHandle("city", RowType.from(ImmutableList.of(
+            RowType.field("Name", VARCHAR),
+            RowType.field("Region", RowType.from(ImmutableList.of(
+                    RowType.field("Id", BIGINT),
+                    RowType.field("Name", VARCHAR)
+            ))))), true);
     protected static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE, true);
     protected static final ClpColumnHandle isHoliday = new ClpColumnHandle("isHoliday", BOOLEAN, true);
     protected static final Map<VariableReferenceExpression, ColumnHandle> variableToColumnHandleMap =
-            Stream.of(region, city, fare, isHoliday)
+            Stream.of(city, fare, isHoliday)
                     .collect(toMap(
                             ch -> new VariableReferenceExpression(Optional.empty(), ch.getColumnName(), ch.getColumnType()),
                             ch -> ch));
