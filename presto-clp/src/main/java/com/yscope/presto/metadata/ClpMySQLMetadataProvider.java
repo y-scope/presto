@@ -61,6 +61,11 @@ public class ClpMySQLMetadataProvider
         return connection;
     }
 
+    private boolean isValidIdentifier(String identifier)
+    {
+        return identifier != null && ClpConfig.SAFE_SQL_IDENTIFIER.matcher(identifier).matches();
+    }
+
     @Override
     public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
     {
@@ -90,7 +95,13 @@ public class ClpMySQLMetadataProvider
                 Statement statement = connection.createStatement();
                 ResultSet resultSet = statement.executeQuery(query)) {
             while (resultSet.next()) {
-                tableNames.add(resultSet.getString("table_name"));
+                String tableName = resultSet.getString("table_name");
+                if (isValidIdentifier(tableName)) {
+                    tableNames.add(tableName);
+                }
+                else {
+                    log.warn("Ignoring invalid table name found in metadata: %s", tableName);
+                }
             }
         }
         catch (SQLException e) {

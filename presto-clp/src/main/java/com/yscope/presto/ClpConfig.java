@@ -14,6 +14,9 @@
 package com.yscope.presto;
 
 import com.facebook.airlift.configuration.Config;
+import com.facebook.presto.spi.PrestoException;
+
+import java.util.regex.Pattern;
 
 public class ClpConfig
 {
@@ -48,6 +51,8 @@ public class ClpConfig
     private ArchiveSource archiveSource = ArchiveSource.LOCAL;
     // TODO(Rui): We need to add it in the example configuration files and in Velox
     private SplitSource splitSource = SplitSource.MYSQL;
+
+    public static final Pattern SAFE_SQL_IDENTIFIER = Pattern.compile("^[a-zA-Z0-9_]+$");
 
     public boolean isPolymorphicTypeEnabled()
     {
@@ -129,6 +134,11 @@ public class ClpConfig
     @Config("clp.metadata-table-prefix")
     public ClpConfig setMetadataTablePrefix(String metadataTablePrefix)
     {
+        if (metadataTablePrefix == null || !SAFE_SQL_IDENTIFIER.matcher(metadataTablePrefix).matches()) {
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_CONFIG_OPTION, "Invalid metadataTablePrefix: " +
+                    metadataTablePrefix + ". Only alphanumeric characters and underscores are allowed.");
+        }
+
         this.metadataTablePrefix = metadataTablePrefix;
         return this;
     }
