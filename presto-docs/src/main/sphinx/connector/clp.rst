@@ -168,6 +168,12 @@ CLP Type               Presto Type
 (others)               (unsupported)
 ====================== ====================
 
+String Types
+^^^^^^^^^^^^
+
+In CLP, we have three distinct string types: ``ClpString`` (strings with whitespace), ``VarString`` (strings without
+whitespace), and ``DateString`` (strings representing dates). Currently, all three are mapped to Presto's ``VARCHAR``
+type.
 
 Array Types
 ^^^^^^^^^^^
