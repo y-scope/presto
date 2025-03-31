@@ -165,6 +165,7 @@ CLP Type               Presto Type
 ``DateString``         ``VARCHAR``
 ``Boolean``            ``BOOLEAN``
 ``UnstructuredArray``  ``ARRAY(VARCHAR)``
+``Object``             ``ROW``
 (others)               (unsupported)
 ====================== ====================
 
@@ -179,8 +180,37 @@ Array Types
 ^^^^^^^^^^^
 
 CLP supports two array types: ``UnstructuredArray`` and ``StructuredArray``. Unstructured arrays are stored as strings
-in CLP and elements can be any type. However, in Presto arrays are homogenous, so the elements are converted to strings
+in CLP and elements can be any type. However, in Presto arrays are homogeneous, so the elements are converted to strings
 when read. ``StructuredArray`` type is not supported yet.
+
+Object Types
+^^^^^^^^^^^^
+
+CLP stores metadata using a tree structure where internal nodes may represent objects containing nested fields as their
+children. In Presto, we represent internal object nodes specifically using the ``ROW`` data type, mapping each child
+node as a sub-field within the ``ROW``.
+
+
+For example, consider the JSON log:
+
+.. code-block:: json
+
+   {
+     "msg": {
+       "ts": 0,
+       "status": "ok"
+     }
+   }
+
+In CLP's schema tree, ``msg`` is an internal object node with two child nodes: ``ts`` and ``status``. In Presto, we map
+the ``msg`` node to a ``ROW`` type:
+
+.. code-block:: sql
+
+   ROW(ts BIGINT, status VARCHAR)
+
+Here, the child nodes ``ts`` and ``status`` become fields within the ``ROW``, clearly reflecting the nested structure of
+the original JSON.
 
 SQL support
 -----------
