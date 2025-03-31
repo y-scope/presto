@@ -185,13 +185,13 @@ when read. ``StructuredArray`` type is not supported yet.
 
 Object Types
 ^^^^^^^^^^^^
+CLP stores metadata using a global schema tree structure that captures all possible fields from various log structures.
+Internal nodes may represent objects containing nested fields as their children. In Presto, we map these internal object
+nodes specifically to the ``ROW`` data type, including all subfields as fields within the ``ROW``.
 
-CLP stores metadata using a tree structure where internal nodes may represent objects containing nested fields as their
-children. In Presto, we represent internal object nodes specifically using the ``ROW`` data type, mapping each child
-node as a sub-field within the ``ROW``.
+For instance, consider a table containing two distinct JSON log types:
 
-
-For example, consider the JSON log:
+Log Type 1:
 
 .. code-block:: json
 
@@ -202,15 +202,30 @@ For example, consider the JSON log:
      }
    }
 
-In CLP's schema tree, ``msg`` is an internal object node with two child nodes: ``ts`` and ``status``. In Presto, we map
-the ``msg`` node to a ``ROW`` type:
+Log Type 2:
+
+.. code-block:: json
+
+   {
+     "msg": {
+       "ts": 1,
+       "status": "error",
+       "thread_num": 4,
+       "backtrace": ""
+     }
+   }
+
+In CLP's schema tree, these two structures are combined into a unified internal node (``msg``) with four child nodes:
+``ts``, ``status``, ``thread_num`` and ``backtrace``. In Presto, we represent this combined structure using the
+following ``ROW`` type:
 
 .. code-block:: sql
 
-   ROW(ts BIGINT, status VARCHAR)
+   ROW(ts BIGINT, status VARCHAR, thread_num BIGINT, backtrace VARCHAR)
 
-Here, the child nodes ``ts`` and ``status`` become fields within the ``ROW``, clearly reflecting the nested structure of
-the original JSON.
+Each JSON log maps to this unified ``ROW`` type, with absent fields represented as ``NULL``. Thus, the child nodes
+(``ts``, ``status``, ``thread_num``, ``backtrace``) become fields within the ``ROW``, clearly reflecting the nested and
+varying structures of the original JSON logs.
 
 SQL support
 -----------
