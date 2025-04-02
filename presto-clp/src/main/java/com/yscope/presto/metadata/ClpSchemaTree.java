@@ -37,6 +37,7 @@ public class ClpSchemaTree
     static class ClpNode
     {
         Type type; // Only non-null for leaf nodes
+        String originalName;
         Map<String, ClpNode> children = new HashMap<>();
         Set<String> conflictingBaseNames = new HashSet<>();
 
@@ -119,6 +120,7 @@ public class ClpSchemaTree
 
         ClpNode leaf = new ClpNode();
         leaf.type = prestoType;
+        leaf.originalName = leafName;
         current.children.put(finalLeafName, leaf);
     }
 
@@ -129,11 +131,11 @@ public class ClpSchemaTree
             String name = entry.getKey();
             ClpNode child = entry.getValue();
             if (child.isLeaf()) {
-                columns.add(new ClpColumnHandle(name, child.type, true));
+                columns.add(new ClpColumnHandle(name, child.originalName, child.type, true));
             }
             else {
                 Type rowType = buildRowType(child);
-                columns.add(new ClpColumnHandle(name, rowType, true));
+                columns.add(new ClpColumnHandle(name, child.originalName, rowType, true));
             }
         }
         return columns;

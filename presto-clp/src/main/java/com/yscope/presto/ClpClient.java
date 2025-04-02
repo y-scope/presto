@@ -38,7 +38,6 @@ public class ClpClient
 {
     private static final Logger log = Logger.get(ClpClient.class);
 
-    private final ClpConfig config;
     private final LoadingCache<SchemaTableName, List<ClpColumnHandle>> columnHandleCache;
     private final LoadingCache<String, List<String>> tableNameCache;
     private final ClpMetadataProvider clpMetadataProvider;
@@ -47,7 +46,6 @@ public class ClpClient
     @Inject
     public ClpClient(ClpConfig config)
     {
-        this.config = requireNonNull(config, "config is null");
         if (config.getMetadataSource() == ClpConfig.MetadataSource.MYSQL) {
             clpMetadataProvider = new ClpMySQLMetadataProvider(config);
         }
@@ -77,11 +75,7 @@ public class ClpClient
 
     public List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
     {
-        List<ClpColumnHandle> columnHandles = clpMetadataProvider.listColumnHandles(schemaTableName);
-        if (!config.isPolymorphicTypeEnabled()) {
-            return columnHandles;
-        }
-        return handlePolymorphicType(columnHandles);
+        return clpMetadataProvider.listColumnHandles(schemaTableName);
     }
 
     public List<String> loadTableNames(String schemaName)
@@ -102,32 +96,5 @@ public class ClpClient
     public List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
     {
         return columnHandleCache.getUnchecked(schemaTableName);
-    }
-
-    private List<ClpColumnHandle> handlePolymorphicType(List<ClpColumnHandle> columnHandles)
-    {
-        Map<String, List<ClpColumnHandle>> columnNameToColumnHandles = new HashMap<>();
-        List<ClpColumnHandle> polymorphicColumnHandles = new ArrayList<>();
-
-        for (ClpColumnHandle columnHandle : columnHandles) {
-            columnNameToColumnHandles.computeIfAbsent(columnHandle.getColumnName(), k -> new ArrayList<>())
-                    .add(columnHandle);
-        }
-        for (Map.Entry<String, List<ClpColumnHandle>> entry : columnNameToColumnHandles.entrySet()) {
-            List<ClpColumnHandle> columnHandleList = entry.getValue();
-            if (columnHandleList.size() == 1) {
-                polymorphicColumnHandles.add(columnHandleList.get(0));
-            }
-            else {
-                for (ClpColumnHandle columnHandle : columnHandleList) {
-                    polymorphicColumnHandles.add(new ClpColumnHandle(
-                            columnHandle.getColumnName() + "_" + columnHandle.getColumnType().getDisplayName(),
-                            columnHandle.getColumnName(),
-                            columnHandle.getColumnType(),
-                            columnHandle.isNullable()));
-                }
-            }
-        }
-        return polymorphicColumnHandles;
     }
 }

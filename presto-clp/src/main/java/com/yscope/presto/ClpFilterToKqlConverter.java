@@ -80,12 +80,7 @@ public class ClpFilterToKqlConverter
 
     private String getVariableName(VariableReferenceExpression variable)
     {
-        String variableName = ((ClpColumnHandle) assignments.get(variable)).getColumnName();
-        if (variableName.endsWith("_bigint") || variableName.endsWith("_double") ||
-                variableName.endsWith("_varchar") || variableName.endsWith("_boolean")) {
-            return variableName.substring(0, variableName.lastIndexOf('_'));
-        }
-        return variableName;
+        return ((ClpColumnHandle) assignments.get(variable)).getOriginalColumnName();
     }
 
     private ClpExpression handleNot(CallExpression node)
