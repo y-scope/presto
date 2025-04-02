@@ -26,10 +26,7 @@ import com.yscope.presto.split.ClpSplitProvider;
 
 import javax.inject.Inject;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -46,20 +43,20 @@ public class ClpClient
     @Inject
     public ClpClient(ClpConfig config)
     {
-        if (config.getMetadataSource() == ClpConfig.MetadataSource.MYSQL) {
+        if (config.getMetadataProviderType() == ClpConfig.MetadataProviderType.MYSQL) {
             clpMetadataProvider = new ClpMySQLMetadataProvider(config);
         }
         else {
-            log.error("Unsupported metadata source: %s", config.getMetadataSource());
-            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE, "Unsupported metadata source: " + config.getMetadataSource());
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE,
+                    "Unsupported metadata provider type: " + config.getMetadataProviderType());
         }
 
-        if (config.getSplitSource() == ClpConfig.SplitSource.MYSQL) {
+        if (config.getSplitProviderType() == ClpConfig.SplitProviderType.MYSQL) {
             clpSplitProvider = new ClpMySQLSplitProvider(config);
         }
         else {
-            log.error("Unsupported split source: %s", config.getSplitSource());
-            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE, "Unsupported split source: " + config.getSplitSource());
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE,
+                    "Unsupported split provider type: " + config.getSplitProviderType());
         }
 
         this.columnHandleCache = CacheBuilder.newBuilder()

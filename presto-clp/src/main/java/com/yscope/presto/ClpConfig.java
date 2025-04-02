@@ -20,27 +20,24 @@ import java.util.regex.Pattern;
 
 public class ClpConfig
 {
-    // TODO(Rui): We also need to change it in Velox and in the example configuration files
     public enum ArchiveSource
     {
         LOCAL,
         S3
     }
 
-    public enum MetadataSource
+    public enum MetadataProviderType
     {
         MYSQL
     }
 
-    // TODO(Rui): come up with a better name
-    public enum SplitSource
+    public enum SplitProviderType
     {
         MYSQL
     }
 
     private boolean polymorphicTypeEnabled = true;
-    private MetadataSource metadataSource = MetadataSource.MYSQL;
-    // TODO(Rui): We need to change it in the example configuration files and in Velox
+    private MetadataProviderType metadataProviderType = MetadataProviderType.MYSQL;
     private String metadataDbUrl;
     private String metadataDbName;
     private String metadataDbUser;
@@ -49,8 +46,7 @@ public class ClpConfig
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
     private ArchiveSource archiveSource = ArchiveSource.LOCAL;
-    // TODO(Rui): We need to add it in the example configuration files and in Velox
-    private SplitSource splitSource = SplitSource.MYSQL;
+    private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public static final Pattern SAFE_SQL_IDENTIFIER = Pattern.compile("^[a-zA-Z0-9_]+$");
 
@@ -66,15 +62,15 @@ public class ClpConfig
         return this;
     }
 
-    public MetadataSource getMetadataSource()
+    public MetadataProviderType getMetadataProviderType()
     {
-        return metadataSource;
+        return metadataProviderType;
     }
 
-    @Config("clp.metadata-source")
-    public ClpConfig setMetadataSource(MetadataSource metadataSource)
+    @Config("clp.metadata-provider-type")
+    public ClpConfig setMetadataProviderType(MetadataProviderType metadataProviderType)
     {
-        this.metadataSource = metadataSource;
+        this.metadataProviderType = metadataProviderType;
         return this;
     }
 
@@ -179,15 +175,15 @@ public class ClpConfig
         return this;
     }
 
-    public SplitSource getSplitSource()
+    public SplitProviderType getSplitProviderType()
     {
-        return splitSource;
+        return splitProviderType;
     }
 
-    @Config("clp.split-source")
-    public ClpConfig setSplitSource(SplitSource splitSource)
+    @Config("clp.split-provider-type")
+    public ClpConfig setSplitProviderType(SplitProviderType splitProviderType)
     {
-        this.splitSource = splitSource;
+        this.splitProviderType = splitProviderType;
         return this;
     }
 }
