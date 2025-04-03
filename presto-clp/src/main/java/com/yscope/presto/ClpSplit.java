@@ -35,15 +35,51 @@ public class ClpSplit
     private final SchemaTableName schemaTableName;
     private final String archivePath;
     private final Optional<String> query;
+    private final int archiveType;
+
+    public enum ArchiveType
+    {
+        UNKNOWN(0, ""),
+        DEFAULT_SFA(1, "clps"),
+        IRV2(2, "clp.zst");
+
+        private final int value;
+        private final String extension;
+
+        ArchiveType(int value, String extension) {
+            this.value = value;
+            this.extension = extension;
+        }
+
+        public int getValue() {
+            return value;
+        }
+
+        public String getExtension() {
+            return extension;
+        }
+    }
+
+    public static int getArchiveTypeByArchiveId(String archiveId)
+    {
+        if (archiveId.endsWith(ArchiveType.DEFAULT_SFA.getExtension())) {
+            return ArchiveType.DEFAULT_SFA.getValue();
+        } else if (archiveId.endsWith(ArchiveType.IRV2.getExtension())) {
+            return ArchiveType.IRV2.getValue();
+        }
+        return ArchiveType.UNKNOWN.getValue();
+    }
 
     @JsonCreator
     public ClpSplit(@JsonProperty("schemaTableName") @Nullable SchemaTableName schemaTableName,
                     @JsonProperty("archivePath") @Nullable String archivePath,
-                    @JsonProperty("query") Optional<String> query)
+                    @JsonProperty("query") Optional<String> query,
+                    @JsonProperty("archiveType") @Nullable int archiveType)
     {
         this.schemaTableName = schemaTableName;
         this.archivePath = archivePath;
         this.query = query;
+        this.archiveType = archiveType;
     }
 
     @JsonProperty
@@ -63,6 +99,12 @@ public class ClpSplit
     public Optional<String> getQuery()
     {
         return query;
+    }
+
+    @JsonProperty
+    public int getArchiveType()
+    {
+        return archiveType;
     }
 
     @Override
