@@ -76,6 +76,14 @@ public class ClpSchemaTree
         }
     }
 
+    /**
+     * Adds a column to the internal CLP schema tree, creating intermediate nested nodes as needed.
+     * Handles potential name conflicts when polymorphic types are enabled by suffixing column names
+     * with type display names.
+     *
+     * @param fullName Fully qualified column name using dot notation (e.g., "a.b.c").
+     * @param type     Serialized byte value representing the CLP column's type.
+     */
     public void addColumn(String fullName, byte type)
     {
         Type prestoType = mapColumnType(type);
@@ -124,6 +132,13 @@ public class ClpSchemaTree
         current.children.put(finalLeafName, leaf);
     }
 
+    /**
+     * Traverses the CLP schema tree and collects all leaf and nested structure nodes
+     * into a flat list of column handles. For nested structures, builds a RowType
+     * from child nodes.
+     *
+     * @return List of ClpColumnHandle objects representing the full schema.
+     */
     public List<ClpColumnHandle> collectColumnHandles()
     {
         List<ClpColumnHandle> columns = new ArrayList<>();
