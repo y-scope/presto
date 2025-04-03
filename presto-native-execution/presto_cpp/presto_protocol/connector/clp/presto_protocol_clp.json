@@ -65,6 +65,13 @@
         "optional": true,
         "_N": 3,
         "field_local": true
+      },
+      {
+        "field_type": "int",
+        "field_name": "archiveType",
+        "field_text": "int",
+        "_N": 4,
+        "field_local": true
       }
     ],
     "subclass": true,

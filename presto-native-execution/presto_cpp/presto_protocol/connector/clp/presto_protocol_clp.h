@@ -68,6 +68,7 @@ struct ClpSplit : public ConnectorSplit {
   SchemaTableName schemaTableName = {};
   String archivePath = {};
   std::shared_ptr<String> query = {};
+  int archiveType = {};
 
   ClpSplit() noexcept;
 };

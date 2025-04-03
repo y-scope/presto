@@ -90,6 +90,8 @@ void to_json(json& j, const ClpSplit& p) {
   to_json_key(
       j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   to_json_key(j, "query", p.query, "ClpSplit", "String", "query");
+  to_json_key(
+      j, "archiveType", p.archiveType, "ClpSplit", "int", "archiveType");
 }
 
 void from_json(const json& j, ClpSplit& p) {
@@ -104,6 +106,8 @@ void from_json(const json& j, ClpSplit& p) {
   from_json_key(
       j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   from_json_key(j, "query", p.query, "ClpSplit", "String", "query");
+  from_json_key(
+      j, "archiveType", p.archiveType, "ClpSplit", "int", "archiveType");
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
