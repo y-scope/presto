@@ -86,10 +86,15 @@ public class TestClpSplit
             // Create and populate archive tables
             for (String tableName : TABLE_NAME_LIST) {
                 String archiveTableName = String.format(archiveTableFormat, tableName);
-                String createArchiveTableSQL = String.format("CREATE TABLE IF NOT EXISTS %s (id VARCHAR(128) PRIMARY KEY)", archiveTableName);
+                String createArchiveTableSQL = String.format(
+                        "CREATE TABLE IF NOT EXISTS %s (" +
+                                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                                "archive_id VARCHAR(128) NOT NULL" +
+                                ")",
+                        archiveTableName);
                 stmt.execute(createArchiveTableSQL);
 
-                String insertArchiveTableSQL = String.format("INSERT INTO %s (id) VALUES (?)", archiveTableName);
+                String insertArchiveTableSQL = String.format("INSERT INTO %s (archive_id) VALUES (?)", archiveTableName);
                 try (PreparedStatement pstmt = conn.prepareStatement(insertArchiveTableSQL)) {
                     for (int i = 0; i < NUM_SPLITS; i++) {
                         pstmt.setString(1, "id_" + i);

@@ -35,7 +35,7 @@ public class ClpMySQLSplitProvider
 
     private static final String ARCHIVE_TABLE_SUFFIX = "_archives";
     private static final String TABLE_METADATA_TABLE_SUFFIX = "table_metadata";
-    private static final String QUERY_SELECT_ARCHIVE_IDS = "SELECT id FROM %s%s" + ARCHIVE_TABLE_SUFFIX;
+    private static final String QUERY_SELECT_ARCHIVE_IDS = "SELECT archive_id FROM %s%s" + ARCHIVE_TABLE_SUFFIX;
     private static final String QUERY_SELECT_TABLE_METADATA = "SELECT table_path FROM %s" + TABLE_METADATA_TABLE_SUFFIX + " WHERE table_name = '%s'";
 
     private final ClpConfig config;
@@ -93,7 +93,7 @@ public class ClpMySQLSplitProvider
             try (PreparedStatement statement = connection.prepareStatement(archivePathQuery);
                     ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    final String archiveId = resultSet.getString("id");
+                    final String archiveId = resultSet.getString("archive_id");
                     final String archivePath = tablePath + "/" + archiveId;
                     splits.add(new ClpSplit(tableSchemaName, archivePath, clpTableLayoutHandle.getQuery()));
                 }
