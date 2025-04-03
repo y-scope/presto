@@ -23,6 +23,8 @@ import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableList;
+import com.yscope.presto.metadata.ClpMetadataProvider;
+import com.yscope.presto.metadata.ClpMySQLMetadataProvider;
 import com.yscope.presto.metadata.ClpNodeType;
 import org.apache.commons.math3.util.Pair;
 import org.testng.annotations.AfterMethod;
@@ -67,7 +69,8 @@ public class TestClpMetadata
                 .setMetadataDbUser("sa")
                 .setMetadataDbPassword("")
                 .setMetadataTablePrefix(metadataDbTablePrefix);
-        metadata = new ClpMetadata(new ClpClient(config));
+        ClpMetadataProvider metadataProvider = new ClpMySQLMetadataProvider(config);
+        metadata = new ClpMetadata(config, metadataProvider);
 
         final String tableMetadataTableName = metadataDbTablePrefix + tableMetadataSuffix;
         final String columnMetadataTableName = metadataDbTablePrefix + columnMetadataTablePrefix + TABLE_NAME;

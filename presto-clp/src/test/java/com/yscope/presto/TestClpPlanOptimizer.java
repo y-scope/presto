@@ -170,6 +170,7 @@ public class TestClpPlanOptimizer
         // Multiple NOTs
         testFilter("NOT (NOT fare = 0)", Optional.of("NOT NOT fare: 0"), Optional.empty(), sessionHolder);
         testFilter("NOT (fare = 0 AND city.Name = 'hello world')", Optional.of("NOT (fare: 0 AND city.Name: \"hello world\")"), Optional.empty(), sessionHolder);
+        testFilter("NOT (fare = 0 OR city.Name = 'hello world')", Optional.of("NOT (fare: 0 OR city.Name: \"hello world\")"), Optional.empty(), sessionHolder);
     }
 
     @Test
@@ -187,6 +188,7 @@ public class TestClpPlanOptimizer
 
         testFilter("city.Name IS NULL", Optional.of("NOT city.Name: *"), Optional.empty(), sessionHolder);
         testFilter("city.Name IS NOT NULL", Optional.of("NOT NOT city.Name: *"), Optional.empty(), sessionHolder);
+        testFilter("NOT (city.Name IS NULL)", Optional.of("NOT NOT city.Name: *"), Optional.empty(), sessionHolder);
     }
 
     @Test
@@ -198,7 +200,7 @@ public class TestClpPlanOptimizer
                 Optional.of("((fare > 0 OR city.Name: \"b*\"))"),
                 Optional.of("(lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)"),
                 sessionHolder);
-        testFilter("city.Region.Id = 1 AND (fare > 0 OR city.Name not like 'b%') AND (lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)",
+        testFilter("city.Region.Id = 1 AND (fare > 0 OR city.Name NOT like 'b%') AND (lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)",
                 Optional.of("((city.Region.Id: 1 AND (fare > 0 OR NOT city.Name: \"b*\")))"),
                 Optional.of("lower(city.Region.Name) = 'hello world' OR city.Name IS NULL"),
                 sessionHolder);

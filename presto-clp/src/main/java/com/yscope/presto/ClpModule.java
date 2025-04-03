@@ -13,22 +13,43 @@
  */
 package com.yscope.presto;
 
+import com.facebook.airlift.configuration.AbstractConfigurationAwareModule;
+import com.facebook.presto.spi.PrestoException;
 import com.google.inject.Binder;
-import com.google.inject.Module;
 import com.google.inject.Scopes;
+import com.yscope.presto.metadata.ClpMetadataProvider;
+import com.yscope.presto.metadata.ClpMySQLMetadataProvider;
+import com.yscope.presto.split.ClpMySQLSplitProvider;
+import com.yscope.presto.split.ClpSplitProvider;
 
 import static com.facebook.airlift.configuration.ConfigBinder.configBinder;
 
 public class ClpModule
-        implements Module
+        extends AbstractConfigurationAwareModule
 {
     @Override
-    public void configure(Binder binder)
+    protected void setup(Binder binder)
     {
         binder.bind(ClpConnector.class).in(Scopes.SINGLETON);
         binder.bind(ClpMetadata.class).in(Scopes.SINGLETON);
         binder.bind(ClpSplitManager.class).in(Scopes.SINGLETON);
-        binder.bind(ClpClient.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(ClpConfig.class);
+
+        ClpConfig config = buildConfigObject(ClpConfig.class);
+        if (config.getMetadataProviderType() == ClpConfig.MetadataProviderType.MYSQL) {
+            binder.bind(ClpMetadataProvider.class).to(ClpMySQLMetadataProvider.class).in(Scopes.SINGLETON);
+        }
+        else {
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE,
+                    "Unsupported metadata provider type: " + config.getMetadataProviderType());
+        }
+
+        if (config.getSplitProviderType() == ClpConfig.SplitProviderType.MYSQL) {
+            binder.bind(ClpSplitProvider.class).to(ClpMySQLSplitProvider.class).in(Scopes.SINGLETON);
+        }
+        else {
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE,
+                    "Unsupported split provider type: " + config.getSplitProviderType());
+        }
     }
 }

@@ -49,7 +49,6 @@ import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static com.yscope.presto.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static java.util.Objects.requireNonNull;
 
-// TODO(Rui): Correctly handle escaping of special characters in LIKE expressions (LIKE 'a%b' ESCAPE 'a')
 public class ClpFilterToKqlConverter
         implements RowExpressionVisitor<ClpExpression, Void>
 {
@@ -252,7 +251,7 @@ public class ClpFilterToKqlConverter
         return handleDeferenceImpl(expression);
     }
 
-    // Only handles the case where there is a SQL wildcard in the middle of the string
+    // It currently only handles the case where there is a SQL wildcard in the middle of the string
     private ClpExpression handleLike(CallExpression node)
     {
         if (node.getArguments().size() != 2) {
@@ -554,7 +553,7 @@ public class ClpFilterToKqlConverter
         Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
         if (operatorTypeOptional.isPresent()) {
             OperatorType operatorType = operatorTypeOptional.get();
-            if (operatorType.isComparisonOperator() || operatorType != OperatorType.IS_DISTINCT_FROM) {
+            if (operatorType.isComparisonOperator() && operatorType != OperatorType.IS_DISTINCT_FROM) {
                 return handleLogicalBinary(operatorType, node);
             }
         }

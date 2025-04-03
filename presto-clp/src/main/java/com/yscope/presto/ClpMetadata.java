@@ -25,8 +25,12 @@ import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.yscope.presto.metadata.ClpMetadataProvider;
 
 import javax.inject.Inject;
 
@@ -37,17 +41,49 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class ClpMetadata
         implements ConnectorMetadata
 {
-    private final ClpClient clpClient;
     private static final String DEFAULT_SCHEMA_NAME = "default";
+    private final ClpMetadataProvider clpMetadataProvider;
+    private final LoadingCache<SchemaTableName, List<ClpColumnHandle>> columnHandleCache;
+    private final LoadingCache<String, List<String>> tableNameCache;
 
     @Inject
-    public ClpMetadata(ClpClient clpClient)
+    public ClpMetadata(ClpConfig clpConfig, ClpMetadataProvider clpMetadataProvider)
     {
-        this.clpClient = clpClient;
+        this.columnHandleCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(clpConfig.getMetadataExpireInterval(), SECONDS)
+                .refreshAfterWrite(clpConfig.getMetadataRefreshInterval(), SECONDS)
+                .build(CacheLoader.from(this::loadColumnHandles));
+        this.tableNameCache = CacheBuilder.newBuilder()
+                .expireAfterWrite(clpConfig.getMetadataExpireInterval(), SECONDS)
+                .refreshAfterWrite(clpConfig.getMetadataRefreshInterval(), SECONDS)
+                .build(CacheLoader.from(this::loadTableNames));
+
+        this.clpMetadataProvider = clpMetadataProvider;
+    }
+
+    private List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
+    {
+        return clpMetadataProvider.listColumnHandles(schemaTableName);
+    }
+
+    private List<String> loadTableNames(String schemaName)
+    {
+        return clpMetadataProvider.listTableNames(schemaName);
+    }
+
+    private List<String> listTables(String schemaName)
+    {
+        return tableNameCache.getUnchecked(schemaName);
+    }
+
+    private List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
+    {
+        return columnHandleCache.getUnchecked(schemaTableName);
     }
 
     @Override
@@ -64,7 +100,7 @@ public class ClpMetadata
             return ImmutableList.of();
         }
 
-        return clpClient.listTables(schemaNameValue).stream()
+        return listTables(schemaNameValue).stream()
                 .map(tableName -> new SchemaTableName(schemaNameValue, tableName))
                 .collect(ImmutableList.toImmutableList());
     }
@@ -77,7 +113,7 @@ public class ClpMetadata
             return null;
         }
 
-        if (!clpClient.listTables(schemaName).contains(tableName.getTableName())) {
+        if (!listTables(schemaName).contains(tableName.getTableName())) {
             return null;
         }
 
@@ -106,7 +142,7 @@ public class ClpMetadata
     {
         ClpTableHandle clpTableHandle = (ClpTableHandle) table;
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-        List<ColumnMetadata> columns = clpClient.listColumns(schemaTableName).stream()
+        List<ColumnMetadata> columns = listColumns(schemaTableName).stream()
                 .map(ClpColumnHandle::getColumnMetadata)
                 .collect(ImmutableList.toImmutableList());
 
@@ -141,7 +177,7 @@ public class ClpMetadata
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle;
-        return clpClient.listColumns(clpTableHandle.getSchemaTableName()).stream()
+        return listColumns(clpTableHandle.getSchemaTableName()).stream()
                 .collect(ImmutableMap.toImmutableMap(
                         ClpColumnHandle::getColumnName,
                         column -> column));

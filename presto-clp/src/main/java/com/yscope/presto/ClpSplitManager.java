@@ -19,18 +19,19 @@ import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.yscope.presto.split.ClpSplitProvider;
 
 import javax.inject.Inject;
 
 public class ClpSplitManager
         implements ConnectorSplitManager
 {
-    private final ClpClient clpClient;
+    private final ClpSplitProvider clpSplitProvider;
 
     @Inject
-    public ClpSplitManager(ClpClient clpClient)
+    public ClpSplitManager(ClpSplitProvider clpSplitProvider)
     {
-        this.clpClient = clpClient;
+        this.clpSplitProvider = clpSplitProvider;
     }
 
     @Override
@@ -40,6 +41,6 @@ public class ClpSplitManager
                                           SplitSchedulingContext splitSchedulingContext)
     {
         ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) layout;
-        return new FixedSplitSource(clpClient.listSplits(layoutHandle));
+        return new FixedSplitSource(clpSplitProvider.listSplits(layoutHandle));
     }
 }

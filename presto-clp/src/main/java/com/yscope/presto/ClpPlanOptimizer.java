@@ -86,7 +86,7 @@ public class ClpPlanOptimizer
             if (!kqlQuery.isPresent()) {
                 return node;
             }
-            log.info("KQL query: %s", kqlQuery.get());
+            log.debug("KQL query: %s", kqlQuery.get());
             ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery);
             TableScanNode newTableScanNode = new TableScanNode(
                     tableScanNode.getSourceLocation(),

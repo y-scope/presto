@@ -14,6 +14,8 @@
 package com.yscope.presto;
 
 import com.facebook.presto.spi.SchemaTableName;
+import com.yscope.presto.split.ClpMySQLSplitProvider;
+import com.yscope.presto.split.ClpSplitProvider;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -34,7 +36,7 @@ import static org.testng.Assert.fail;
 @Test(singleThreaded = true)
 public class TestClpSplit
 {
-    ClpClient client;
+    private ClpConfig config;
     private static final String TABLE_NAME_1 = "test_1";
     private static final String TABLE_NAME_2 = "test_2";
     private static final String TABLE_NAME_3 = "test_3";
@@ -52,12 +54,11 @@ public class TestClpSplit
         final String tableMetadataSuffix = "table_metadata";
         final String archiveTableSuffix = "_archives";
 
-        ClpConfig config = new ClpConfig().setPolymorphicTypeEnabled(true)
+        this.config = new ClpConfig().setPolymorphicTypeEnabled(true)
                 .setMetadataDbUrl(metadataDbUrl)
                 .setMetadataDbUser("sa")
                 .setMetadataDbPassword("")
                 .setMetadataTablePrefix(metadataDbTablePrefix);
-        client = new ClpClient(config);
 
         final String tableMetadataTableName = metadataDbTablePrefix + tableMetadataSuffix;
         final String archiveTableFormat = metadataDbTablePrefix + "%s" + archiveTableSuffix;
@@ -120,9 +121,10 @@ public class TestClpSplit
     @Test
     public void testListSplits()
     {
+        ClpSplitProvider splitProvider = new ClpMySQLSplitProvider(config);
         for (String tableName : TABLE_NAME_LIST) {
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(new ClpTableHandle(new SchemaTableName(TABLE_SCHEMA, tableName)), Optional.empty());
-            List<ClpSplit> splits = client.listSplits(layoutHandle);
+            List<ClpSplit> splits = splitProvider.listSplits(layoutHandle);
             assertEquals(splits.size(), NUM_SPLITS);
             for (int i = 0; i < NUM_SPLITS; i++) {
                 assertEquals(splits.get(i).getArchivePath(), "/tmp/archives/" + tableName + "/id_" + i);
