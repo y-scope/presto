@@ -95,7 +95,15 @@ public class ClpMySQLSplitProvider
                 while (resultSet.next()) {
                     final String archiveId = resultSet.getString("id");
                     final String archivePath = tablePath + "/" + archiveId;
-                    splits.add(new ClpSplit(tableSchemaName, archivePath, clpTableLayoutHandle.getQuery(), ClpSplit.getArchiveTypeByArchiveId(archivePath)));
+                    final ClpSplit.ArchiveType archiveType;
+                    if (archivePath.endsWith(".clps")) {
+                        archiveType = ClpSplit.ArchiveType.DEFAULT_SFA;
+                    } else if (archivePath.endsWith(".clp.zst")) {
+                        archiveType = ClpSplit.ArchiveType.IRV2;
+                    } else {
+                        archiveType = ClpSplit.ArchiveType.UNKNOWN;
+                    }
+                    splits.add(new ClpSplit(tableSchemaName, archivePath, clpTableLayoutHandle.getQuery(), archiveType));
                 }
             }
         }

@@ -41,6 +41,25 @@
     "json_key": "clp"
   },
   {
+    "class_name": "ArchiveType",
+    "enum": true,
+    "elements": [
+      {
+        "element": "UNKNOWN",
+        "_N": 1
+      },
+      {
+        "element": "DEFAULT_SFA",
+        "_N": 2
+      },
+      {
+        "element": "IRV2",
+        "_N": 3,
+        "_last": true
+      }
+    ]
+  },
+  {
     "class_name": "ClpSplit",
     "struct": true,
     "fields": [
@@ -67,9 +86,9 @@
         "field_local": true
       },
       {
-        "field_type": "int",
+        "field_type": "ArchiveType",
         "field_name": "archiveType",
-        "field_text": "int",
+        "field_text": "ArchiveType",
         "_N": 4,
         "field_local": true
       }

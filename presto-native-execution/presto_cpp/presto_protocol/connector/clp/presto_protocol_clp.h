@@ -64,11 +64,16 @@ void to_json(json& j, const ClpColumnHandle& p);
 void from_json(const json& j, ClpColumnHandle& p);
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
+enum class ArchiveType { UNKNOWN, DEFAULT_SFA, IRV2 };
+extern void to_json(json& j, const ArchiveType& e);
+extern void from_json(const json& j, ArchiveType& e);
+} // namespace facebook::presto::protocol::clp
+namespace facebook::presto::protocol::clp {
 struct ClpSplit : public ConnectorSplit {
   SchemaTableName schemaTableName = {};
   String archivePath = {};
   std::shared_ptr<String> query = {};
-  int archiveType = {};
+  ArchiveType archiveType = {};
 
   ClpSplit() noexcept;
 };

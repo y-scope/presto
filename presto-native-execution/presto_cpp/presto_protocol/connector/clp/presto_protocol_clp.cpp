@@ -73,6 +73,44 @@ void from_json(const json& j, ClpColumnHandle& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
+// Loosly copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
+
+// NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
+static const std::pair<ArchiveType, json> ArchiveType_enum_table[] =
+    { // NOLINT: cert-err58-cpp
+        {ArchiveType::UNKNOWN, "UNKNOWN"},
+        {ArchiveType::DEFAULT_SFA, "DEFAULT_SFA"},
+        {ArchiveType::IRV2, "IRV2"}};
+void to_json(json& j, const ArchiveType& e) {
+  static_assert(
+      std::is_enum<ArchiveType>::value, "ArchiveType must be an enum!");
+  const auto* it = std::find_if(
+      std::begin(ArchiveType_enum_table),
+      std::end(ArchiveType_enum_table),
+      [e](const std::pair<ArchiveType, json>& ej_pair) -> bool {
+        return ej_pair.first == e;
+      });
+  j = ((it != std::end(ArchiveType_enum_table))
+           ? it
+           : std::begin(ArchiveType_enum_table))
+          ->second;
+}
+void from_json(const json& j, ArchiveType& e) {
+  static_assert(
+      std::is_enum<ArchiveType>::value, "ArchiveType must be an enum!");
+  const auto* it = std::find_if(
+      std::begin(ArchiveType_enum_table),
+      std::end(ArchiveType_enum_table),
+      [&j](const std::pair<ArchiveType, json>& ej_pair) -> bool {
+        return ej_pair.second == j;
+      });
+  e = ((it != std::end(ArchiveType_enum_table))
+           ? it
+           : std::begin(ArchiveType_enum_table))
+          ->first;
+}
+} // namespace facebook::presto::protocol::clp
+namespace facebook::presto::protocol::clp {
 ClpSplit::ClpSplit() noexcept {
   _type = "clp";
 }
@@ -91,7 +129,12 @@ void to_json(json& j, const ClpSplit& p) {
       j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   to_json_key(j, "query", p.query, "ClpSplit", "String", "query");
   to_json_key(
-      j, "archiveType", p.archiveType, "ClpSplit", "int", "archiveType");
+      j,
+      "archiveType",
+      p.archiveType,
+      "ClpSplit",
+      "ArchiveType",
+      "archiveType");
 }
 
 void from_json(const json& j, ClpSplit& p) {
@@ -107,7 +150,12 @@ void from_json(const json& j, ClpSplit& p) {
       j, "archivePath", p.archivePath, "ClpSplit", "String", "archivePath");
   from_json_key(j, "query", p.query, "ClpSplit", "String", "query");
   from_json_key(
-      j, "archiveType", p.archiveType, "ClpSplit", "int", "archiveType");
+      j,
+      "archiveType",
+      p.archiveType,
+      "ClpSplit",
+      "ArchiveType",
+      "archiveType");
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
