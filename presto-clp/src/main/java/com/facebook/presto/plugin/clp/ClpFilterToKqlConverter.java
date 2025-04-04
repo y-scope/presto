@@ -561,7 +561,6 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(Optional.empty(), Optional.empty());
     }
 
-
     /**
      * Checks whether the given expression matches the pattern SUBSTR(x, ...) = 'someString',
      * and if so, attempts to convert it into a KQL query using wildcards and construct a CLP expression.
