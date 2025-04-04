@@ -20,5 +20,8 @@ import java.util.List;
 
 public interface ClpSplitProvider
 {
+    /**
+     * Returns a list of splits for the given table layout handle.
+     */
     List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle);
 }

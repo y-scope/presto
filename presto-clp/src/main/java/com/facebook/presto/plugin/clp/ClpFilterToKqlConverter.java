@@ -49,6 +49,22 @@ import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORT
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * ClpFilterToKqlConverter translates Presto RowExpressions into KQL (Kibana Query Language) filters
+ * used as CLP queries. This is used primarily for pushing down supported filters to the CLP engine.
+ * This class implements the RowExpressionVisitor interface and recursively walks Presto filter expressions,
+ * attempting to convert supported expressions (e.g., comparisons, logical AND/OR, LIKE, IN, IS NULL,
+ * and SUBSTR-based expressions) into corresponding KQL filter strings. Any part of the expression that
+ * cannot be translated is preserved as a "remaining expression" for potential fallback processing.
+ * Supported translations include:
+ * - Variable-to-literal comparisons (e.g., =, !=, <, >, <=, >=)
+ * - String pattern matches using LIKE
+ * - Membership checks using IN
+ * - NULL checks via IS NULL
+ * - Substring comparisons (e.g., SUBSTR(x, start, len) = "val") mapped to wildcard KQL queries
+ * - Dereferencing fields from row-typed variables
+ * - Logical operators AND, OR, and NOT
+ */
 public class ClpFilterToKqlConverter
         implements RowExpressionVisitor<ClpExpression, Void>
 {
@@ -69,6 +85,68 @@ public class ClpFilterToKqlConverter
         this.assignments = requireNonNull(assignments, "assignments is null");
     }
 
+    @Override
+    public ClpExpression visitCall(CallExpression node, Void context)
+    {
+        FunctionHandle functionHandle = node.getFunctionHandle();
+        if (standardFunctionResolution.isNotFunction(functionHandle)) {
+            return handleNot(node);
+        }
+
+        if (standardFunctionResolution.isLikeFunction(functionHandle)) {
+            return handleLike(node);
+        }
+
+        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(node.getFunctionHandle());
+        Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
+        if (operatorTypeOptional.isPresent()) {
+            OperatorType operatorType = operatorTypeOptional.get();
+            if (operatorType.isComparisonOperator() && operatorType != OperatorType.IS_DISTINCT_FROM) {
+                return handleLogicalBinary(operatorType, node);
+            }
+        }
+
+        return new ClpExpression(node);
+    }
+
+    @Override
+    public ClpExpression visitConstant(ConstantExpression node, Void context)
+    {
+        return new ClpExpression(getLiteralString(node));
+    }
+
+    @Override
+    public ClpExpression visitVariableReference(VariableReferenceExpression node, Void context)
+    {
+        return new ClpExpression(getVariableName(node));
+    }
+
+    @Override
+    public ClpExpression visitSpecialForm(SpecialFormExpression node, Void context)
+    {
+        switch (node.getForm()) {
+            case AND:
+                return handleAnd(node);
+            case OR:
+                return handleOr(node);
+            case IN:
+                return handleIn(node);
+            case IS_NULL:
+                return handleIsNull(node);
+            case DEREFERENCE:
+                return handleDereference(node);
+            default:
+                return new ClpExpression(node);
+        }
+    }
+
+    // For all other expressions, return the original expression
+    @Override
+    public ClpExpression visitExpression(RowExpression node, Void context)
+    {
+        return new ClpExpression(node);
+    }
+
     private static String getLiteralString(ConstantExpression literal)
     {
         if (literal.getValue() instanceof Slice) {
@@ -82,6 +160,12 @@ public class ClpFilterToKqlConverter
         return ((ClpColumnHandle) assignments.get(variable)).getOriginalColumnName();
     }
 
+    /**
+     * Handles the logical NOT expression.
+     * Example:
+     *   Input: NOT (col1 = 5)
+     *   Output: NOT col1: 5
+     */
     private ClpExpression handleNot(CallExpression node)
     {
         if (node.getArguments().size() != 1) {
@@ -97,6 +181,14 @@ public class ClpFilterToKqlConverter
         return new ClpExpression("NOT " + expression.getDefinition().get());
     }
 
+    /**
+     * Handles the logical AND expression.
+     * Combines all definable child expressions into a single KQL query joined by AND.
+     * Any unsupported children are collected into remaining expressions.
+     * Example:
+     *   Input: col1 = 5 AND col2 = 'abc'
+     *   Output: (col1: 5 AND col2: "abc")
+     */
     private ClpExpression handleAnd(SpecialFormExpression node)
     {
         StringBuilder queryBuilder = new StringBuilder();
@@ -134,6 +226,14 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 5) + ")");
     }
 
+    /**
+     * Handles the logical OR expression.
+     * Combines all fully convertible child expressions into a single CLP query joined by OR.
+     * Returns the original node if any child is unsupported.
+     * Example:
+     *   Input: col1 = 5 OR col1 = 10
+     *   Output: (col1: 5 OR col1: 10)
+     */
     private ClpExpression handleOr(SpecialFormExpression node)
     {
         StringBuilder queryBuilder = new StringBuilder();
@@ -151,6 +251,12 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 4) + ")");
     }
 
+    /**
+     * Handles the IN predicate.
+     * Example:
+     *   Input: col1 IN (1, 2, 3)
+     *   Output: (col1: 1 OR col1: 2 OR col1: 3)
+     */
     private ClpExpression handleIn(SpecialFormExpression node)
     {
         ClpExpression variable = node.getArguments().get(0).accept(this, null);
@@ -179,6 +285,12 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 4) + ")");
     }
 
+    /**
+     * Handles the IS NULL predicate.
+     * Example:
+     *   Input: col1 IS NULL
+     *   Output: NOT col1: *
+     */
     private ClpExpression handleIsNull(SpecialFormExpression node)
     {
         if (node.getArguments().size() != 1) {
@@ -195,17 +307,24 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(String.format("NOT %s: *", variableName));
     }
 
-    private ClpExpression handleDeferenceImpl(RowExpression node)
+    /**
+     * Handles dereference expressions on RowTypes (e.g., col.row_field).
+     * Converts row dereferences into dot-separated field access.
+     * Example:
+     *   Input: address.city (from a RowType 'address')
+     *   Output: address.city
+     */
+    private ClpExpression handleDereference(RowExpression expression)
     {
-        if (node instanceof VariableReferenceExpression) {
-            return node.accept(this, null);
+        if (expression instanceof VariableReferenceExpression) {
+            return expression.accept(this, null);
         }
 
-        if (!(node instanceof SpecialFormExpression)) {
-            return new ClpExpression(node);
+        if (!(expression instanceof SpecialFormExpression)) {
+            return new ClpExpression(expression);
         }
 
-        SpecialFormExpression specialForm = (SpecialFormExpression) node;
+        SpecialFormExpression specialForm = (SpecialFormExpression) expression;
         List<RowExpression> arguments = specialForm.getArguments();
         if (arguments.size() != 2) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "DEREFERENCE expects 2 arguments");
@@ -239,18 +358,21 @@ public class ClpFilterToKqlConverter
         RowType.Field field = rowType.getFields().get(fieldIndex);
         String fieldName = field.getName().orElse("field" + fieldIndex);
 
-        ClpExpression baseString = handleDeferenceImpl(base);
+        ClpExpression baseString = handleDereference(base);
         if (!baseString.getDefinition().isPresent()) {
-            return new ClpExpression(node);
+            return new ClpExpression(expression);
         }
         return new ClpExpression(baseString.getDefinition().get() + "." + fieldName);
     }
 
-    private ClpExpression handleDereference(SpecialFormExpression expression)
-    {
-        return handleDeferenceImpl(expression);
-    }
-
+    /**
+     * Handles LIKE expressions.
+     * Transforms SQL LIKE into KQL queries using wildcards (* and ?).
+     * Supports constant patterns or constant casts only.
+     * Example:
+     *   Input: col1 LIKE 'a_bc%'
+     *   Output: col1: "a?bc*"
+     */
     private ClpExpression handleLike(CallExpression node)
     {
         if (node.getArguments().size() != 2) {
@@ -387,6 +509,15 @@ public class ClpFilterToKqlConverter
 
     /**
      * Translate SUBSTR(x, start) or SUBSTR(x, start, length) = 'someString' to KQL.
+     * Examples:
+     *   SUBSTR(message, 1, 3) = 'abc'
+     *     → message: "abc*"
+     *   SUBSTR(message, 4, 3) = 'abc'
+     *     → message: "???abc*"
+     *   SUBSTR(message, 2) = 'hello'
+     *     → message: "?hello"
+     *   SUBSTR(message, -5) = 'hello'
+     *     → message: "*hello"
      */
     private ClpExpression interpretSubstringEquality(SubstrInfo info, String targetString)
     {
@@ -462,6 +593,10 @@ public class ClpFilterToKqlConverter
      * Builds a CLP expression from a basic comparison between a variable and a literal.
      * Handles different operator types (EQUAL, NOT_EQUAL, and logical binary ops like <, >, etc.)
      * and formats them appropriately based on whether the literal is a string or a non-string type.
+     * Examples:
+     *   col = 'abc'       → col: "abc"
+     *   col != 42         → NOT col: 42
+     *   5 < col           → col > 5
      */
     private ClpExpression buildClpExpression(
             String variableName,
@@ -492,6 +627,11 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(originalNode);
     }
 
+    /**
+     * Handles logical binary operators (e.g., =, !=, <, >) between two expressions.
+     * Supports constant on either side by flipping the operator when needed.
+     * Also checks for SUBSTR(x, ...) = 'value' patterns and delegates to substring handler.
+     */
     private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
     {
         if (node.getArguments().size() != 2) {
@@ -543,68 +683,6 @@ public class ClpFilterToKqlConverter
                     node);
         }
         // fallback
-        return new ClpExpression(node);
-    }
-
-    @Override
-    public ClpExpression visitCall(CallExpression node, Void context)
-    {
-        FunctionHandle functionHandle = node.getFunctionHandle();
-        if (standardFunctionResolution.isNotFunction(functionHandle)) {
-            return handleNot(node);
-        }
-
-        if (standardFunctionResolution.isLikeFunction(functionHandle)) {
-            return handleLike(node);
-        }
-
-        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(node.getFunctionHandle());
-        Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
-        if (operatorTypeOptional.isPresent()) {
-            OperatorType operatorType = operatorTypeOptional.get();
-            if (operatorType.isComparisonOperator() && operatorType != OperatorType.IS_DISTINCT_FROM) {
-                return handleLogicalBinary(operatorType, node);
-            }
-        }
-
-        return new ClpExpression(node);
-    }
-
-    @Override
-    public ClpExpression visitConstant(ConstantExpression node, Void context)
-    {
-        return new ClpExpression(getLiteralString(node));
-    }
-
-    @Override
-    public ClpExpression visitVariableReference(VariableReferenceExpression node, Void context)
-    {
-        return new ClpExpression(getVariableName(node));
-    }
-
-    @Override
-    public ClpExpression visitSpecialForm(SpecialFormExpression node, Void context)
-    {
-        switch (node.getForm()) {
-            case AND:
-                return handleAnd(node);
-            case OR:
-                return handleOr(node);
-            case IN:
-                return handleIn(node);
-            case IS_NULL:
-                return handleIsNull(node);
-            case DEREFERENCE:
-                return handleDereference(node);
-            default:
-                return new ClpExpression(node);
-        }
-    }
-
-    // For all other expressions, return the original expression
-    @Override
-    public ClpExpression visitExpression(RowExpression node, Void context)
-    {
         return new ClpExpression(node);
     }
 }

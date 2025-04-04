@@ -20,7 +20,13 @@ import java.util.List;
 
 public interface ClpMetadataProvider
 {
+    /**
+     * Returns the list of column handles for the given table.
+     */
     public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName);
 
+    /**
+     * Returns the list of table names in the given schema.
+     */
     public List<String> listTableNames(String schema);
 }
