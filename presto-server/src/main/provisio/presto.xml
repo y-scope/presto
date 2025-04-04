@@ -231,7 +231,7 @@
     </artifactSet>
 
     <artifactSet to="plugin/presto-clp">
-        <artifact id="${project.groupId}:presto-clickhouse:zip:${project.version}">
+        <artifact id="${project.groupId}:presto-clp:zip:${project.version}">
             <unpack />
         </artifact>
     </artifactSet>
