@@ -251,7 +251,6 @@ public class ClpFilterToKqlConverter
         return handleDeferenceImpl(expression);
     }
 
-    // It currently only handles the case where there is a SQL wildcard in the middle of the string
     private ClpExpression handleLike(CallExpression node)
     {
         if (node.getArguments().size() != 2) {
@@ -431,6 +430,11 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(Optional.empty(), Optional.empty());
     }
 
+
+    /**
+     * Checks whether the given expression matches the pattern SUBSTR(x, ...) = 'someString',
+     * and if so, attempts to convert it into a KQL query using wildcards and construct a CLP expression.
+     */
     private ClpExpression tryInterpretSubstringEquality(
             OperatorType operator,
             RowExpression possibleSubstring,
@@ -454,6 +458,11 @@ public class ClpFilterToKqlConverter
         return interpretSubstringEquality(maybeSubstringCall.get(), targetString);
     }
 
+    /**
+     * Builds a CLP expression from a basic comparison between a variable and a literal.
+     * Handles different operator types (EQUAL, NOT_EQUAL, and logical binary ops like <, >, etc.)
+     * and formats them appropriately based on whether the literal is a string or a non-string type.
+     */
     private ClpExpression buildClpExpression(
             String variableName,
             String literalString,
