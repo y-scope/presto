@@ -9,7 +9,6 @@
         <version>0.292-SNAPSHOT</version>
     </parent>
 
-    <groupId>com.yscope.presto</groupId>
     <artifactId>presto-clp</artifactId>
     <description>Presto - CLP Connector</description>
     <packaging>presto-plugin</packaging>
