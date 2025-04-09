@@ -1,0 +1,37 @@
+
+syntax = "proto3";
+
+package presto_protocol;
+
+
+message ClpColumnHandle {
+    String columnName = 1;
+    String originalColumnName = 2;
+    Type columnType = 3;
+    bool nullable = 4;
+}
+
+enum ArchiveType {
+    UNKNOWN = 1;
+    DEFAULT_SFA = 2;
+    IRV2 = 3;
+}
+
+message ClpSplit {
+    SchemaTableName schemaTableName = 1;
+    String archivePath = 2;
+    String query = 3;
+    ArchiveType archiveType = 4;
+}
+
+message ClpTableHandle {
+    SchemaTableName schemaTableName = 1;
+}
+
+message ClpTableLayoutHandle {
+    ClpTableHandle table = 1;
+    String query = 2;
+}
+
+    
+
