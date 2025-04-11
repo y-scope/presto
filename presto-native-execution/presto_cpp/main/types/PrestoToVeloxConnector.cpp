@@ -1569,7 +1569,8 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
       catalogId,
       clpSplit->schemaTableName.schema,
       clpSplit->schemaTableName.table,
-      clpSplit->archivePath);
+      clpSplit->archivePath,
+      clpSplit->archiveType);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>
