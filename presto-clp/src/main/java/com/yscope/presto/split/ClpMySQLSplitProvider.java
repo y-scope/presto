@@ -98,9 +98,11 @@ public class ClpMySQLSplitProvider
                     final ClpSplit.ArchiveType archiveType;
                     if (archivePath.endsWith(".clps")) {
                         archiveType = ClpSplit.ArchiveType.DEFAULT_SFA;
-                    } else if (archivePath.endsWith(".clp.zst")) {
+                    }
+                    else if (archivePath.endsWith(".clp.zst")) {
                         archiveType = ClpSplit.ArchiveType.IRV2;
-                    } else {
+                    }
+                    else {
                         archiveType = ClpSplit.ArchiveType.UNKNOWN;
                     }
                     splits.add(new ClpSplit(tableSchemaName, archivePath, clpTableLayoutHandle.getQuery(), archiveType));
