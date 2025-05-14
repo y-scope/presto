@@ -70,7 +70,7 @@ public class ClpMySqlSplitProvider
         Connection connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
         String dbName = config.getMetadataDbName();
         if (dbName != null && !dbName.isEmpty()) {
-            connection.createStatement().execute("USE " + dbName);
+            connection.createStatement().execute("USE `" + dbName + "`");
         }
         return connection;
     }
