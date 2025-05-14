@@ -179,6 +179,7 @@ class RelationPlanner
         NamedQuery namedQuery = analysis.getNamedQuery(node);
         Scope scope = analysis.getScope(node);
 
+        RelationPlan plan;
         if (namedQuery != null) {
             String cteName = node.getName().toString();
             if (namedQuery.isFromView()) {
@@ -203,26 +204,98 @@ class RelationPlanner
             // of the view (e.g., if the underlying tables referenced by the view changed)
             Type[] types = scope.getRelationType().getAllFields().stream().map(Field::getType).toArray(Type[]::new);
             RelationPlan withCoercions = addCoercions(subPlan, types, context);
-            return new RelationPlan(withCoercions.getRoot(), scope, withCoercions.getFieldMappings());
+
+            plan = new RelationPlan(withCoercions.getRoot(), scope, withCoercions.getFieldMappings());
+        }
+        else {
+            TableHandle handle = analysis.getTableHandle(node);
+
+            ImmutableList.Builder<VariableReferenceExpression> outputVariablesBuilder = ImmutableList.builder();
+            ImmutableMap.Builder<VariableReferenceExpression, ColumnHandle> columns = ImmutableMap.builder();
+            for (Field field : scope.getRelationType().getAllFields()) {
+                VariableReferenceExpression variable = variableAllocator.newVariable(getSourceLocation(node), field.getName().get(), field.getType());
+                outputVariablesBuilder.add(variable);
+                columns.put(variable, analysis.getColumn(field));
+            }
+
+            List<VariableReferenceExpression> outputVariables = outputVariablesBuilder.build();
+            List<TableConstraint<ColumnHandle>> tableConstraints = metadata.getTableMetadata(session, handle).getMetadata().getTableConstraintsHolder().getTableConstraintsWithColumnHandles();
+            context.incrementLeafNodes(session);
+            PlanNode root = new TableScanNode(getSourceLocation(node.getLocation()), idAllocator.getNextId(), handle, outputVariables, columns.build(),
+                    tableConstraints, TupleDomain.all(), TupleDomain.all(), Optional.empty());
+
+            plan = new RelationPlan(root, scope, outputVariables);
         }
 
-        TableHandle handle = analysis.getTableHandle(node);
+        plan = addRowFilters(node, plan, context);
+        plan = addColumnMasks(node, plan, context);
 
-        ImmutableList.Builder<VariableReferenceExpression> outputVariablesBuilder = ImmutableList.builder();
-        ImmutableMap.Builder<VariableReferenceExpression, ColumnHandle> columns = ImmutableMap.builder();
-        for (Field field : scope.getRelationType().getAllFields()) {
-            VariableReferenceExpression variable = variableAllocator.newVariable(getSourceLocation(node), field.getName().get(), field.getType());
-            outputVariablesBuilder.add(variable);
-            columns.put(variable, analysis.getColumn(field));
+        return plan;
+    }
+
+    private RelationPlan addRowFilters(Table node, RelationPlan plan, SqlPlannerContext context)
+    {
+        PlanBuilder planBuilder = initializePlanBuilder(plan);
+
+        for (Expression filter : analysis.getRowFilters(node)) {
+            planBuilder = subqueryPlanner.handleSubqueries(planBuilder, filter, filter, context);
+
+            planBuilder = planBuilder.withNewRoot(new FilterNode(
+                    getSourceLocation(node.getLocation()),
+                    idAllocator.getNextId(),
+                    planBuilder.getRoot(),
+                    rowExpression(planBuilder.rewrite(filter), context)));
         }
 
-        List<VariableReferenceExpression> outputVariables = outputVariablesBuilder.build();
-        List<TableConstraint<ColumnHandle>> tableConstraints = metadata.getTableMetadata(session, handle).getMetadata().getTableConstraintsHolder().getTableConstraintsWithColumnHandles();
-        context.incrementLeafNodes(session);
-        PlanNode root = new TableScanNode(getSourceLocation(node.getLocation()), idAllocator.getNextId(), handle, outputVariables, columns.build(),
-                tableConstraints, TupleDomain.all(), TupleDomain.all(), Optional.empty());
+        return new RelationPlan(planBuilder.getRoot(), plan.getScope(), plan.getFieldMappings());
+    }
 
-        return new RelationPlan(root, scope, outputVariables);
+    private RelationPlan addColumnMasks(Table table, RelationPlan plan, SqlPlannerContext context)
+    {
+        Map<String, Expression> columnMasks = analysis.getColumnMasks(table);
+
+        // A Table can represent a WITH query, which can have anonymous fields. On the other hand,
+        // it can't have masks. The loop below expects fields to have proper names, so bail out
+        // if the masks are missing
+        if (columnMasks.isEmpty()) {
+            return plan;
+        }
+
+        PlanBuilder planBuilder = initializePlanBuilder(plan);
+        List<VariableReferenceExpression> mappings = plan.getFieldMappings();
+        ImmutableList.Builder<VariableReferenceExpression> newMappings = ImmutableList.builder();
+
+        Assignments.Builder assignments = new Assignments.Builder();
+        for (VariableReferenceExpression variableReferenceExpression : planBuilder.getRoot().getOutputVariables()) {
+            assignments.put(variableReferenceExpression, rowExpression(new SymbolReference(variableReferenceExpression.getName()), context));
+        }
+
+        for (int i = 0; i < plan.getDescriptor().getAllFieldCount(); i++) {
+            Field field = plan.getDescriptor().getFieldByIndex(i);
+
+            VariableReferenceExpression fieldMapping;
+            RowExpression rowExpression;
+            if (field.getName().isPresent() && columnMasks.containsKey(field.getName().get())) {
+                Expression mask = columnMasks.get(field.getName().get());
+                planBuilder = subqueryPlanner.handleSubqueries(planBuilder, mask, mask, context);
+                fieldMapping = newVariable(variableAllocator, field);
+                rowExpression = rowExpression(planBuilder.rewrite(mask), context);
+            }
+            else {
+                fieldMapping = mappings.get(i);
+                rowExpression = rowExpression(createSymbolReference(fieldMapping), context);
+            }
+
+            assignments.put(fieldMapping, rowExpression);
+            newMappings.add(fieldMapping);
+        }
+
+        planBuilder = planBuilder.withNewRoot(new ProjectNode(
+                idAllocator.getNextId(),
+                planBuilder.getRoot(),
+                assignments.build()));
+
+        return new RelationPlan(planBuilder.getRoot(), plan.getScope(), newMappings.build());
     }
 
     @Override

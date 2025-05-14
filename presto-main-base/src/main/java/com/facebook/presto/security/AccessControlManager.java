@@ -20,9 +20,12 @@ import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.Subfield;
 import com.facebook.presto.common.transaction.TransactionId;
 import com.facebook.presto.spi.CatalogSchemaTableName;
+import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorId;
+import com.facebook.presto.spi.MaterializedViewDefinition;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.analyzer.ViewDefinition;
 import com.facebook.presto.spi.connector.ConnectorAccessControl;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.security.AccessControl;
@@ -33,8 +36,10 @@ import com.facebook.presto.spi.security.PrestoPrincipal;
 import com.facebook.presto.spi.security.Privilege;
 import com.facebook.presto.spi.security.SystemAccessControl;
 import com.facebook.presto.spi.security.SystemAccessControlFactory;
+import com.facebook.presto.spi.security.ViewExpression;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.weakref.jmx.Managed;
@@ -55,6 +60,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.facebook.presto.metadata.MetadataUtil.toSchemaTableName;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_COLUMN_MASK;
 import static com.facebook.presto.spi.StandardErrorCode.SERVER_STARTING_UP;
 import static com.facebook.presto.util.PropertiesUtil.loadProperties;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -178,12 +184,12 @@ public class AccessControlManager
     }
 
     @Override
-    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query)
+    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
     {
         requireNonNull(identity, "identity is null");
         requireNonNull(query, "query is null");
 
-        authenticationCheck(() -> systemAccessControl.get().checkQueryIntegrity(identity, context, query));
+        authenticationCheck(() -> systemAccessControl.get().checkQueryIntegrity(identity, context, query, viewDefinitions, materializedViewDefinitions));
     }
 
     @Override
@@ -798,6 +804,54 @@ public class AccessControlManager
         }
     }
 
+    @Override
+    public List<ViewExpression> getRowFilters(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
+    {
+        requireNonNull(transactionId, "transactionId is null");
+        requireNonNull(identity, "identity is null");
+        requireNonNull(tableName, "catalogName is null");
+
+        ImmutableList.Builder<ViewExpression> filters = ImmutableList.builder();
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
+        if (entry != null) {
+            entry.getAccessControl().getRowFilters(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), context, toSchemaTableName(tableName))
+                    .forEach(filters::add);
+        }
+
+        systemAccessControl.get().getRowFilters(identity, context, toCatalogSchemaTableName(tableName))
+                .forEach(filters::add);
+
+        return filters.build();
+    }
+
+    @Override
+    public Map<ColumnMetadata, ViewExpression> getColumnMasks(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName, List<ColumnMetadata> columns)
+    {
+        requireNonNull(transactionId, "transactionId is null");
+        requireNonNull(identity, "identity is null");
+        requireNonNull(tableName, "catalogName is null");
+        requireNonNull(columns, "columns is null");
+
+        ImmutableMap.Builder<ColumnMetadata, ViewExpression> columnMasksBuilder = ImmutableMap.builder();
+
+        // connector-provided masks take precedence over global masks
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
+        if (entry != null) {
+            Map<ColumnMetadata, ViewExpression> connectorMasks = entry.getAccessControl().getColumnMasks(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), context, toSchemaTableName(tableName), columns);
+            columnMasksBuilder.putAll(connectorMasks);
+        }
+
+        Map<ColumnMetadata, ViewExpression> systemMasks = systemAccessControl.get().getColumnMasks(identity, context, toCatalogSchemaTableName(tableName), columns);
+        columnMasksBuilder.putAll(systemMasks);
+
+        try {
+            return columnMasksBuilder.buildOrThrow();
+        }
+        catch (IllegalArgumentException exception) {
+            throw new PrestoException(INVALID_COLUMN_MASK, "Multiple masks for the same column found", exception);
+        }
+    }
+
     private CatalogAccessControlEntry getConnectorAccessControl(TransactionId transactionId, String catalogName)
     {
         return transactionManager.getOptionalCatalogMetadata(transactionId, catalogName)
@@ -893,7 +947,7 @@ public class AccessControlManager
             implements SystemAccessControl
     {
         @Override
-        public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query)
+        public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
         {
             throw new PrestoException(SERVER_STARTING_UP, "Presto server is still initializing");
         }

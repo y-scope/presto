@@ -57,6 +57,7 @@ import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.SystemSessionProperties.LEGACY_JSON_CAST;
+import static com.facebook.presto.SystemSessionProperties.isCanonicalizedJsonExtract;
 import static com.facebook.presto.SystemSessionProperties.isFieldNameInJsonCastEnabled;
 import static com.facebook.presto.SystemSessionProperties.isLegacyMapSubscript;
 import static com.facebook.presto.SystemSessionProperties.isLegacyRowFieldOrdinalAccessEnabled;
@@ -364,10 +365,19 @@ public final class Session
 
     public Session beginTransactionId(TransactionId transactionId, TransactionManager transactionManager, AccessControl accessControl)
     {
+        return beginTransactionId(transactionId, false, transactionManager, accessControl);
+    }
+
+    public Session beginTransactionId(TransactionId transactionId, boolean enableRollback, TransactionManager transactionManager, AccessControl accessControl)
+    {
         requireNonNull(transactionId, "transactionId is null");
         checkArgument(!this.transactionId.isPresent(), "Session already has an active transaction");
         requireNonNull(transactionManager, "transactionManager is null");
         requireNonNull(accessControl, "accessControl is null");
+
+        if (enableRollback) {
+            transactionManager.enableRollback(transactionId);
+        }
 
         for (Entry<String, String> property : systemProperties.entrySet()) {
             // verify permissions
@@ -481,6 +491,7 @@ public final class Session
                 .setLegacyJsonCast(legacyJsonCast)
                 .setExtraCredentials(identity.getExtraCredentials())
                 .setWarnOnCommonNanPatterns(warnOnCommonNanPatterns(this))
+                .setCanonicalizedJsonExtract(isCanonicalizedJsonExtract(this))
                 .build();
     }
 

@@ -23,6 +23,7 @@ import com.facebook.presto.spi.plan.Assignments;
 import com.facebook.presto.spi.plan.CteConsumerNode;
 import com.facebook.presto.spi.plan.CteProducerNode;
 import com.facebook.presto.spi.plan.CteReferenceNode;
+import com.facebook.presto.spi.plan.DataOrganizationSpecification;
 import com.facebook.presto.spi.plan.DeleteNode;
 import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
@@ -650,7 +651,16 @@ public class UnaliasSymbolReferences
             PlanNode probeSource = context.rewrite(node.getProbeSource());
             PlanNode indexSource = context.rewrite(node.getIndexSource());
 
-            return new IndexJoinNode(node.getSourceLocation(), node.getId(), node.getType(), probeSource, indexSource, canonicalizeIndexJoinCriteria(node.getCriteria()), canonicalize(node.getProbeHashVariable()), canonicalize(node.getIndexHashVariable()));
+            return new IndexJoinNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getType(),
+                    probeSource,
+                    indexSource,
+                    canonicalizeIndexJoinCriteria(node.getCriteria()),
+                    node.getFilter().map(this::canonicalize),
+                    canonicalize(node.getProbeHashVariable()),
+                    canonicalize(node.getIndexHashVariable()));
         }
 
         @Override
@@ -790,9 +800,9 @@ public class UnaliasSymbolReferences
             return builder.build();
         }
 
-        private WindowNode.Specification canonicalizeAndDistinct(WindowNode.Specification specification)
+        private DataOrganizationSpecification canonicalizeAndDistinct(DataOrganizationSpecification specification)
         {
-            return new WindowNode.Specification(
+            return new DataOrganizationSpecification(
                     canonicalizeAndDistinct(specification.getPartitionBy()),
                     specification.getOrderingScheme().map(this::canonicalizeAndDistinct));
         }

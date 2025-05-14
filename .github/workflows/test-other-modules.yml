@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java: [ 8, 17.0.13 ]
+        java: [ 8.0.442, 17.0.13 ]
     runs-on: ubuntu-latest
     needs: changes
     timeout-minutes: 60
@@ -76,6 +76,7 @@ jobs:
             !presto-docs,
             !presto-server,
             !presto-main,
+            !presto-main-base,
             !presto-mongodb,
             !presto-spark-package,
             !presto-spark-launcher,

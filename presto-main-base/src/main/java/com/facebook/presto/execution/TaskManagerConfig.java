@@ -33,6 +33,7 @@ import javax.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.concurrent.TimeUnit;
 
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 @DefunctConfig({
@@ -101,6 +102,19 @@ public class TaskManagerConfig
     private Duration highMemoryTaskKillerFrequentFullGCDurationThreshold = new Duration(1, SECONDS);
     private double highMemoryTaskKillerHeapMemoryThreshold = 0.9;
     private boolean enableEventLoop;
+    private Duration slowMethodThresholdOnEventLoop = new Duration(0, SECONDS);
+
+    public long getSlowMethodThresholdOnEventLoop()
+    {
+        return slowMethodThresholdOnEventLoop.roundTo(NANOSECONDS);
+    }
+
+    @Config("task.event-loop-slow-method-threshold")
+    public TaskManagerConfig setSlowMethodThresholdOnEventLoop(Duration slowMethodThresholdOnEventLoop)
+    {
+        this.slowMethodThresholdOnEventLoop = slowMethodThresholdOnEventLoop;
+        return this;
+    }
 
     @Config("task.enable-event-loop")
     public TaskManagerConfig setEventLoopEnabled(boolean enableEventLoop)

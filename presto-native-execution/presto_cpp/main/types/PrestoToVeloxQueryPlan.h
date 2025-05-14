@@ -110,6 +110,16 @@ class VeloxQueryPlanConverterBase {
       const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
       const protocol::TaskId& taskId);
 
+  std::shared_ptr<const velox::core::IndexLookupJoinNode> toVeloxQueryPlan(
+      const std::shared_ptr<const protocol::IndexJoinNode>& node,
+      const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
+      const protocol::TaskId& taskId);
+
+  std::shared_ptr<const velox::core::TableScanNode> toVeloxQueryPlan(
+    const std::shared_ptr<const protocol::IndexSourceNode>& node,
+    const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
+    const protocol::TaskId& taskId);
+
   velox::core::PlanNodePtr toVeloxQueryPlan(
       const std::shared_ptr<const protocol::MarkDistinctNode>& node,
       const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
@@ -281,4 +291,10 @@ void parseSqlFunctionHandle(
     const std::shared_ptr<protocol::SqlFunctionHandle>& sqlFunction,
     std::vector<velox::TypePtr>& rawInputTypes,
     TypeParser& typeParser);
+
+void parseIndexLookupCondition(
+    const std::shared_ptr<protocol::RowExpression>& filter,
+    const VeloxExprConverter& exprConverter,
+    bool acceptConstant,
+    std::vector<velox::core::IndexLookupConditionPtr>& joinConditionPtrs);
 } // namespace facebook::presto

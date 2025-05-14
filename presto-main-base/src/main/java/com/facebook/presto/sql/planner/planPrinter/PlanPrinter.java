@@ -102,7 +102,6 @@ import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.RowExpressionDeterminismEvaluator;
 import com.facebook.presto.sql.tree.ComparisonExpression;
-import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.util.GraphvizPrinter;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
@@ -586,6 +585,8 @@ public class PlanPrinter
                     "IndexSource",
                     format("[%s, lookup = %s]", node.getIndexHandle(), node.getLookupVariables()));
 
+            nodeOutput.appendDetailsLine("TableHandle: %s", node.getTableHandle().getConnectorHandle().toString());
+
             for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : node.getAssignments().entrySet()) {
                 if (node.getOutputVariables().contains(entry.getKey())) {
                     nodeOutput.appendDetailsLine("%s := %s%s", entry.getKey(), entry.getValue(), formatSourceLocation(entry.getKey().getSourceLocation()));
@@ -597,12 +598,13 @@ public class PlanPrinter
         @Override
         public Void visitIndexJoin(IndexJoinNode node, Void context)
         {
-            List<Expression> joinExpressions = new ArrayList<>();
+            List<String> joinExpressions = new ArrayList<>();
             for (IndexJoinNode.EquiJoinClause clause : node.getCriteria()) {
                 joinExpressions.add(new ComparisonExpression(ComparisonExpression.Operator.EQUAL,
                         createSymbolReference(clause.getProbe()),
-                        createSymbolReference(clause.getIndex())));
+                        createSymbolReference(clause.getIndex())).toString());
             }
+            node.getFilter().map(formatter).ifPresent(joinExpressions::add);
 
             addNode(node,
                     format("%sIndexJoin", node.getType().getJoinLabel()),

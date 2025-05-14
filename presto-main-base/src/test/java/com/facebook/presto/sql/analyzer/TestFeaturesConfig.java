@@ -15,6 +15,7 @@ package com.facebook.presto.sql.analyzer;
 
 import com.facebook.airlift.configuration.ConfigurationFactory;
 import com.facebook.airlift.configuration.testing.ConfigAssertions;
+import com.facebook.presto.CompressionCodec;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationIfToFilterRewriteStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.CteMaterializationStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
@@ -126,7 +127,7 @@ public class TestFeaturesConfig
                 .setIgnoreStatsCalculatorFailures(true)
                 .setPrintStatsForNonJoinQuery(false)
                 .setDefaultFilterFactorEnabled(false)
-                .setExchangeCompressionEnabled(false)
+                .setExchangeCompressionCodec(CompressionCodec.NONE)
                 .setExchangeChecksumEnabled(false)
                 .setEnableIntermediateAggregations(false)
                 .setPushAggregationThroughJoin(true)
@@ -251,10 +252,14 @@ public class TestFeaturesConfig
                 .setPrestoSparkExecutionEnvironment(false)
                 .setSingleNodeExecutionEnabled(false)
                 .setNativeExecutionScaleWritersThreadsEnabled(false)
+                .setNativeExecutionTypeRewriteEnabled(false)
                 .setEnhancedCTESchedulingEnabled(true)
                 .setExpressionOptimizerName("default")
                 .setExcludeInvalidWorkerSessionProperties(false)
-                .setAddExchangeBelowPartialAggregationOverGroupId(false));
+                .setAddExchangeBelowPartialAggregationOverGroupId(false)
+                .setInnerJoinPushdownEnabled(false)
+                .setInEqualityJoinPushdownEnabled(false)
+                .setPrestoSparkExecutionEnvironment(false));
     }
 
     @Test
@@ -330,7 +335,7 @@ public class TestFeaturesConfig
                 .put("experimental.spiller.single-stream-spiller-choice", "TEMP_STORAGE")
                 .put("experimental.spiller.spiller-temp-storage", "crail")
                 .put("experimental.spiller.max-revocable-task-memory", "1GB")
-                .put("exchange.compression-enabled", "true")
+                .put("exchange.compression-codec", "LZ4")
                 .put("exchange.checksum-enabled", "true")
                 .put("optimizer.enable-intermediate-aggregations", "true")
                 .put("optimizer.force-single-node-output", "false")
@@ -451,9 +456,12 @@ public class TestFeaturesConfig
                 .put("optimizer.include-values-node-in-connector-optimizer", "false")
                 .put("eager-plan-validation-enabled", "true")
                 .put("eager-plan-validation-thread-pool-size", "2")
+                .put("optimizer.inner-join-pushdown-enabled", "true")
+                .put("optimizer.inequality-join-pushdown-enabled", "true")
                 .put("presto-spark-execution-environment", "true")
                 .put("single-node-execution-enabled", "true")
                 .put("native-execution-scale-writer-threads-enabled", "true")
+                .put("native-execution-type-rewrite-enabled", "true")
                 .put("enhanced-cte-scheduling-enabled", "false")
                 .put("expression-optimizer-name", "custom")
                 .put("exclude-invalid-worker-session-properties", "true")
@@ -529,7 +537,7 @@ public class TestFeaturesConfig
                 .setSingleStreamSpillerChoice(SingleStreamSpillerChoice.TEMP_STORAGE)
                 .setSpillerTempStorage("crail")
                 .setMaxRevocableMemoryPerTask(new DataSize(1, GIGABYTE))
-                .setExchangeCompressionEnabled(true)
+                .setExchangeCompressionCodec(CompressionCodec.LZ4)
                 .setExchangeChecksumEnabled(true)
                 .setEnableIntermediateAggregations(true)
                 .setForceSingleNodeOutput(false)
@@ -655,10 +663,14 @@ public class TestFeaturesConfig
                 .setPrestoSparkExecutionEnvironment(true)
                 .setSingleNodeExecutionEnabled(true)
                 .setNativeExecutionScaleWritersThreadsEnabled(true)
+                .setNativeExecutionTypeRewriteEnabled(true)
                 .setEnhancedCTESchedulingEnabled(false)
                 .setExpressionOptimizerName("custom")
                 .setExcludeInvalidWorkerSessionProperties(true)
-                .setAddExchangeBelowPartialAggregationOverGroupId(true);
+                .setAddExchangeBelowPartialAggregationOverGroupId(true)
+                .setInEqualityJoinPushdownEnabled(true)
+                .setInnerJoinPushdownEnabled(true)
+                .setPrestoSparkExecutionEnvironment(true);
         assertFullMapping(properties, expected);
     }
 

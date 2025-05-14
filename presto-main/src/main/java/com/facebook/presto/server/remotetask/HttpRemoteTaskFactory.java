@@ -195,7 +195,7 @@ public class HttpRemoteTaskFactory
         this.taskUpdateSizeTrackingEnabled = taskConfig.isTaskUpdateSizeTrackingEnabled();
 
         this.eventLoopGroup = taskConfig.isEventLoopEnabled() ? Optional.of(new SafeEventLoopGroup(config.getRemoteTaskMaxCallbackThreads(),
-                new ThreadFactoryBuilder().setNameFormat("task-event-loop-%s").setDaemon(true).build())
+                new ThreadFactoryBuilder().setNameFormat("task-event-loop-%s").setDaemon(true).build(), taskConfig.getSlowMethodThresholdOnEventLoop())
         {
             @Override
             protected EventLoop newChild(Executor executor, Object... args)

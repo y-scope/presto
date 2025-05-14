@@ -38,15 +38,24 @@ void to_json(json& j, const ArrowTransactionHandle& p);
 void from_json(const json& j, ArrowTransactionHandle& p);
 
 } // namespace facebook::presto::protocol::arrow_flight
+// ArrowColumnHandle is special since it needs an implementation of
+// operator<().
+
 namespace facebook::presto::protocol::arrow_flight {
 struct ArrowColumnHandle : public ColumnHandle {
   String columnName = {};
   Type columnType = {};
 
   ArrowColumnHandle() noexcept;
+
+  bool operator<(const ColumnHandle& o) const override {
+    return columnName < dynamic_cast<const ArrowColumnHandle&>(o).columnName;
+  }
 };
+
 void to_json(json& j, const ArrowColumnHandle& p);
 void from_json(const json& j, ArrowColumnHandle& p);
+
 } // namespace facebook::presto::protocol::arrow_flight
 namespace facebook::presto::protocol::arrow_flight {
 struct ArrowSplit : public ConnectorSplit {
