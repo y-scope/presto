@@ -37,7 +37,7 @@ public class ClpConfig
     }
 
     private boolean polymorphicTypeEnabled = true;
-    private MetadataProviderType metadataProviderType = MetadataProviderType.MYSQL;
+    private MetadataProviderType metadataProviderType;
     private String metadataDbUrl;
     private String metadataDbName;
     private String metadataDbUser;
@@ -45,6 +45,7 @@ public class ClpConfig
     private String metadataTablePrefix;
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
+    private String metadataFilterConfig;
     private ArchiveSource archiveSource = ArchiveSource.LOCAL;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
@@ -184,6 +185,18 @@ public class ClpConfig
     public ClpConfig setSplitProviderType(SplitProviderType splitProviderType)
     {
         this.splitProviderType = splitProviderType;
+        return this;
+    }
+
+    public String getMetadataFilterConfig()
+    {
+        return metadataFilterConfig;
+    }
+
+    @Config("clp.metadata-filter-config")
+    public ClpConfig setMetadataFilterConfig(String metadataFilterConfig)
+    {
+        this.metadataFilterConfig = metadataFilterConfig;
         return this;
     }
 }

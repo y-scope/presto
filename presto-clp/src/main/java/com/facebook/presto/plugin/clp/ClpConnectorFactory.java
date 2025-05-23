@@ -33,6 +33,8 @@ import static java.util.Objects.requireNonNull;
 public class ClpConnectorFactory
         implements ConnectorFactory
 {
+    public static final String CONNECTOR_NAME = "clp";
+
     @Override
     public String getName()
     {

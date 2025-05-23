@@ -133,7 +133,7 @@ public class TestClpSplit
         for (String tableName : TABLE_NAME_LIST) {
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                     new ClpTableHandle(new SchemaTableName(TABLE_SCHEMA, tableName), ClpTableHandle.StorageType.FS),
-                    Optional.empty());
+                    Optional.empty(), Optional.empty());
             List<ClpSplit> splits = splitProvider.listSplits(layoutHandle);
             assertEquals(splits.size(), NUM_SPLITS);
             for (int i = 0; i < NUM_SPLITS; i++) {

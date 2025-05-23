@@ -41,12 +41,15 @@ public class ClpPlanOptimizer
     private static final Logger log = Logger.get(ClpPlanOptimizer.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
+    private final ClpMetadataFilterProvider metadataFilterProvider;
 
     public ClpPlanOptimizer(FunctionMetadataManager functionManager,
-                            StandardFunctionResolution functionResolution)
+                            StandardFunctionResolution functionResolution,
+                            ClpMetadataFilterProvider metadataFilterProvider)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
+        this.metadataFilterProvider = requireNonNull(metadataFilterProvider, "metadataFilterProvider is null");
     }
 
     @Override
@@ -80,15 +83,23 @@ public class ClpPlanOptimizer
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpExpression clpExpression = node.getPredicate()
-                    .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, assignments),
+                    .accept(new ClpFilterToKqlConverter(
+                            functionResolution,
+                            functionManager,
+                            assignments,
+                            metadataFilterProvider.getFilterNames(tableHandle.getConnectorId().getCatalogName() +
+                                            "." + clpTableHandle.getSchemaTableName().toString())),
                             null);
             Optional<String> kqlQuery = clpExpression.getDefinition();
+            Optional<String> metadataFilterKqlQuery = clpExpression.getMetadataSql();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
             if (!kqlQuery.isPresent()) {
                 return node;
             }
-            log.debug("KQL query: %s", kqlQuery.get());
-            ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery);
+            log.info("KQL query: %s", kqlQuery.get());
+            log.info("Metadata filter SQL query: %s", metadataFilterKqlQuery);
+
+            ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataFilterKqlQuery);
             TableScanNode newTableScanNode = new TableScanNode(
                     tableScanNode.getSourceLocation(),
                     idAllocator.getNextId(),

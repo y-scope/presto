@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.presto.spi.relation.RowExpression;
 import org.testng.annotations.Test;
 
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.testng.Assert.assertEquals;
@@ -33,7 +34,8 @@ public class TestClpPlanOptimizer
         ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
-                        variableToColumnHandleMap),
+                        variableToColumnHandleMap,
+                        Collections.emptySet()),
                 null);
         Optional<String> kqlExpression = clpExpression.getDefinition();
         Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();

@@ -27,13 +27,16 @@ public class ClpTableLayoutHandle
 {
     private final ClpTableHandle table;
     private final Optional<String> kqlQuery;
+    private final Optional<String> metadataFilterQuery;
 
     @JsonCreator
     public ClpTableLayoutHandle(@JsonProperty("table") ClpTableHandle table,
-                                @JsonProperty("kqlQuery") Optional<String> kqlQuery)
+                                @JsonProperty("kqlQuery") Optional<String> kqlQuery,
+                                @JsonProperty("metadataFilterQuery") Optional<String> metadataFilterQuery)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
+        this.metadataFilterQuery = metadataFilterQuery;
     }
 
     @JsonProperty
@@ -48,6 +51,12 @@ public class ClpTableLayoutHandle
         return kqlQuery;
     }
 
+    @JsonProperty
+    public Optional<String> getMetadataFilterQuery()
+    {
+        return metadataFilterQuery;
+    }
+
     @Override
     public boolean equals(Object o)
     {
@@ -59,13 +68,14 @@ public class ClpTableLayoutHandle
         }
         ClpTableLayoutHandle that = (ClpTableLayoutHandle) o;
         return Objects.equals(table, that.table) &&
-                Objects.equals(kqlQuery, that.kqlQuery);
+                Objects.equals(kqlQuery, that.kqlQuery) &&
+                Objects.equals(metadataFilterQuery, that.metadataFilterQuery);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(table, kqlQuery);
+        return Objects.hash(table, kqlQuery, metadataFilterQuery);
     }
 
     @Override
@@ -74,6 +84,7 @@ public class ClpTableLayoutHandle
         return toStringHelper(this)
                 .add("table", table)
                 .add("kqlQuery", kqlQuery)
+                .add("metadataFilterQuery", metadataFilterQuery)
                 .toString();
     }
 }

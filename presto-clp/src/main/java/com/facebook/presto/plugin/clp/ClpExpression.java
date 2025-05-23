@@ -30,32 +30,39 @@ public class ClpExpression
 {
     // Optional KQL query string representing the fully or partially translatable part of the expression.
     private final Optional<String> definition;
+    private final Optional<String> metadataSql;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(Optional<String> definition, Optional<RowExpression> remainingExpression)
+    public ClpExpression(Optional<String> definition, Optional<String> metadataSql, Optional<RowExpression> remainingExpression)
     {
         this.definition = definition;
+        this.metadataSql = metadataSql;
         this.remainingExpression = remainingExpression;
     }
 
     // Creates an empty ClpExpression (no KQL definition, no remaining expression).
     public ClpExpression()
     {
-        this (Optional.empty(), Optional.empty());
+        this (Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     // Creates a ClpExpression from a fully translatable KQL string.
     public ClpExpression(String definition)
     {
-        this(Optional.of(definition), Optional.empty());
+        this(Optional.of(definition), Optional.empty(), Optional.empty());
+    }
+
+    public ClpExpression(String definition, Optional<String> metadataSql)
+    {
+        this(Optional.of(definition), metadataSql, Optional.empty());
     }
 
     // Creates a ClpExpression from a non-translatable RowExpression.
     public ClpExpression(RowExpression remainingExpression)
     {
-        this(Optional.empty(), Optional.of(remainingExpression));
+        this(Optional.empty(), Optional.empty(), Optional.of(remainingExpression));
     }
 
     public Optional<String> getDefinition()
@@ -66,5 +73,10 @@ public class ClpExpression
     public Optional<RowExpression> getRemainingExpression()
     {
         return remainingExpression;
+    }
+
+    public Optional<String> getMetadataSql()
+    {
+        return metadataSql;
     }
 }

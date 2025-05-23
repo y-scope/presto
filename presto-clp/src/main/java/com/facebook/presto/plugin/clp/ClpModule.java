@@ -31,6 +31,7 @@ public class ClpModule
     protected void setup(Binder binder)
     {
         binder.bind(ClpConnector.class).in(Scopes.SINGLETON);
+        binder.bind(ClpMetadataFilterProvider.class).in(Scopes.SINGLETON);
         binder.bind(ClpMetadata.class).in(Scopes.SINGLETON);
         binder.bind(ClpPlanOptimizerProvider.class).in(Scopes.SINGLETON);
         binder.bind(ClpRecordSetProvider.class).in(Scopes.SINGLETON);
