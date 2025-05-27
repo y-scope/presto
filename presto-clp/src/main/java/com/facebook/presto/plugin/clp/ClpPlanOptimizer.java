@@ -87,7 +87,7 @@ public class ClpPlanOptimizer
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataFilterProvider.getFilterNames(tableHandle.getConnectorId().getCatalogName() +
+                            metadataFilterProvider.getFilterNames(ClpConnectorFactory.CONNECTOR_NAME +
                                             "." + clpTableHandle.getSchemaTableName().toString())),
                             null);
             Optional<String> kqlQuery = clpExpression.getDefinition();
@@ -96,8 +96,10 @@ public class ClpPlanOptimizer
             if (!kqlQuery.isPresent()) {
                 return node;
             }
-            log.info("KQL query: %s", kqlQuery.get());
+            log.info("KQL query: %s", kqlQuery);
             log.info("Metadata filter SQL query: %s", metadataFilterKqlQuery);
+
+            metadataFilterProvider.checkContainsAllMustHaveFilters(clpTableHandle.getSchemaTableName(), metadataFilterKqlQuery.orElse(""));
 
             ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataFilterKqlQuery);
             TableScanNode newTableScanNode = new TableScanNode(

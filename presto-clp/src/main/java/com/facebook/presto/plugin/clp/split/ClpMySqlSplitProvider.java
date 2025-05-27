@@ -47,7 +47,7 @@ public class ClpMySqlSplitProvider
 
     // SQL templates
     private static final String SQL_SELECT_ARCHIVES_TEMPLATE =
-            String.format("SELECT %s FROM %%s%%s%s", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
+            String.format("SELECT %s FROM %%s%%s%s WHERE 1 = 1", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
     private static final String SQL_SELECT_DATASETS_TEMPLATE =
             String.format("SELECT %s FROM %%s%s WHERE %s = ?", DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY,
                     DATASETS_TABLE_SUFFIX, DATASETS_TABLE_COLUMN_NAME);
@@ -84,6 +84,14 @@ public class ClpMySqlSplitProvider
 
         String tablePathQuery = String.format(SQL_SELECT_DATASETS_TEMPLATE, config.getMetadataTablePrefix(), tableName);
         String archivePathQuery = String.format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
+        if (clpTableLayoutHandle.getMetadataFilterQuery().isPresent()) {
+            String metadataFilterQuery = clpTableLayoutHandle.getMetadataFilterQuery().get();
+            metadataFilterQuery = metadataFilterQuery.replaceAll("\"(ts)\"\\s(>=?)\\s([0-9]*)", "beginTimestamp $2 $3");
+            metadataFilterQuery = metadataFilterQuery.replaceAll("\"(ts)\"\\s(<=?)\\s([0-9]*)", "endTimestamp $2 $3");
+            archivePathQuery += " AND (" + metadataFilterQuery + ")";
+        }
+        log.info("Query for table: %s", tablePathQuery);
+        log.info("Query for archive: %s", archivePathQuery);
 
         try (Connection connection = getConnection()) {
             // Fetch table path
