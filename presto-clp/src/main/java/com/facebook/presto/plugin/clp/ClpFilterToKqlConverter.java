@@ -109,6 +109,9 @@ public class ClpFilterToKqlConverter
             if (operatorType.isComparisonOperator() && operatorType != OperatorType.IS_DISTINCT_FROM) {
                 return handleLogicalBinary(operatorType, node);
             }
+            else if (OperatorType.BETWEEN == operatorType) {
+                return handleBetween(operatorType, node);
+            }
         }
 
         return new ClpExpression(node);
@@ -641,13 +644,13 @@ public class ClpFilterToKqlConverter
         if (operator.equals(OperatorType.EQUAL)) {
             if (literalType instanceof VarcharType) {
                 if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = Optional.of(String.format("%s = '%s'", variableName, literalString));
+                    metadataSql = Optional.of(String.format("\"%s\" = '%s'", variableName, literalString));
                 }
                 return new ClpExpression(String.format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSql);
             }
             else {
                 if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = Optional.of(String.format("%s = %s", variableName, literalString));
+                    metadataSql = Optional.of(String.format("\"%s\" = %s", variableName, literalString));
                 }
                 return new ClpExpression(String.format("%s: %s", variableName, literalString), metadataSql);
             }
@@ -655,20 +658,20 @@ public class ClpFilterToKqlConverter
         else if (operator.equals(OperatorType.NOT_EQUAL)) {
             if (literalType instanceof VarcharType) {
                 if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = Optional.of(String.format("NOT %s = '%s'", variableName, literalString));
+                    metadataSql = Optional.of(String.format("NOT \"%s\" = '%s'", variableName, literalString));
                 }
                 return new ClpExpression(String.format("NOT %s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSql);
             }
             else {
                 if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = Optional.of(String.format("NOT %s = %s", variableName, literalString));
+                    metadataSql = Optional.of(String.format("NOT \"%s\" = %s", variableName, literalString));
                 }
                 return new ClpExpression(String.format("NOT %s: %s", variableName, literalString), metadataSql);
             }
         }
         else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
             if (metadataFilterColumns.contains(variableName)) {
-                metadataSql = Optional.of(String.format("%s %s %s", variableName, operator.getOperator(), literalString));
+                metadataSql = Optional.of(String.format("\"%s\" %s %s", variableName, operator.getOperator(), literalString));
             }
             return new ClpExpression(String.format("%s %s %s", variableName, operator.getOperator(), literalString), metadataSql);
         }
@@ -732,5 +735,30 @@ public class ClpFilterToKqlConverter
         }
         // fallback
         return new ClpExpression(node);
+    }
+
+    private ClpExpression handleBetween(OperatorType operator, CallExpression node)
+    {
+        if (node.getArguments().size() != 3) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Logical binary operator must have exactly two arguments. Received: " + node);
+        }
+        Optional<String> variableReferenceDefinition = node.getArguments().get(0).accept(this, null).getDefinition();
+        Optional<String> lowerBoundConstantDefinition = node.getArguments().get(1).accept(this, null).getDefinition();
+        Optional<String> upperBoundConstantDefinition = node.getArguments().get(2).accept(this, null).getDefinition();
+        if (!variableReferenceDefinition.isPresent() || !lowerBoundConstantDefinition.isPresent() || !upperBoundConstantDefinition.isPresent()) {
+            return new ClpExpression(node);
+        }
+        Optional<String> metadataSql = Optional.empty();
+        String kql = String.format(
+                "\"%s\" >= %s AND \"%s\" <= %s",
+                variableReferenceDefinition.get(),
+                lowerBoundConstantDefinition.get(),
+                variableReferenceDefinition.get(),
+                upperBoundConstantDefinition.get());
+        if (metadataFilterColumns.contains(variableReferenceDefinition.get())) {
+            metadataSql = Optional.of(kql);
+        }
+        return new ClpExpression(kql, metadataSql);
     }
 }

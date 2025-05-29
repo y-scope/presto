@@ -86,8 +86,12 @@ public class ClpMySqlSplitProvider
         String archivePathQuery = String.format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
         if (clpTableLayoutHandle.getMetadataFilterQuery().isPresent()) {
             String metadataFilterQuery = clpTableLayoutHandle.getMetadataFilterQuery().get();
-            metadataFilterQuery = metadataFilterQuery.replaceAll("\"(ts)\"\\s(>=?)\\s([0-9]*)", "beginTimestamp $2 $3");
-            metadataFilterQuery = metadataFilterQuery.replaceAll("\"(ts)\"\\s(<=?)\\s([0-9]*)", "endTimestamp $2 $3");
+            metadataFilterQuery = metadataFilterQuery.replaceAll(
+                    "\"(@timestamp)\"\\s(>=?)\\s([0-9]*)", "end_timestamp $2 $3");
+            metadataFilterQuery = metadataFilterQuery.replaceAll(
+                    "\"(@timestamp)\"\\s(<=?)\\s([0-9]*)", "begin_timestamp $2 $3");
+            metadataFilterQuery = metadataFilterQuery.replaceAll(
+                    "\"(@timestamp)\"\\s(=)\\s([0-9]*)", "(begin_timestamp <= $3 AND end_timestamp >= $3)");
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
         log.info("Query for table: %s", tablePathQuery);
