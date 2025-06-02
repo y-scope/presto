@@ -19,7 +19,9 @@ jobs:
     outputs:
       codechange: ${{ steps.filter.outputs.codechange }}
     steps:
-    # For pull requests it's not necessary to checkout the code
+    - uses: "actions/checkout@v4"
+      with:
+        submodules: "recursive"
     - uses: dorny/paths-filter@v2
       id: filter
       with:
