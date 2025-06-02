@@ -82,24 +82,31 @@ public class ClpPlanOptimizer
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            String scope = ClpConnectorFactory.CONNECTOR_NAME +
+                    "." + clpTableHandle.getSchemaTableName().toString();
             ClpExpression clpExpression = node.getPredicate()
                     .accept(new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataFilterProvider.getFilterNames(ClpConnectorFactory.CONNECTOR_NAME +
-                                            "." + clpTableHandle.getSchemaTableName().toString())),
+                            metadataFilterProvider.getFilterNames(scope)),
                             null);
             Optional<String> kqlQuery = clpExpression.getDefinition();
             Optional<String> metadataFilterKqlQuery = clpExpression.getMetadataSql();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
+
+            // This must be checked before check if the KQL is present, otherwise KQL can be emptry then this function
+            // directly exits.
+            metadataFilterProvider.checkContainsAllFilters(clpTableHandle.getSchemaTableName(), metadataFilterKqlQuery.orElse(""));
+            if (metadataFilterKqlQuery.isPresent()) {
+                metadataFilterKqlQuery = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataFilterKqlQuery.get()));
+                log.info("Metadata filter SQL query: %s", metadataFilterKqlQuery.get());
+            }
+
             if (!kqlQuery.isPresent()) {
                 return node;
             }
             log.info("KQL query: %s", kqlQuery);
-            log.info("Metadata filter SQL query: %s", metadataFilterKqlQuery);
-
-            metadataFilterProvider.checkContainsAllMustHaveFilters(clpTableHandle.getSchemaTableName(), metadataFilterKqlQuery.orElse(""));
 
             ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataFilterKqlQuery);
             TableScanNode newTableScanNode = new TableScanNode(

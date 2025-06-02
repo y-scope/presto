@@ -86,12 +86,6 @@ public class ClpMySqlSplitProvider
         String archivePathQuery = String.format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
         if (clpTableLayoutHandle.getMetadataFilterQuery().isPresent()) {
             String metadataFilterQuery = clpTableLayoutHandle.getMetadataFilterQuery().get();
-            metadataFilterQuery = metadataFilterQuery.replaceAll(
-                    "\"(@timestamp)\"\\s(>=?)\\s([0-9]*)", "end_timestamp $2 $3");
-            metadataFilterQuery = metadataFilterQuery.replaceAll(
-                    "\"(@timestamp)\"\\s(<=?)\\s([0-9]*)", "begin_timestamp $2 $3");
-            metadataFilterQuery = metadataFilterQuery.replaceAll(
-                    "\"(@timestamp)\"\\s(=)\\s([0-9]*)", "(begin_timestamp <= $3 AND end_timestamp >= $3)");
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
         log.info("Query for table: %s", tablePathQuery);
@@ -130,6 +124,7 @@ public class ClpMySqlSplitProvider
             log.warn("Database error while processing splits for %s: %s", tableName, e);
         }
 
+        log.info("Number of splits: %s", splits.size());
         return splits;
     }
 }

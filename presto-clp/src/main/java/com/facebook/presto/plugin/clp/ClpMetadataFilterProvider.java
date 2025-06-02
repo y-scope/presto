@@ -23,39 +23,19 @@ import com.google.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
 import static java.util.Objects.requireNonNull;
 
-/**
- * This class is to read a JSON config file from the path given by config file. Here is an example:
- * {
- *   "clp.default.table_1": {
- *     "filters": [
- *       {
- *         "filterName": "timestamp",
- *         "type": "numeric",
- *         "mustHave": false
- *       },
- *       {
- *         "filterName": "file_name",
- *         "type": "string",
- *         "mustHave": true
- *       }
- *     ]
- *   }
- * }
- *
- */
 public class ClpMetadataFilterProvider
 {
-    private static final String NUMERIC_TYPE = "numeric";
-    private static final String STRING_TYPE = "string";
     private final Map<String, TableConfig> filterMap;
 
     @Inject
@@ -79,6 +59,53 @@ public class ClpMetadataFilterProvider
         return filterMap;
     }
 
+    public void checkContainsAllFilters(SchemaTableName schemaTableName, String metadataFilterKqlQuery)
+    {
+        boolean hasAllMetadataFilterColumns = true;
+        String notFoundFilterColumnName = "";
+        for (String columnName : getFilterNames(
+                ClpConnectorFactory.CONNECTOR_NAME + "." + schemaTableName.toString())) {
+            if (!metadataFilterKqlQuery.contains(columnName)) {
+                hasAllMetadataFilterColumns = false;
+                notFoundFilterColumnName = columnName;
+                break;
+            }
+        }
+        if (!hasAllMetadataFilterColumns) {
+            throw new PrestoException(ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID, notFoundFilterColumnName + " is a mandatory metadata filter column but not valid");
+        }
+    }
+
+    public String remapFilterSql(String scope, String sql)
+    {
+        String[] splitScope = scope.split("\\.");
+        if (0 == splitScope.length) {
+            return sql;
+        }
+
+        Map<String, RangeMapping> mappings = new HashMap<>(getAllMappingsFromTableConfig(filterMap.get(splitScope[0])));
+
+        if (1 < splitScope.length) {
+            mappings.putAll(getAllMappingsFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
+        }
+
+        if (3 == splitScope.length) {
+            mappings.putAll(getAllMappingsFromTableConfig(filterMap.get(scope)));
+        }
+
+        String remappedSql = sql;
+        for (Map.Entry<String, RangeMapping> entry : mappings.entrySet()) {
+            remappedSql = remappedSql.replaceAll(
+                    "\"(" + entry.getKey() + ")\"\\s(>=?)\\s([0-9]*)", entry.getValue().upperBound + " $2 $3");
+            remappedSql = remappedSql.replaceAll(
+                    "\"(" + entry.getKey() + ")\"\\s(<=?)\\s([0-9]*)", entry.getValue().lowerBound + " $2 $3");
+            remappedSql = remappedSql.replaceAll(
+                    "\"(" + entry.getKey() + ")\"\\s(=)\\s([0-9]*)",
+                    "(" + entry.getValue().lowerBound + " <= $3 AND " + entry.getValue().upperBound + " >= $3)");
+        }
+        return remappedSql;
+    }
+
     public Set<String> getFilterNames(String scope)
     {
         String[] splitScope = scope.split("\\.");
@@ -97,41 +124,6 @@ public class ClpMetadataFilterProvider
         return filterNames;
     }
 
-    public void checkContainsAllMustHaveFilters(SchemaTableName schemaTableName, String metadataFilterKqlQuery)
-    {
-        boolean hasAllMustHaveMetadataFilterColumns = true;
-        String notFoundMandatoryFilterColumnName = "";
-        for (String mustHaveColumnName : getMustHaveFilterNames(
-                ClpConnectorFactory.CONNECTOR_NAME + "." + schemaTableName.toString())) {
-            if (!metadataFilterKqlQuery.contains(mustHaveColumnName)) {
-                hasAllMustHaveMetadataFilterColumns = false;
-                notFoundMandatoryFilterColumnName = mustHaveColumnName;
-                break;
-            }
-        }
-        if (!hasAllMustHaveMetadataFilterColumns) {
-            throw new PrestoException(ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID, notFoundMandatoryFilterColumnName + " is a mandatory metadata filter column but not valid");
-        }
-    }
-
-    public Set<String> getMustHaveFilterNames(String scope)
-    {
-        String[] splitScope = scope.split("\\.");
-        if (0 == splitScope.length) {
-            return Collections.emptySet();
-        }
-        Set<String> filterNames = new HashSet<>(getAllMustHaveFilterNamesFromTableConfig(filterMap.get(splitScope[0])));
-
-        if (1 < splitScope.length) {
-            filterNames.addAll(getAllMustHaveFilterNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
-        }
-
-        if (3 == splitScope.length) {
-            filterNames.addAll(getAllMustHaveFilterNamesFromTableConfig(filterMap.get(scope)));
-        }
-        return filterNames;
-    }
-
     private Set<String> getAllFilerNamesFromTableConfig(TableConfig tableConfig)
     {
         return null != tableConfig ? tableConfig.filters.stream()
@@ -139,12 +131,15 @@ public class ClpMetadataFilterProvider
                 .collect(Collectors.toSet()) : Collections.emptySet();
     }
 
-    private Set<String> getAllMustHaveFilterNamesFromTableConfig(TableConfig tableConfig)
+    private Map<String, RangeMapping> getAllMappingsFromTableConfig(TableConfig tableConfig)
     {
-        return null != tableConfig ? tableConfig.filters.stream()
-                .filter(filter -> filter.mustHave)
-                .map(filter -> filter.filterName)
-                .collect(Collectors.toSet()) : Collections.emptySet();
+        return tableConfig != null
+                ? tableConfig.filters.stream()
+                .filter(filter -> filter.rangeMapping != null)
+                .collect(Collectors.toMap(
+                        filter -> filter.filterName,
+                        filter -> filter.rangeMapping))
+                : Collections.emptyMap();
     }
 
     public static class TableConfig
@@ -152,12 +147,41 @@ public class ClpMetadataFilterProvider
         public List<Filter> filters;
     }
 
+    public static class RangeMapping
+    {
+        @JsonProperty("lowerBound")
+        public String lowerBound;
+
+        @JsonProperty("upperBound")
+        public String upperBound;
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof RangeMapping)) {
+                return false;
+            }
+            RangeMapping that = (RangeMapping) o;
+            return Objects.equals(lowerBound, that.lowerBound) &&
+                    Objects.equals(upperBound, that.upperBound);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(lowerBound, upperBound);
+        }
+    }
+
     public static class Filter
     {
         @JsonProperty("filterName")
         public String filterName;
 
-        @JsonProperty("mustHave")
-        public boolean mustHave;
+        @JsonProperty("rangeMapping")
+        public RangeMapping rangeMapping;
     }
 }

@@ -24,7 +24,6 @@ import java.io.IOException;
 import java.util.Set;
 
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
 public class TestClpMetadataFilter
@@ -41,35 +40,35 @@ public class TestClpMetadataFilter
 
         String json =
                 "{\n" +
-                        "  \"clp\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"level\",\n" +
-                        "        \"mustHave\": false\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  },\n" +
-                        "  \"clp.default\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"author\",\n" +
-                        "        \"mustHave\": false\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  },\n" +
-                        "  \"clp.default.table_1\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"timestamp\",\n" +
-                        "        \"mustHave\": false\n" +
-                        "      },\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"file_name\",\n" +
-                        "        \"mustHave\": true\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  }\n" +
-                        "}";
+                "  \"clp\": {\n" +
+                "    \"filters\": [\n" +
+                "      {\n" +
+                "        \"filterName\": \"level\"\n" +
+                "      }\n" +
+                "    ]\n" +
+                "  },\n" +
+                "  \"clp.default\": {\n" +
+                "    \"filters\": [\n" +
+                "      {\n" +
+                "        \"filterName\": \"author\"\n" +
+                "      }\n" +
+                "    ]\n" +
+                "  },\n" +
+                "  \"clp.default.table_1\": {\n" +
+                "    \"filters\": [\n" +
+                "      {\n" +
+                "        \"filterName\": \"msg.timestamp\",\n" +
+                "        \"rangeMapping\": {\n" +
+                "          \"lowerBound\": \"begin_timestamp\",\n" +
+                "          \"upperBound\": \"end_timestamp\"\n" +
+                "        }\n" +
+                "      },\n" +
+                "      {\n" +
+                "        \"filterName\": \"file_name\"\n" +
+                "      }\n" +
+                "    ]\n" +
+                "  }\n" +
+                "}";
 
         try (FileWriter writer = new FileWriter(tempFile)) {
             writer.write(json);
@@ -87,14 +86,35 @@ public class TestClpMetadataFilter
         Set<String> schemaFilterNames = filterProvider.getFilterNames("clp.default");
         assertEquals(ImmutableSet.of("level", "author"), schemaFilterNames);
         Set<String> tableFilterNames = filterProvider.getFilterNames("clp.default.table_1");
-        assertEquals(ImmutableSet.of("level", "author", "timestamp", "file_name"), tableFilterNames);
+        assertEquals(ImmutableSet.of("level", "author", "msg.timestamp", "file_name"), tableFilterNames);
+    }
 
-        Set<String> mustHaveCatalogFilterNames = filterProvider.getMustHaveFilterNames("clp");
-        assertTrue(mustHaveCatalogFilterNames.isEmpty());
-        Set<String> mustHaveSchemaFilterNames = filterProvider.getMustHaveFilterNames("clp.default");
-        assertTrue(mustHaveSchemaFilterNames.isEmpty());
-        Set<String> mustHaveTableFilterNames = filterProvider.getMustHaveFilterNames("clp.default.table_1");
-        assertEquals(ImmutableSet.of("file_name"), mustHaveTableFilterNames);
+    @Test
+    public void remapSql()
+    {
+        ClpConfig config = new ClpConfig();
+        config.setMetadataFilterConfig(filterConfigPath);
+        ClpMetadataFilterProvider filterProvider = new ClpMetadataFilterProvider(config);
+
+        String metadataFilterSql1 = "(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)";
+        String remappedSql1 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql1);
+        assertEquals(remappedSql1, "(end_timestamp > 1234 AND begin_timestamp < 5678)");
+
+        String metadataFilterSql2 = "(\"msg.timestamp\" >= 1234 AND \"msg.timestamp\" <= 5678)";
+        String remappedSql2 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql2);
+        assertEquals(remappedSql2, "(end_timestamp >= 1234 AND begin_timestamp <= 5678)");
+
+        String metadataFilterSql3 = "(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" <= 5678)";
+        String remappedSql3 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql3);
+        assertEquals(remappedSql3, "(end_timestamp > 1234 AND begin_timestamp <= 5678)");
+
+        String metadataFilterSql4 = "(\"msg.timestamp\" >= 1234 AND \"msg.timestamp\" < 5678)";
+        String remappedSql4 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql4);
+        assertEquals(remappedSql4, "(end_timestamp >= 1234 AND begin_timestamp < 5678)");
+
+        String metadataFilterSql5 = "(\"msg.timestamp\" = 1234)";
+        String remappedSql5 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql5);
+        assertEquals(remappedSql5, "((begin_timestamp <= 1234 AND end_timestamp >= 1234))");
     }
 
     @AfterMethod
