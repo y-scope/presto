@@ -13,6 +13,13 @@ env:
   MAVEN_TEST: "-B -Dair.check.skip-all -Dmaven.javadoc.skip=true -DLogTestDurationListener.enabled=true --no-transfer-progress --fail-at-end"
   RETRY: .github/bin/retry
 
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency. Exclude the `main` branch so that each commit to main is
+  # checked completely.
+  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -72,9 +79,6 @@ jobs:
           - ":presto-spark-base -P presto-spark-tests-spill-queries"
           - ":presto-iceberg"
     timeout-minutes: 80
-    concurrency:
-      group: ${{ github.workflow }}-test-${{ matrix.modules }}-${{ github.ref }}-${{ matrix.java }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.codechange == 'true'

@@ -53,6 +53,13 @@ on:
       # tpch
       - 'presto-tpch/src/main/java/com/facebook/presto/tpch/**'
 
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency. Exclude the `main` branch so that each commit to main is
+  # checked completely.
+  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
+
 jobs:
   prestocpp-linux-build-engine:
     runs-on: ubuntu-22.04

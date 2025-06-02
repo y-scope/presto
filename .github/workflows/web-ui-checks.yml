@@ -9,6 +9,13 @@ env:
   CONTINUOUS_INTEGRATION: true
   RETRY: .github/bin/retry
 
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency. Exclude the `main` branch so that each commit to main is
+  # checked completely.
+  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -34,9 +41,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.codechange == 'true'
     timeout-minutes: 30
-    concurrency:
-      group: ${{ github.workflow }}-web-ui-checks-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
         with:
