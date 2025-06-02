@@ -2,6 +2,7 @@ name: test
 
 on:
   pull_request:
+  push:
 
 env:
   # An envar that signals to tests we are executing in the CI environment
@@ -70,7 +71,7 @@ jobs:
           - ":presto-iceberg"
     timeout-minutes: 80
     concurrency:
-      group: ${{ github.workflow }}-test-${{ matrix.modules }}-${{ github.event.pull_request.number }}-${{ matrix.java }}
+      group: ${{ github.workflow }}-test-${{ matrix.modules }}-${{ github.ref }}-${{ matrix.java }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4

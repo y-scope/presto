@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+  push:
 
 env:
   # An envar that signals to tests we are executing in the CI environment
@@ -37,7 +38,7 @@ jobs:
     needs: changes
     timeout-minutes: 60
     concurrency:
-      group: ${{ github.workflow }}-product-tests-specific-environment1-${{ github.event.pull_request.number }}-${{ matrix.java }}
+      group: ${{ github.workflow }}-product-tests-specific-environment1-${{ github.ref }}-${{ matrix.java }}
       cancel-in-progress: true
     steps:
       - name: Free Disk Space
@@ -103,7 +104,7 @@ jobs:
     needs: changes
     timeout-minutes: 60
     concurrency:
-      group: ${{ github.workflow }}-product-tests-specific-environment2-${{ github.event.pull_request.number }}-${{ matrix.java }}
+      group: ${{ github.workflow }}-product-tests-specific-environment2-${{ github.ref }}-${{ matrix.java }}
       cancel-in-progress: true
     steps:
       - name: Free Disk Space

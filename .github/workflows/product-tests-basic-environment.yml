@@ -2,6 +2,7 @@ name: product tests (basic)
 
 on:
   pull_request:
+  push:
 
 env:
   # An envar that signals to tests we are executing in the CI environment
@@ -37,7 +38,7 @@ jobs:
     needs: changes
     timeout-minutes: 60
     concurrency:
-      group: ${{ github.workflow }}-product-tests-basic-environment-${{ github.event.pull_request.number }}-${{ matrix.java }}
+      group: ${{ github.workflow }}-product-tests-basic-environment-${{ github.ref }}-${{ matrix.java }}
       cancel-in-progress: true
     steps:
       - name: Free Disk Space

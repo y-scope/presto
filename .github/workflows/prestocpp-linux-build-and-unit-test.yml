@@ -8,8 +8,6 @@ on:
       - 'presto-native-sidecar-plugin/**'
       - '.github/workflows/prestocpp-linux-build-and-unit-test.yml'
   push:
-    branches:
-      - master
     paths-ignore:
       - 'presto-docs/**'
 
