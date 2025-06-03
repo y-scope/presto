@@ -2,14 +2,6 @@ name: prestocpp-macos-build
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'presto-native-execution/**'
-      - '.github/workflows/prestocpp-macos-build.yml'
-  push:
-    paths:
-      - 'presto-native-execution/**'
-      - '.github/workflows/prestocpp-macos-build.yml'
 
 concurrency:
   group: "${{github.workflow}}-${{github.ref}}"
