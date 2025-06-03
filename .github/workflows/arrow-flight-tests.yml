@@ -34,7 +34,7 @@ jobs:
         modules:
           - ":presto-base-arrow-flight"  # Only run tests for the `presto-base-arrow-flight` module
 
-    timeout-minutes: 79
+    timeout-minutes: 80
 
     steps:
       # Checkout the code only if there are changes in the relevant files
