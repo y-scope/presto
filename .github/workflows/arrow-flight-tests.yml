@@ -23,7 +23,6 @@ concurrency:
   # checked completely.
   cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
 
-
 jobs:
   arrowflight-java-tests:
     runs-on: ubuntu-latest
