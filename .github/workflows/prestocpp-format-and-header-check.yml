@@ -3,10 +3,12 @@ name: prestocpp-format-and-header-check
 on:
   workflow_dispatch:
   pull_request:
+    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-format-and-header-check.yml'
   push:
+    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-format-and-header-check.yml'
@@ -14,9 +16,9 @@ on:
 concurrency:
   group: "${{github.workflow}}-${{github.ref}}"
 
-  # Cancel in-progress jobs for efficiency. Exclude the `main` branch so that each commit to main is
-  # checked completely.
-  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
+  # Cancel in-progress jobs for efficiency. Exclude the `release-0.293-clp-connector` branch so
+  # that each commit to release-0.293-clp-connector is checked completely.
+  cancel-in-progress: "${{github.ref != 'refs/heads/release-0.293-clp-connector'}}"
 
 jobs:
   prestocpp-format-and-header-check:
