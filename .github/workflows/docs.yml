@@ -2,11 +2,9 @@ name: docs
 
 on:
   pull_request:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-docs/**'
   push:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-docs/**'
 

@@ -3,7 +3,6 @@ name: prestocpp-linux-build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-linux-build.yml'
@@ -29,7 +28,6 @@ on:
       # tpch
       - 'presto-tpch/src/main/java/com/facebook/presto/tpch/**'
   push:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-linux-build.yml'

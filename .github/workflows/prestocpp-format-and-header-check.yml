@@ -3,12 +3,10 @@ name: prestocpp-format-and-header-check
 on:
   workflow_dispatch:
   pull_request:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-format-and-header-check.yml'
   push:
-    branches: [release-0.293-clp-connector]
     paths:
       - 'presto-native-execution/**'
       - '.github/workflows/prestocpp-format-and-header-check.yml'

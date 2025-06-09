@@ -2,11 +2,9 @@ name: arrow flight tests
 
 on:
   pull_request:
-    branches: [release-0.293-clp-connector]
     paths-ignore:
       - 'presto-docs/**'
   push:
-    branches: [release-0.293-clp-connector]
     paths-ignore:
       - 'presto-docs/**'
 
