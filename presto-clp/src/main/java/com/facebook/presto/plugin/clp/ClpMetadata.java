@@ -36,9 +36,9 @@ import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -163,16 +163,19 @@ public class ClpMetadata
             schemaTableNames = listTables(session, Optional.ofNullable(prefix.getSchemaName()));
         }
         else {
-            schemaTableNames = ImmutableList.of(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()));
+            SchemaTableName table = new SchemaTableName(schemaName, prefix.getTableName());
+            if (listTables(session, Optional.ofNullable(schemaName)).contains(table)) {
+                schemaTableNames = ImmutableList.of(table);
+            }
+            else {
+                schemaTableNames = ImmutableList.of();
+            }
         }
 
         return schemaTableNames.stream()
-                .map(tableName -> {
-                    ConnectorTableHandle handle = getTableHandle(session, tableName);
-                    return handle != null ? Map.entry(tableName, getTableMetadata(session, handle).getColumns()) : null;
-                })
-                .filter(Objects::nonNull)
-                .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(ImmutableMap.toImmutableMap(
+                        Function.identity(),
+                        tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()));
     }
 
     @Override
