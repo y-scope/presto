@@ -42,7 +42,6 @@ public final class ClpMetadataDbSetUp
     public ClpMetadata setupMetadata(String dbName, Map<String, List<Pair<String, ClpNodeType>>> clpFields)
     {
         final String metadataDbUrl = String.format(metadataDbUrlTemplate, dbName);
-        System.out.println(metadataDbUrl);
         final String columnMetadataTableSuffix = "_column_metadata";
 
         try (Connection conn = DriverManager.getConnection(metadataDbUrl, metadataDbUser, metadataDbPassword);
@@ -160,10 +159,11 @@ public final class ClpMetadataDbSetUp
     {
         final String insertDatasetTableSQL = String.format(
                 "INSERT INTO %s (name, archive_storage_type, archive_storage_directory) VALUES (?, ?, ?)", datasetsTableName);
-        PreparedStatement pstmt = conn.prepareStatement(insertDatasetTableSQL);
-        pstmt.setString(1, tableName);
-        pstmt.setString(2, "fs");
-        pstmt.setString(3, "/tmp/archives/" + tableName);
-        pstmt.executeUpdate();
+        try (PreparedStatement pstmt = conn.prepareStatement(insertDatasetTableSQL)) {
+            pstmt.setString(1, tableName);
+            pstmt.setString(2, "fs");
+            pstmt.setString(3, "/tmp/archives/" + tableName);
+            pstmt.executeUpdate();
+        }
     }
 }

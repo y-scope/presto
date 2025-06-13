@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.SchemaTableName;
+import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -87,9 +88,16 @@ public class TestClpSplit
                     Optional.empty());
             List<ClpSplit> splits = clpSplitProvider.listSplits(layoutHandle);
             assertEquals(splits.size(), expectedSplits.size());
-            for (int i = 0; i < splits.size(); i++) {
-                assertEquals(splits.get(i).getPath(), tablePath + "/" + expectedSplits.get(i));
-            }
+
+            ImmutableSet<String> actualSplitPaths = splits.stream()
+                    .map(ClpSplit::getPath)
+                    .collect(ImmutableSet.toImmutableSet());
+
+            ImmutableSet<String> expectedSplitPaths = expectedSplits.stream()
+                    .map(split -> tablePath + "/" + split)
+                    .collect(ImmutableSet.toImmutableSet());
+
+            assertEquals(actualSplitPaths, expectedSplitPaths);
         }
     }
 }

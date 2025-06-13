@@ -25,6 +25,7 @@ import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.math3.util.Pair;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -90,42 +91,43 @@ public class TestClpMetadata
         ClpTableHandle clpTableHandle =
                 (ClpTableHandle) metadata.getTableHandle(SESSION, new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName));
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(SESSION, clpTableHandle);
-        HashSet<ColumnMetadata> columnMetadata = new HashSet<>();
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("a_bigint")
-                .setType(BigintType.BIGINT)
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("a_varchar")
-                .setType(VarcharType.VARCHAR)
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("b_double")
-                .setType(DoubleType.DOUBLE)
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("b_varchar")
-                .setType(VarcharType.VARCHAR)
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("c")
-                .setType(RowType.from(ImmutableList.of(
-                        RowType.field("d", BooleanType.BOOLEAN),
-                        RowType.field("e", VarcharType.VARCHAR))))
-                .setNullable(true)
-                .build());
-        columnMetadata.add(ColumnMetadata.builder()
-                .setName("f")
-                .setType(RowType.from(ImmutableList.of(
-                        RowType.field("g",
-                                RowType.from(ImmutableList.of(
-                                        RowType.field("h", new ArrayType(VarcharType.VARCHAR))))))))
-                .setNullable(true)
-                .build());
-        assertEquals(columnMetadata, new HashSet<>(tableMetadata.getColumns()));
+        ImmutableSet<ColumnMetadata> columnMetadata = ImmutableSet.<ColumnMetadata>builder()
+                .add(ColumnMetadata.builder()
+                        .setName("a_bigint")
+                        .setType(BigintType.BIGINT)
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("a_varchar")
+                        .setType(VarcharType.VARCHAR)
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("b_double")
+                        .setType(DoubleType.DOUBLE)
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("b_varchar")
+                        .setType(VarcharType.VARCHAR)
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("c")
+                        .setType(RowType.from(ImmutableList.of(
+                                RowType.field("d", BooleanType.BOOLEAN),
+                                RowType.field("e", VarcharType.VARCHAR))))
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("f")
+                        .setType(RowType.from(ImmutableList.of(
+                                RowType.field("g",
+                                        RowType.from(ImmutableList.of(
+                                                RowType.field("h", new ArrayType(VarcharType.VARCHAR))))))))
+                        .setNullable(true)
+                        .build())
+                .build();
+        assertEquals(columnMetadata, ImmutableSet.copyOf(tableMetadata.getColumns()));
     }
 }

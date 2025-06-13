@@ -36,9 +36,9 @@ import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -63,7 +63,7 @@ public class ClpMetadata
                 .refreshAfterWrite(clpConfig.getMetadataRefreshInterval(), SECONDS)
                 .build(CacheLoader.from(this::loadTableHandles));
 
-        this.clpMetadataProvider = clpMetadataProvider;
+        this.clpMetadataProvider = requireNonNull(clpMetadataProvider, "ClpMetadataProvider is null");
     }
 
     private List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
@@ -167,9 +167,12 @@ public class ClpMetadata
         }
 
         return schemaTableNames.stream()
-                .collect(ImmutableMap.toImmutableMap(
-                        Function.identity(),
-                        tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()));
+                .map(tableName -> {
+                    ConnectorTableHandle handle = getTableHandle(session, tableName);
+                    return handle != null ? Map.entry(tableName, getTableMetadata(session, handle).getColumns()) : null;
+                })
+                .filter(Objects::nonNull)
+                .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     @Override
