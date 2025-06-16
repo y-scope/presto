@@ -28,6 +28,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.testng.Assert.fail;
 
@@ -36,15 +37,34 @@ public final class ClpMetadataDbSetUp
     private static final Logger log = Logger.get(ClpMetadataDbSetUp.class);
 
     public static final String metadataDbUrlTemplate =
-            "jdbc:h2:file:/tmp/%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
+            "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
     public static final String metadataDbTablePrefix = "clp_";
     public static final String metadataDbUser = "sa";
     public static final String metadataDbPassword = "";
-    private final String datasetsTableName = metadataDbTablePrefix + "datasets";
+    private static final String datasetsTableName = metadataDbTablePrefix + "datasets";
 
-    public ClpMetadata setupMetadata(String dbName, Map<String, List<Pair<String, ClpNodeType>>> clpFields)
+    public static final class DbHandle
     {
-        final String metadataDbUrl = String.format(metadataDbUrlTemplate, dbName);
+        DbHandle(String dbPath)
+        {
+            this.dbPath = dbPath;
+        }
+        public String dbPath;
+    }
+
+    private ClpMetadataDbSetUp()
+    {
+        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+    }
+
+    public static DbHandle getDbHandle(String dbName)
+    {
+        return new DbHandle(String.format("/tmp/presto-clp-test/%s-%s", dbName, UUID.randomUUID()));
+    }
+
+    public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpNodeType>>> clpFields)
+    {
+        final String metadataDbUrl = String.format(metadataDbUrlTemplate, dbHandle.dbPath);
         final String columnMetadataTableSuffix = "_column_metadata";
 
         try (Connection conn = DriverManager.getConnection(metadataDbUrl, metadataDbUser, metadataDbPassword);
@@ -88,9 +108,9 @@ public final class ClpMetadataDbSetUp
         return new ClpMetadata(config, metadataProvider);
     }
 
-    public ClpMySqlSplitProvider setupSplit(String dbName, Map<String, List<String>> splits)
+    public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<String>> splits)
     {
-        final String metadataDbUrl = String.format(metadataDbUrlTemplate, dbName);
+        final String metadataDbUrl = String.format(metadataDbUrlTemplate, dbHandle.dbPath);
         final String archiveTableSuffix = "_archives";
         final String archiveTableFormat = metadataDbTablePrefix + "%s" + archiveTableSuffix;
 
@@ -135,10 +155,10 @@ public final class ClpMetadataDbSetUp
                         .setMetadataTablePrefix(metadataDbTablePrefix));
     }
 
-    public void tearDown(String dbName)
+    public static void tearDown(DbHandle dbHandle)
     {
-        File dbFile = new File(String.format("/tmp/%s.mv.db", dbName));
-        File lockFile = new File(String.format("/tmp/%s.trace.db", dbName)); // Optional, H2 sometimes creates this
+        File dbFile = new File(dbHandle.dbPath + ".mv.db");
+        File lockFile = new File(dbHandle.dbPath + ".trace.db"); // Optional, H2 sometimes creates this
         if (dbFile.exists()) {
             dbFile.delete();
             log.info("Deleted database file: " + dbFile.getAbsolutePath());
@@ -148,7 +168,7 @@ public final class ClpMetadataDbSetUp
         }
     }
 
-    private void createDatasetsTable(Statement stmt) throws SQLException
+    private static void createDatasetsTable(Statement stmt) throws SQLException
     {
         final String createDatasetTableSQL = String.format(
                 "CREATE TABLE IF NOT EXISTS %s (" +
@@ -158,7 +178,7 @@ public final class ClpMetadataDbSetUp
         stmt.execute(createDatasetTableSQL);
     }
 
-    private void updateDatasetsTable(Connection conn, String tableName) throws SQLException
+    private static void updateDatasetsTable(Connection conn, String tableName) throws SQLException
     {
         final String insertDatasetTableSQL = String.format(
                 "INSERT INTO %s (name, archive_storage_type, archive_storage_directory) VALUES (?, ?, ?)", datasetsTableName);

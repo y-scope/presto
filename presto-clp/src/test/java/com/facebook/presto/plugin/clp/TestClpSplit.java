@@ -32,16 +32,14 @@ import static org.testng.Assert.assertEquals;
 @Test(singleThreaded = true)
 public class TestClpSplit
 {
+    private ClpMetadataDbSetUp.DbHandle dbHandle;
     private ClpSplitProvider clpSplitProvider;
-    private ClpMetadataDbSetUp clpMetadataDbSetUp;
     private Map<String, List<String>> tableSplits;
-
-    private final String databaseName = "split_testdb";
 
     @BeforeMethod
     public void setUp()
     {
-        clpMetadataDbSetUp = new ClpMetadataDbSetUp();
+        dbHandle = ClpMetadataDbSetUp.getDbHandle("split_testdb");
         tableSplits = new HashMap<>();
 
         int numKeys = 3;
@@ -57,13 +55,13 @@ public class TestClpSplit
 
             tableSplits.put(key, values);
         }
-        clpSplitProvider = clpMetadataDbSetUp.setupSplit(databaseName, tableSplits);
+        clpSplitProvider = ClpMetadataDbSetUp.setupSplit(dbHandle, tableSplits);
     }
 
     @AfterMethod
     public void tearDown()
     {
-        clpMetadataDbSetUp.tearDown(databaseName);
+        ClpMetadataDbSetUp.tearDown(dbHandle);
     }
 
     @Test

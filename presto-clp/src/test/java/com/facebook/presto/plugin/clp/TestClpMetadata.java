@@ -41,18 +41,17 @@ import static org.testng.Assert.assertEquals;
 @Test(singleThreaded = true)
 public class TestClpMetadata
 {
+    private ClpMetadataDbSetUp.DbHandle dbHandle;
     private ClpMetadata metadata;
-    private ClpMetadataDbSetUp clpMetadataDbSetUp;
 
-    private static final String databaseName = "metadata_testdb";
     private static final String tableName = "test";
 
     @BeforeMethod
     public void setUp()
     {
-        clpMetadataDbSetUp = new ClpMetadataDbSetUp();
-        metadata = clpMetadataDbSetUp.setupMetadata(
-                databaseName,
+        dbHandle = ClpMetadataDbSetUp.getDbHandle("metadata_testdb");
+        metadata = ClpMetadataDbSetUp.setupMetadata(
+                dbHandle,
                 ImmutableMap.of(
                         tableName,
                         ImmutableList.of(
@@ -68,7 +67,7 @@ public class TestClpMetadata
     @AfterMethod
     public void tearDown()
     {
-        clpMetadataDbSetUp.tearDown(databaseName);
+        ClpMetadataDbSetUp.tearDown(dbHandle);
     }
 
     @Test
