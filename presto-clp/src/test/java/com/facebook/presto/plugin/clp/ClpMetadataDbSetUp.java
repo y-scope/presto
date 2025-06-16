@@ -18,9 +18,11 @@ import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpNodeType;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.math3.util.Pair;
 
 import java.io.File;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -59,7 +61,7 @@ public final class ClpMetadataDbSetUp
 
     public static DbHandle getDbHandle(String dbName)
     {
-        return new DbHandle(String.format("/tmp/presto-clp-test/%s-%s", dbName, UUID.randomUUID()));
+        return new DbHandle(String.format("/tmp/presto-clp-test-%s/%s", UUID.randomUUID(), dbName));
     }
 
     public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpNodeType>>> clpFields)
@@ -157,14 +159,15 @@ public final class ClpMetadataDbSetUp
 
     public static void tearDown(DbHandle dbHandle)
     {
-        File dbFile = new File(dbHandle.dbPath + ".mv.db");
-        File lockFile = new File(dbHandle.dbPath + ".trace.db"); // Optional, H2 sometimes creates this
-        if (dbFile.exists()) {
-            dbFile.delete();
-            log.info("Deleted database file: " + dbFile.getAbsolutePath());
-        }
-        if (lockFile.exists()) {
-            lockFile.delete();
+        File dir = new File(dbHandle.dbPath).getParentFile();
+        if (dir.exists()) {
+            try {
+                FileUtils.deleteDirectory(dir);
+                log.info("Deleted database dir" + dir.getAbsolutePath());
+            }
+            catch (IOException e) {
+                log.warn("Failed to delete directory " + dir + ": " + e.getMessage());
+            }
         }
     }
 
