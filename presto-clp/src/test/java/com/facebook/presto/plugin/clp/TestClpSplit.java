@@ -20,7 +20,6 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -64,15 +63,7 @@ public class TestClpSplit
     @AfterMethod
     public void tearDown()
     {
-        File dbFile = new File("/tmp/split_testdb.mv.db");
-        File lockFile = new File("/tmp/split_testdb.trace.db"); // Optional, H2 sometimes creates this
-        if (dbFile.exists()) {
-            dbFile.delete();
-            System.out.println("Deleted database file: " + dbFile.getAbsolutePath());
-        }
-        if (lockFile.exists()) {
-            lockFile.delete();
-        }
+        clpMetadataDbSetUp.tearDown(databaseName);
     }
 
     @Test

@@ -120,14 +120,14 @@ public class ClpMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session,
-                                                            ConnectorTableHandle table,
-                                                            Constraint<ColumnHandle> constraint,
-                                                            Optional<Set<ColumnHandle>> desiredColumns)
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(ConnectorSession session,
+                                                                  ConnectorTableHandle table,
+                                                                  Constraint<ColumnHandle> constraint,
+                                                                  Optional<Set<ColumnHandle>> desiredColumns)
     {
         ClpTableHandle tableHandle = (ClpTableHandle) table;
         ConnectorTableLayout layout = new ConnectorTableLayout(new ClpTableLayoutHandle(tableHandle, Optional.empty()));
-        return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
+        return new ConnectorTableLayoutResult(layout, constraint.getSummary());
     }
 
     @Override

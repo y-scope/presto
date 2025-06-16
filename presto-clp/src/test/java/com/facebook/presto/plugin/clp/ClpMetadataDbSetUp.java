@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpNodeType;
@@ -32,6 +33,8 @@ import static org.testng.Assert.fail;
 
 public final class ClpMetadataDbSetUp
 {
+    private static final Logger log = Logger.get(ClpMetadataDbSetUp.class);
+
     public static final String metadataDbUrlTemplate =
             "jdbc:h2:file:/tmp/%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
     public static final String metadataDbTablePrefix = "clp_";
@@ -138,7 +141,7 @@ public final class ClpMetadataDbSetUp
         File lockFile = new File(String.format("/tmp/%s.trace.db", dbName)); // Optional, H2 sometimes creates this
         if (dbFile.exists()) {
             dbFile.delete();
-            System.out.println("Deleted database file: " + dbFile.getAbsolutePath());
+            log.info("Deleted database file: " + dbFile.getAbsolutePath());
         }
         if (lockFile.exists()) {
             lockFile.delete();
