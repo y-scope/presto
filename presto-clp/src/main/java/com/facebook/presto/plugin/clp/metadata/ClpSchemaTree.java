@@ -14,12 +14,8 @@
 package com.facebook.presto.plugin.clp.metadata;
 
 import com.facebook.presto.common.type.ArrayType;
-import com.facebook.presto.common.type.BigintType;
-import com.facebook.presto.common.type.BooleanType;
-import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpErrorCode;
 import com.facebook.presto.spi.PrestoException;
@@ -33,59 +29,25 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.VarcharType.VARCHAR;
+
+/**
+ * A representation of CLP's schema tree built by turning hierarchical column names (e.g., a.b.c)
+ * with their types into a tree. The class handles name/type conflicts when the
+ * `clp.polymorphic-type-enabled` option is enabled, and maps serialized CLP types to Presto types.
+ */
 public class ClpSchemaTree
 {
-    static class ClpNode
-    {
-        Type type; // Only non-null for leaf nodes
-        String originalName;
-        Map<String, ClpNode> children = new HashMap<>();
-        Set<String> conflictingBaseNames = new HashSet<>();
-
-        ClpNode(String originalName)
-        {
-            this.originalName = originalName;
-        }
-
-        ClpNode(String originalName, Type type)
-        {
-            this.originalName = originalName;
-            this.type = type;
-        }
-
-        boolean isLeaf()
-        {
-            return children.isEmpty();
-        }
-    }
-
     private final ClpNode root;
     private final boolean polymorphicTypeEnabled;
+
     ClpSchemaTree(boolean polymorphicTypeEnabled)
     {
         this.polymorphicTypeEnabled = polymorphicTypeEnabled;
         this.root = new ClpNode(""); // Root doesn't have an original name
-    }
-
-    private Type mapColumnType(byte type)
-    {
-        switch (ClpNodeType.fromType(type)) {
-            case Integer:
-                return BigintType.BIGINT;
-            case Float:
-                return DoubleType.DOUBLE;
-            case ClpString:
-            case VarString:
-            case DateString:
-            case NullValue:
-                return VarcharType.VARCHAR;
-            case UnstructuredArray:
-                return new ArrayType(VarcharType.VARCHAR);
-            case Boolean:
-                return BooleanType.BOOLEAN;
-            default:
-                throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_TYPE, "Unsupported type: " + type);
-        }
     }
 
     /**
@@ -94,7 +56,7 @@ public class ClpSchemaTree
      * with type display names.
      *
      * @param fullName Fully qualified column name using dot notation (e.g., "a.b.c").
-     * @param type     Serialized byte value representing the CLP column's type.
+     * @param type Serialized byte value representing the CLP column's type.
      */
     public void addColumn(String fullName, byte type)
     {
@@ -125,9 +87,8 @@ public class ClpSchemaTree
     }
 
     /**
-     * Traverses the CLP schema tree and collects all leaf and nested structure nodes
-     * into a flat list of column handles. For nested structures, builds a RowType
-     * from child nodes.
+     * Traverses the CLP schema tree and collects all leaf and nested structure nodes into a flat
+     * list of column handles. For nested structures, builds a RowType from child nodes.
      *
      * @return List of ClpColumnHandle objects representing the full schema.
      */
@@ -146,6 +107,27 @@ public class ClpSchemaTree
             }
         }
         return columns;
+    }
+
+    private Type mapColumnType(byte type)
+    {
+        switch (ClpSchemaTreeNodeType.fromType(type)) {
+            case Integer:
+                return BIGINT;
+            case Float:
+                return DOUBLE;
+            case ClpString:
+            case VarString:
+            case DateString:
+            case NullValue:
+                return VARCHAR;
+            case UnstructuredArray:
+                return new ArrayType(VARCHAR);
+            case Boolean:
+                return BOOLEAN;
+            default:
+                throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_TYPE, "Unsupported type: " + type);
+        }
     }
 
     private String resolvePolymorphicConflicts(ClpNode parent, String baseName, Type newType)
@@ -198,5 +180,29 @@ public class ClpSchemaTree
             fields.add(new RowType.Field(Optional.of(name), fieldType));
         }
         return RowType.from(fields);
+    }
+
+    static class ClpNode
+    {
+        Type type; // Only non-null for leaf nodes
+        String originalName;
+        Map<String, ClpNode> children = new HashMap<>();
+        Set<String> conflictingBaseNames = new HashSet<>();
+
+        ClpNode(String originalName)
+        {
+            this.originalName = originalName;
+        }
+
+        ClpNode(String originalName, Type type)
+        {
+            this.originalName = originalName;
+            this.type = type;
+        }
+
+        boolean isLeaf()
+        {
+            return children.isEmpty();
+        }
     }
 }

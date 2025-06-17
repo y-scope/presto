@@ -43,10 +43,20 @@ import java.util.function.Function;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+/**
+ * For efficiency, this class maintains two caches for metadata from the
+ * {@link ClpMetadataProvider}:
+ * <ul>
+ *     <li>columnHandleCache: Maps {@link SchemaTableName} to a list of {@link ClpColumnHandle}s.
+ *     </li>
+ *     <li>tableHandleCache: Maps schema names to a list of {@link ClpTableHandle}s.</li>
+ * </ul>
+ */
 public class ClpMetadata
         implements ConnectorMetadata
 {
     public static final String DEFAULT_SCHEMA_NAME = "default";
+
     private final ClpMetadataProvider clpMetadataProvider;
     private final LoadingCache<SchemaTableName, List<ClpColumnHandle>> columnHandleCache;
     private final LoadingCache<String, List<ClpTableHandle>> tableHandleCache;
@@ -64,26 +74,6 @@ public class ClpMetadata
                 .build(CacheLoader.from(this::loadTableHandles));
 
         this.clpMetadataProvider = requireNonNull(clpMetadataProvider, "ClpMetadataProvider is null");
-    }
-
-    private List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
-    {
-        return clpMetadataProvider.listColumnHandles(schemaTableName);
-    }
-
-    private List<ClpTableHandle> loadTableHandles(String schemaName)
-    {
-        return clpMetadataProvider.listTableHandles(schemaName);
-    }
-
-    private List<ClpTableHandle> listTables(String schemaName)
-    {
-        return tableHandleCache.getUnchecked(schemaName);
-    }
-
-    private List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
-    {
-        return columnHandleCache.getUnchecked(schemaTableName);
     }
 
     @Override
@@ -120,10 +110,11 @@ public class ClpMetadata
     }
 
     @Override
-    public ConnectorTableLayoutResult getTableLayoutForConstraint(ConnectorSession session,
-                                                                  ConnectorTableHandle table,
-                                                                  Constraint<ColumnHandle> constraint,
-                                                                  Optional<Set<ColumnHandle>> desiredColumns)
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            Constraint<ColumnHandle> constraint,
+            Optional<Set<ColumnHandle>> desiredColumns)
     {
         ClpTableHandle tableHandle = (ClpTableHandle) table;
         ConnectorTableLayout layout = new ConnectorTableLayout(new ClpTableLayoutHandle(tableHandle, Optional.empty()));
@@ -149,8 +140,7 @@ public class ClpMetadata
     }
 
     @Override
-    public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session,
-                                                                       SchemaTablePrefix prefix)
+    public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
         requireNonNull(prefix, "prefix is null");
         String schemaName = prefix.getSchemaName();
@@ -189,11 +179,29 @@ public class ClpMetadata
     }
 
     @Override
-    public ColumnMetadata getColumnMetadata(ConnectorSession session,
-                                            ConnectorTableHandle tableHandle,
-                                            ColumnHandle columnHandle)
+    public ColumnMetadata getColumnMetadata(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle)
     {
         ClpColumnHandle clpColumnHandle = (ClpColumnHandle) columnHandle;
         return clpColumnHandle.getColumnMetadata();
+    }
+
+    private List<ClpColumnHandle> loadColumnHandles(SchemaTableName schemaTableName)
+    {
+        return clpMetadataProvider.listColumnHandles(schemaTableName);
+    }
+
+    private List<ClpTableHandle> loadTableHandles(String schemaName)
+    {
+        return clpMetadataProvider.listTableHandles(schemaName);
+    }
+
+    private List<ClpTableHandle> listTables(String schemaName)
+    {
+        return tableHandleCache.getUnchecked(schemaName);
+    }
+
+    private List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
+    {
+        return columnHandleCache.getUnchecked(schemaTableName);
     }
 }

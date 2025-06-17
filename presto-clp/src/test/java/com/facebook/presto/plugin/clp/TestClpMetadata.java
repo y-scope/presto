@@ -14,12 +14,8 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.common.type.ArrayType;
-import com.facebook.presto.common.type.BigintType;
-import com.facebook.presto.common.type.BooleanType;
-import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.RowType;
-import com.facebook.presto.common.type.VarcharType;
-import com.facebook.presto.plugin.clp.metadata.ClpNodeType;
+import com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
@@ -34,6 +30,10 @@ import org.testng.annotations.Test;
 import java.util.HashSet;
 import java.util.Optional;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
 import static org.testng.Assert.assertEquals;
@@ -41,10 +41,9 @@ import static org.testng.Assert.assertEquals;
 @Test(singleThreaded = true)
 public class TestClpMetadata
 {
+    private static final String tableName = "test";
     private ClpMetadataDbSetUp.DbHandle dbHandle;
     private ClpMetadata metadata;
-
-    private static final String tableName = "test";
 
     @BeforeMethod
     public void setUp()
@@ -55,13 +54,13 @@ public class TestClpMetadata
                 ImmutableMap.of(
                         tableName,
                         ImmutableList.of(
-                                new Pair<>("a", ClpNodeType.Integer),
-                                new Pair<>("a", ClpNodeType.VarString),
-                                new Pair<>("b", ClpNodeType.Float),
-                                new Pair<>("b", ClpNodeType.ClpString),
-                                new Pair<>("c.d", ClpNodeType.Boolean),
-                                new Pair<>("c.e", ClpNodeType.VarString),
-                                new Pair<>("f.g.h", ClpNodeType.UnstructuredArray))));
+                                new Pair<>("a", ClpSchemaTreeNodeType.Integer),
+                                new Pair<>("a", ClpSchemaTreeNodeType.VarString),
+                                new Pair<>("b", ClpSchemaTreeNodeType.Float),
+                                new Pair<>("b", ClpSchemaTreeNodeType.ClpString),
+                                new Pair<>("c.d", ClpSchemaTreeNodeType.Boolean),
+                                new Pair<>("c.e", ClpSchemaTreeNodeType.VarString),
+                                new Pair<>("f.g.h", ClpSchemaTreeNodeType.UnstructuredArray))));
     }
 
     @AfterMethod
@@ -93,29 +92,29 @@ public class TestClpMetadata
         ImmutableSet<ColumnMetadata> columnMetadata = ImmutableSet.<ColumnMetadata>builder()
                 .add(ColumnMetadata.builder()
                         .setName("a_bigint")
-                        .setType(BigintType.BIGINT)
+                        .setType(BIGINT)
                         .setNullable(true)
                         .build())
                 .add(ColumnMetadata.builder()
                         .setName("a_varchar")
-                        .setType(VarcharType.VARCHAR)
+                        .setType(VARCHAR)
                         .setNullable(true)
                         .build())
                 .add(ColumnMetadata.builder()
                         .setName("b_double")
-                        .setType(DoubleType.DOUBLE)
+                        .setType(DOUBLE)
                         .setNullable(true)
                         .build())
                 .add(ColumnMetadata.builder()
                         .setName("b_varchar")
-                        .setType(VarcharType.VARCHAR)
+                        .setType(VARCHAR)
                         .setNullable(true)
                         .build())
                 .add(ColumnMetadata.builder()
                         .setName("c")
                         .setType(RowType.from(ImmutableList.of(
-                                RowType.field("d", BooleanType.BOOLEAN),
-                                RowType.field("e", VarcharType.VARCHAR))))
+                                RowType.field("d", BOOLEAN),
+                                RowType.field("e", VARCHAR))))
                         .setNullable(true)
                         .build())
                 .add(ColumnMetadata.builder()
@@ -123,7 +122,7 @@ public class TestClpMetadata
                         .setType(RowType.from(ImmutableList.of(
                                 RowType.field("g",
                                         RowType.from(ImmutableList.of(
-                                                RowType.field("h", new ArrayType(VarcharType.VARCHAR))))))))
+                                                RowType.field("h", new ArrayType(VARCHAR))))))))
                         .setNullable(true)
                         .build())
                 .build();

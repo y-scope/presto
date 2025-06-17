@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVE_STORAGE_DIRECTORY_BASE;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
@@ -69,7 +70,7 @@ public class TestClpSplit
     {
         for (Map.Entry<String, List<String>> entry : tableSplits.entrySet()) {
             String tableName = entry.getKey();
-            String tablePath = "/tmp/archives/" + tableName;
+            String tablePath = ARCHIVE_STORAGE_DIRECTORY_BASE + tableName;
             List<String> expectedSplits = entry.getValue();
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                     new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName),

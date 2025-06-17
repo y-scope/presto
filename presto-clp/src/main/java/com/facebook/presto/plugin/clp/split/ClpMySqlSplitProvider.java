@@ -29,21 +29,24 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.lang.String.format;
+
 public class ClpMySqlSplitProvider
         implements ClpSplitProvider
 {
-    private static final Logger log = Logger.get(ClpMySqlSplitProvider.class);
-    private final ClpConfig config;
-
     // Column names
-    private static final String ARCHIVES_TABLE_COLUMN_ID = "id";
+    public static final String ARCHIVES_TABLE_COLUMN_ID = "id";
 
     // Table suffixes
     private static final String ARCHIVE_TABLE_SUFFIX = "_archives";
 
     // SQL templates
     private static final String SQL_SELECT_ARCHIVES_TEMPLATE =
-            String.format("SELECT `%s` FROM `%%s%%s%s`", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
+            format("SELECT `%s` FROM `%%s%%s%s`", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
+
+    private static final Logger log = Logger.get(ClpMySqlSplitProvider.class);
+
+    private final ClpConfig config;
 
     @Inject
     public ClpMySqlSplitProvider(ClpConfig config)
@@ -58,16 +61,6 @@ public class ClpMySqlSplitProvider
         this.config = config;
     }
 
-    private Connection getConnection() throws SQLException
-    {
-        Connection connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
-        String dbName = config.getMetadataDbName();
-        if (dbName != null && !dbName.isEmpty()) {
-            connection.createStatement().execute(String.format("USE `%s`", dbName));
-        }
-        return connection;
-    }
-
     @Override
     public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
     {
@@ -75,7 +68,7 @@ public class ClpMySqlSplitProvider
         ClpTableHandle clpTableHandle = clpTableLayoutHandle.getTable();
         String tablePath = clpTableHandle.getTablePath();
         String tableName = clpTableHandle.getSchemaTableName().getTableName();
-        String archivePathQuery = String.format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
+        String archivePathQuery = format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
 
         try (Connection connection = getConnection()) {
             // Fetch archive IDs and create splits
@@ -93,5 +86,16 @@ public class ClpMySqlSplitProvider
         }
 
         return splits;
+    }
+
+    private Connection getConnection()
+            throws SQLException
+    {
+        Connection connection = DriverManager.getConnection(config.getMetadataDbUrl(), config.getMetadataDbUser(), config.getMetadataDbPassword());
+        String dbName = config.getMetadataDbName();
+        if (dbName != null && !dbName.isEmpty()) {
+            connection.createStatement().execute(format("USE `%s`", dbName));
+        }
+        return connection;
     }
 }

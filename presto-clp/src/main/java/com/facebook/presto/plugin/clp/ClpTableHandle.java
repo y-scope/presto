@@ -25,20 +25,15 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 public class ClpTableHandle
         implements ConnectorTableHandle
 {
-    public enum StorageType
-    {
-        FS, // Local File System
-        S3
-    }
-
     private final SchemaTableName schemaTableName;
     private final String tablePath;
     private final StorageType storageType;
 
     @JsonCreator
-    public ClpTableHandle(@JsonProperty("schemaTableName") SchemaTableName schemaTableName,
-                          @JsonProperty("tablePath") String tablePath,
-                          @JsonProperty("storageType") StorageType storageType)
+    public ClpTableHandle(
+            @JsonProperty("schemaTableName") SchemaTableName schemaTableName,
+            @JsonProperty("tablePath") String tablePath,
+            @JsonProperty("storageType") StorageType storageType)
     {
         this.schemaTableName = schemaTableName;
         this.tablePath = tablePath;
@@ -92,5 +87,11 @@ public class ClpTableHandle
                 .add("tablePath", tablePath)
                 .add("storageType", storageType)
                 .toString();
+    }
+
+    public enum StorageType
+    {
+        FS, // Local File System
+        S3
     }
 }
