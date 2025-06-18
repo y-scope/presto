@@ -90,7 +90,7 @@ The CLP connector relies on metadata and split providers to retrieve information
 uses a MySQL database for both metadata and split storage. We recommend using the CLP package for log ingestion, which
 automatically populates the database with the required information.
 
-If you prefer to use a different source--or the same source with a custom implementation—you can provide your own
+If you prefer to use a different source--or the same source with a custom implementation--you can provide your own
 implementations of the ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and configure the connector
 accordingly.
 
