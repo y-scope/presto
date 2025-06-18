@@ -182,7 +182,7 @@ public class ClpSchemaTree
         return RowType.from(fields);
     }
 
-    static class ClpNode
+    static private class ClpNode
     {
         Type type; // Only non-null for leaf nodes
         String originalName;

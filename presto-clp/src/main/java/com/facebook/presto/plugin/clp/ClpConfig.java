@@ -114,8 +114,9 @@ public class ClpConfig
     public ClpConfig setMetadataTablePrefix(String metadataTablePrefix)
     {
         if (metadataTablePrefix == null || !SAFE_SQL_TABLE_NAME_PATTERN.matcher(metadataTablePrefix).matches()) {
-            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_CONFIG_OPTION, "Invalid metadataTablePrefix: " +
-                    metadataTablePrefix + ". Only alphanumeric characters and underscores are allowed.");
+            throw new PrestoException(
+                    ClpErrorCode.CLP_UNSUPPORTED_CONFIG_OPTION,
+                    "Invalid metadataTablePrefix: " + metadataTablePrefix + ". Only alphanumeric characters and underscores are allowed.");
         }
 
         this.metadataTablePrefix = metadataTablePrefix;

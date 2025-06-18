@@ -37,11 +37,7 @@ public class ClpConnector
     private final ClpSplitManager splitManager;
 
     @Inject
-    public ClpConnector(
-            LifeCycleManager lifeCycleManager,
-            ClpMetadata metadata,
-            ClpRecordSetProvider recordSetProvider,
-            ClpSplitManager splitManager)
+    public ClpConnector(LifeCycleManager lifeCycleManager, ClpMetadata metadata, ClpRecordSetProvider recordSetProvider, ClpSplitManager splitManager)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");

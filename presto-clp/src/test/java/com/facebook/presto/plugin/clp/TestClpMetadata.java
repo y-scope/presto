@@ -41,7 +41,7 @@ import static org.testng.Assert.assertEquals;
 @Test(singleThreaded = true)
 public class TestClpMetadata
 {
-    private static final String tableName = "test";
+    private static final String TABLE_NAME = "test";
     private ClpMetadataDbSetUp.DbHandle dbHandle;
     private ClpMetadata metadata;
 
@@ -52,7 +52,7 @@ public class TestClpMetadata
         metadata = ClpMetadataDbSetUp.setupMetadata(
                 dbHandle,
                 ImmutableMap.of(
-                        tableName,
+                        TABLE_NAME,
                         ImmutableList.of(
                                 new Pair<>("a", ClpSchemaTreeNodeType.Integer),
                                 new Pair<>("a", ClpSchemaTreeNodeType.VarString),
@@ -79,15 +79,14 @@ public class TestClpMetadata
     public void testListTables()
     {
         HashSet<SchemaTableName> tables = new HashSet<>();
-        tables.add(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName));
+        tables.add(new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME));
         assertEquals(new HashSet<>(metadata.listTables(SESSION, Optional.empty())), tables);
     }
 
     @Test
     public void testGetTableMetadata()
     {
-        ClpTableHandle clpTableHandle =
-                (ClpTableHandle) metadata.getTableHandle(SESSION, new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName));
+        ClpTableHandle clpTableHandle = (ClpTableHandle) metadata.getTableHandle(SESSION, new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME));
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(SESSION, clpTableHandle);
         ImmutableSet<ColumnMetadata> columnMetadata = ImmutableSet.<ColumnMetadata>builder()
                 .add(ColumnMetadata.builder()

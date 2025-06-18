@@ -38,11 +38,10 @@ public class ClpMySqlSplitProvider
     public static final String ARCHIVES_TABLE_COLUMN_ID = "id";
 
     // Table suffixes
-    private static final String ARCHIVE_TABLE_SUFFIX = "_archives";
+    public static final String ARCHIVE_TABLE_SUFFIX = "_archives";
 
     // SQL templates
-    private static final String SQL_SELECT_ARCHIVES_TEMPLATE =
-            format("SELECT `%s` FROM `%%s%%s%s`", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
+    private static final String SQL_SELECT_ARCHIVES_TEMPLATE = format("SELECT `%s` FROM `%%s%%s%s`", ARCHIVES_TABLE_COLUMN_ID, ARCHIVE_TABLE_SUFFIX);
 
     private static final Logger log = Logger.get(ClpMySqlSplitProvider.class);
 
@@ -72,8 +71,7 @@ public class ClpMySqlSplitProvider
 
         try (Connection connection = getConnection()) {
             // Fetch archive IDs and create splits
-            try (PreparedStatement statement = connection.prepareStatement(archivePathQuery);
-                    ResultSet resultSet = statement.executeQuery()) {
+            try (PreparedStatement statement = connection.prepareStatement(archivePathQuery); ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
                     final String archiveId = resultSet.getString(ARCHIVES_TABLE_COLUMN_ID);
                     final String archivePath = tablePath + "/" + archiveId;

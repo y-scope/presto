@@ -41,16 +41,14 @@ public class ClpModule
             binder.bind(ClpMetadataProvider.class).to(ClpMySqlMetadataProvider.class).in(Scopes.SINGLETON);
         }
         else {
-            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE,
-                    "Unsupported metadata provider type: " + config.getMetadataProviderType());
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE, "Unsupported metadata provider type: " + config.getMetadataProviderType());
         }
 
         if (config.getSplitProviderType() == ClpConfig.SplitProviderType.MYSQL) {
             binder.bind(ClpSplitProvider.class).to(ClpMySqlSplitProvider.class).in(Scopes.SINGLETON);
         }
         else {
-            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE,
-                    "Unsupported split provider type: " + config.getSplitProviderType());
+            throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE, "Unsupported split provider type: " + config.getSplitProviderType());
         }
     }
 }

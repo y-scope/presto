@@ -39,6 +39,7 @@ import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.D
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_NAME;
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_SUFFIX;
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_COLUMN_ID;
+import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVE_TABLE_SUFFIX;
 import static java.lang.String.format;
 import static org.testng.Assert.fail;
 
@@ -46,8 +47,7 @@ public final class ClpMetadataDbSetUp
 {
     public static final String METADATA_DB_PASSWORD = "";
     public static final String METADATA_DB_TABLE_PREFIX = "clp_";
-    public static final String METADATA_DB_URL_TEMPLATE =
-            "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
+    public static final String METADATA_DB_URL_TEMPLATE = "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
     public static final String METADATA_DB_USER = "sa";
     public static final String ARCHIVE_STORAGE_DIRECTORY_BASE = "/tmp/archives/";
 
@@ -70,8 +70,7 @@ public final class ClpMetadataDbSetUp
         final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
         final String columnMetadataTableSuffix = "_column_metadata";
 
-        try (Connection conn = DriverManager.getConnection(metadataDbUrl, METADATA_DB_USER, METADATA_DB_PASSWORD);
-                Statement stmt = conn.createStatement()) {
+        try (Connection conn = DriverManager.getConnection(metadataDbUrl, METADATA_DB_USER, METADATA_DB_PASSWORD); Statement stmt = conn.createStatement()) {
             createDatasetsTable(stmt);
 
             for (Map.Entry<String, List<Pair<String, ClpSchemaTreeNodeType>>> entry : clpFields.entrySet()) {
@@ -110,7 +109,8 @@ public final class ClpMetadataDbSetUp
             fail(e.getMessage());
         }
 
-        ClpConfig config = new ClpConfig().setPolymorphicTypeEnabled(true)
+        ClpConfig config = new ClpConfig()
+                .setPolymorphicTypeEnabled(true)
                 .setMetadataDbUrl(metadataDbUrl)
                 .setMetadataDbUser(METADATA_DB_USER)
                 .setMetadataDbPassword(METADATA_DB_PASSWORD)
@@ -122,11 +122,9 @@ public final class ClpMetadataDbSetUp
     public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<String>> splits)
     {
         final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
-        final String archiveTableSuffix = "_archives";
-        final String archiveTableFormat = METADATA_DB_TABLE_PREFIX + "%s" + archiveTableSuffix;
+        final String archiveTableFormat = METADATA_DB_TABLE_PREFIX + "%s" + ARCHIVE_TABLE_SUFFIX;
 
-        try (Connection conn = DriverManager.getConnection(metadataDbUrl, METADATA_DB_USER, METADATA_DB_PASSWORD);
-                Statement stmt = conn.createStatement()) {
+        try (Connection conn = DriverManager.getConnection(metadataDbUrl, METADATA_DB_USER, METADATA_DB_PASSWORD); Statement stmt = conn.createStatement()) {
             createDatasetsTable(stmt);
 
             // Create and populate archive tables
@@ -145,10 +143,7 @@ public final class ClpMetadataDbSetUp
 
                 stmt.execute(createArchiveTableSQL);
 
-                String insertArchiveTableSQL = format(
-                        "INSERT INTO %s (%s) VALUES (?)",
-                        archiveTableName,
-                        ARCHIVES_TABLE_COLUMN_ID);
+                String insertArchiveTableSQL = format("INSERT INTO %s (%s) VALUES (?)", archiveTableName, ARCHIVES_TABLE_COLUMN_ID);
                 try (PreparedStatement pstmt = conn.prepareStatement(insertArchiveTableSQL)) {
                     for (String splitPath : tableSplits.getValue()) {
                         pstmt.setString(1, splitPath);

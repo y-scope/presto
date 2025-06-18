@@ -47,12 +47,13 @@ public class ClpMySqlMetadataProvider
     public static final String DATASETS_TABLE_SUFFIX = "datasets";
 
     // SQL templates
-    private static final String SQL_SELECT_COLUMN_METADATA_TEMPLATE = "SELECT * FROM `%s%s" +
-            COLUMN_METADATA_TABLE_SUFFIX + "`";
-    private static final String SQL_SELECT_DATASETS_TEMPLATE =
-            format("SELECT `%s`, `%s`, `%s` FROM `%%s%s`", DATASETS_TABLE_COLUMN_NAME,
-                    DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_TYPE, DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY,
-                    DATASETS_TABLE_SUFFIX);
+    private static final String SQL_SELECT_COLUMN_METADATA_TEMPLATE = "SELECT * FROM `%s%s" + COLUMN_METADATA_TABLE_SUFFIX + "`";
+    private static final String SQL_SELECT_DATASETS_TEMPLATE = format(
+            "SELECT `%s`, `%s`, `%s` FROM `%%s%s`",
+            DATASETS_TABLE_COLUMN_NAME,
+            DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_TYPE,
+            DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY,
+            DATASETS_TABLE_SUFFIX);
 
     private static final Logger log = Logger.get(ClpMySqlMetadataProvider.class);
 
@@ -74,14 +75,13 @@ public class ClpMySqlMetadataProvider
     @Override
     public List<ClpColumnHandle> listColumnHandles(SchemaTableName schemaTableName)
     {
-        String query = format(SQL_SELECT_COLUMN_METADATA_TEMPLATE,
-                config.getMetadataTablePrefix(), schemaTableName.getTableName());
+        String query = format(SQL_SELECT_COLUMN_METADATA_TEMPLATE, config.getMetadataTablePrefix(), schemaTableName.getTableName());
         ClpSchemaTree schemaTree = new ClpSchemaTree(config.isPolymorphicTypeEnabled());
-        try (Connection connection = getConnection();
-                PreparedStatement statement = connection.prepareStatement(query)) {
+        try (Connection connection = getConnection(); PreparedStatement statement = connection.prepareStatement(query)) {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    schemaTree.addColumn(resultSet.getString(COLUMN_METADATA_TABLE_COLUMN_NAME),
+                    schemaTree.addColumn(
+                            resultSet.getString(COLUMN_METADATA_TABLE_COLUMN_NAME),
                             resultSet.getByte(COLUMN_METADATA_TABLE_COLUMN_TYPE));
                 }
             }
@@ -104,11 +104,12 @@ public class ClpMySqlMetadataProvider
                 String tableName = resultSet.getString(DATASETS_TABLE_COLUMN_NAME);
                 String archiveStorageType = resultSet.getString(DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_TYPE);
                 String archiveStorageDirectory = resultSet.getString(DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY);
-                if (isValidIdentifier(tableName) && archiveStorageDirectory != null &&
-                        !archiveStorageDirectory.isEmpty()) {
-                    tableHandles.add(new ClpTableHandle(new SchemaTableName(schemaName, tableName),
-                            archiveStorageDirectory,
-                            ClpTableHandle.StorageType.valueOf(archiveStorageType.toUpperCase())));
+                if (isValidIdentifier(tableName) && archiveStorageDirectory != null && !archiveStorageDirectory.isEmpty()) {
+                    tableHandles.add(
+                            new ClpTableHandle(
+                                    new SchemaTableName(schemaName, tableName),
+                                    archiveStorageDirectory,
+                                    ClpTableHandle.StorageType.valueOf(archiveStorageType.toUpperCase())));
                 }
                 else {
                     log.warn("Ignoring invalid table name found in metadata: %s", tableName);
