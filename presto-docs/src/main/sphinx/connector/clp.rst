@@ -41,11 +41,6 @@ The following configuration properties are available:
 ================================== ======================================================================== =========
 Property Name                      Description                                                              Default
 ================================== ======================================================================== =========
-``clp.metadata-expire-interval``   Defines how long, in seconds, metadata entries remain valid before they  600
-                                   need to be refreshed.
-``clp.metadata-refresh-interval``  Specifies how frequently metadata is refreshed from the source, in       60
-                                   seconds. Set this to a lower value for frequently changing datasets or
-                                   to a higher value to reduce load.
 ``clp.polymorphic-type-enabled``   Enables or disables support for polymorphic types in CLP, allowing the   ``false``
                                    same field to have different types. This is useful for schema-less,
                                    semi-structured data where the same field may appear with different
@@ -76,6 +71,11 @@ Property Name                      Description                                  
 ``clp.metadata-table-prefix``      A string prefix prepended to all metadata table names when querying the
                                    database. Useful for namespacing or avoiding collisions. This option is
                                    required if ``clp.metadata-provider-type`` is set to ``mysql``.
+``clp.metadata-expire-interval``   Defines how long, in seconds, metadata entries remain valid before they  600
+                                   need to be refreshed.
+``clp.metadata-refresh-interval``  Specifies how frequently metadata is refreshed from the source, in       60
+                                   seconds. Set this to a lower value for frequently changing datasets or
+                                   to a higher value to reduce load.
 ``clp.split-provider-type``        Specifies the split provider type. By default, it uses the same type as  ``mysql``
                                    the metadata provider with the same connection parameters. Additional
                                    types can be supported by implementing the ``ClpSplitProvider``

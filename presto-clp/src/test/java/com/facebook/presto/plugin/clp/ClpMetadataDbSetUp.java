@@ -30,7 +30,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_COLUMN_NAME;
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_COLUMN_TYPE;
@@ -41,6 +40,7 @@ import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.D
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_COLUMN_ID;
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVE_TABLE_SUFFIX;
 import static java.lang.String.format;
+import static java.util.UUID.randomUUID;
 import static org.testng.Assert.fail;
 
 public final class ClpMetadataDbSetUp
@@ -62,7 +62,7 @@ public final class ClpMetadataDbSetUp
 
     public static DbHandle getDbHandle(String dbName)
     {
-        return new DbHandle(format("/tmp/presto-clp-test-%s/%s", UUID.randomUUID(), dbName));
+        return new DbHandle(format("/tmp/presto-clp-test-%s/%s", randomUUID(), dbName));
     }
 
     public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpSchemaTreeNodeType>>> clpFields)
@@ -216,7 +216,7 @@ public final class ClpMetadataDbSetUp
     {
         public String dbPath;
 
-        DbHandle(String dbPath)
+        private DbHandle(String dbPath)
         {
             this.dbPath = dbPath;
         }

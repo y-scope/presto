@@ -18,6 +18,7 @@ import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
 
@@ -26,7 +27,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.List;
 
 import static java.lang.String.format;
@@ -63,7 +63,7 @@ public class ClpMySqlSplitProvider
     @Override
     public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
     {
-        List<ClpSplit> splits = new ArrayList<>();
+        ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
         ClpTableHandle clpTableHandle = clpTableLayoutHandle.getTable();
         String tablePath = clpTableHandle.getTablePath();
         String tableName = clpTableHandle.getSchemaTableName().getTableName();
@@ -83,7 +83,7 @@ public class ClpMySqlSplitProvider
             log.warn("Database error while processing splits for %s: %s", tableName, e);
         }
 
-        return splits;
+        return splits.build();
     }
 
     private Connection getConnection()

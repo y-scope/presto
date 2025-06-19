@@ -15,7 +15,6 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.RowType;
-import com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
@@ -35,6 +34,15 @@ import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.DbHandle;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMetadata;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Float;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
 import static org.testng.Assert.assertEquals;
 
@@ -42,25 +50,25 @@ import static org.testng.Assert.assertEquals;
 public class TestClpMetadata
 {
     private static final String TABLE_NAME = "test";
-    private ClpMetadataDbSetUp.DbHandle dbHandle;
+    private DbHandle dbHandle;
     private ClpMetadata metadata;
 
     @BeforeMethod
     public void setUp()
     {
-        dbHandle = ClpMetadataDbSetUp.getDbHandle("metadata_testdb");
-        metadata = ClpMetadataDbSetUp.setupMetadata(
+        dbHandle = getDbHandle("metadata_testdb");
+        metadata = setupMetadata(
                 dbHandle,
                 ImmutableMap.of(
                         TABLE_NAME,
                         ImmutableList.of(
-                                new Pair<>("a", ClpSchemaTreeNodeType.Integer),
-                                new Pair<>("a", ClpSchemaTreeNodeType.VarString),
-                                new Pair<>("b", ClpSchemaTreeNodeType.Float),
-                                new Pair<>("b", ClpSchemaTreeNodeType.ClpString),
-                                new Pair<>("c.d", ClpSchemaTreeNodeType.Boolean),
-                                new Pair<>("c.e", ClpSchemaTreeNodeType.VarString),
-                                new Pair<>("f.g.h", ClpSchemaTreeNodeType.UnstructuredArray))));
+                                new Pair<>("a", Integer),
+                                new Pair<>("a", ClpString),
+                                new Pair<>("b", Float),
+                                new Pair<>("b", ClpString),
+                                new Pair<>("c.d", Boolean),
+                                new Pair<>("c.e", VarString),
+                                new Pair<>("f.g.h", UnstructuredArray))));
     }
 
     @AfterMethod

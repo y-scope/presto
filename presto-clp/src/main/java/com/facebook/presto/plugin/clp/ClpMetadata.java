@@ -40,6 +40,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -92,7 +94,7 @@ public class ClpMetadata
 
         return listTables(schemaNameValue).stream()
                 .map(tableHandle -> new SchemaTableName(schemaNameValue, tableHandle.getSchemaTableName().getTableName()))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
     }
 
     @Override
@@ -134,7 +136,7 @@ public class ClpMetadata
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         List<ColumnMetadata> columns = listColumns(schemaTableName).stream()
                 .map(ClpColumnHandle::getColumnMetadata)
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
 
         return new ConnectorTableMetadata(schemaTableName, columns);
     }
@@ -163,7 +165,7 @@ public class ClpMetadata
         }
 
         return schemaTableNames.stream()
-                .collect(ImmutableMap.toImmutableMap(
+                .collect(toImmutableMap(
                         Function.identity(),
                         tableName -> getTableMetadata(session, getTableHandle(session, tableName)).getColumns()));
     }
@@ -172,10 +174,7 @@ public class ClpMetadata
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle;
-        return listColumns(clpTableHandle.getSchemaTableName()).stream()
-                .collect(ImmutableMap.toImmutableMap(
-                        ClpColumnHandle::getColumnName,
-                        column -> column));
+        return listColumns(clpTableHandle.getSchemaTableName()).stream().collect(toImmutableMap(ClpColumnHandle::getColumnName, column -> column));
     }
 
     @Override
@@ -195,13 +194,13 @@ public class ClpMetadata
         return clpMetadataProvider.listTableHandles(schemaName);
     }
 
-    private List<ClpTableHandle> listTables(String schemaName)
-    {
-        return tableHandleCache.getUnchecked(schemaName);
-    }
-
     private List<ClpColumnHandle> listColumns(SchemaTableName schemaTableName)
     {
         return columnHandleCache.getUnchecked(schemaTableName);
+    }
+
+    private List<ClpTableHandle> listTables(String schemaName)
+    {
+        return tableHandleCache.getUnchecked(schemaName);
     }
 }

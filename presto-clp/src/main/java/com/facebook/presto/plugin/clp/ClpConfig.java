@@ -23,6 +23,7 @@ public class ClpConfig
     public static final Pattern SAFE_SQL_TABLE_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]+$");
 
     private boolean polymorphicTypeEnabled = true;
+
     private MetadataProviderType metadataProviderType = MetadataProviderType.MYSQL;
     private String metadataDbUrl;
     private String metadataDbName;
@@ -31,6 +32,7 @@ public class ClpConfig
     private String metadataTablePrefix;
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
+
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public boolean isPolymorphicTypeEnabled()

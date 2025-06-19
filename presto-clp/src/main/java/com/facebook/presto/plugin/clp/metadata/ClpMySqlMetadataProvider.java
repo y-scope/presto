@@ -18,6 +18,7 @@ import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.spi.SchemaTableName;
+import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
 
@@ -27,7 +28,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.List;
 
 import static java.lang.String.format;
@@ -95,7 +95,7 @@ public class ClpMySqlMetadataProvider
     @Override
     public List<ClpTableHandle> listTableHandles(String schemaName)
     {
-        List<ClpTableHandle> tableHandles = new ArrayList<>();
+        ImmutableList.Builder<ClpTableHandle> tableHandles = new ImmutableList.Builder<>();
         String query = format(SQL_SELECT_DATASETS_TEMPLATE, config.getMetadataTablePrefix());
         try (Connection connection = getConnection();
                 Statement statement = connection.createStatement();
@@ -119,7 +119,7 @@ public class ClpMySqlMetadataProvider
         catch (SQLException e) {
             log.warn("Failed to load table names: %s", e);
         }
-        return tableHandles;
+        return tableHandles.build();
     }
 
     private Connection getConnection()

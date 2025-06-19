@@ -17,8 +17,8 @@ import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
-import com.facebook.presto.plugin.clp.ClpErrorCode;
 import com.facebook.presto.spi.PrestoException;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +33,7 @@ import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_TYPE;
 
 /**
  * A representation of CLP's schema tree built by turning hierarchical column names (e.g., a.b.c)
@@ -94,7 +95,7 @@ public class ClpSchemaTree
      */
     public List<ClpColumnHandle> collectColumnHandles()
     {
-        List<ClpColumnHandle> columns = new ArrayList<>();
+        ImmutableList.Builder<ClpColumnHandle> columns = new ImmutableList.Builder<>();
         for (Map.Entry<String, ClpNode> entry : root.children.entrySet()) {
             String name = entry.getKey();
             ClpNode child = entry.getValue();
@@ -106,7 +107,7 @@ public class ClpSchemaTree
                 columns.add(new ClpColumnHandle(name, child.originalName, rowType, true));
             }
         }
-        return columns;
+        return columns.build();
     }
 
     private Type mapColumnType(byte type)
@@ -126,7 +127,7 @@ public class ClpSchemaTree
             case Boolean:
                 return BOOLEAN;
             default:
-                throw new PrestoException(ClpErrorCode.CLP_UNSUPPORTED_TYPE, "Unsupported type: " + type);
+                throw new PrestoException(CLP_UNSUPPORTED_TYPE, "Unsupported type: " + type);
         }
     }
 
