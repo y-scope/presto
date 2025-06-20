@@ -30,37 +30,51 @@ public class ClpExpression
 {
     // Optional KQL query string representing the fully or partially translatable part of the expression.
     private final Optional<String> definition;
+    // Optinal SQL string extracted from the definition, which is only made of given metadata columns.
+    private final Optional<String> metadataSql;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String definition, RowExpression remainingExpression)
+    public ClpExpression(String definition, String metadataSql, RowExpression remainingExpression)
     {
         this.definition = Optional.ofNullable(definition);
+        this.metadataSql = Optional.ofNullable(metadataSql);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
     // Creates an empty ClpExpression (no KQL definition, no remaining expression).
     public ClpExpression()
     {
-        this (null, null);
+        this (null, null, null);
     }
 
     // Creates a ClpExpression from a fully translatable KQL string.
     public ClpExpression(String definition)
     {
-        this(definition, null);
+        this(definition, null, null);
+    }
+
+    // Creates a ClpExpression from a fully translatable KQL string and give it metadata SQL.
+    public ClpExpression(String definition, String metadataSql)
+    {
+        this(definition, metadataSql, null);
     }
 
     // Creates a ClpExpression from a non-translatable RowExpression.
     public ClpExpression(RowExpression remainingExpression)
     {
-        this(null, remainingExpression);
+        this(null, null, remainingExpression);
     }
 
     public Optional<String> getDefinition()
     {
         return definition;
+    }
+
+    public Optional<String> getMetadataSql()
+    {
+        return metadataSql;
     }
 
     public Optional<RowExpression> getRemainingExpression()

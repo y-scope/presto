@@ -79,6 +79,7 @@ public class TestClpSplit
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                     new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName),
                             tablePath, FS),
+                    Optional.empty(),
                     Optional.empty());
             List<ClpSplit> splits = clpSplitProvider.listSplits(layoutHandle);
             assertEquals(splits.size(), expectedSplits.size());
