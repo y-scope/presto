@@ -40,19 +40,27 @@ public class ClpExpression
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
-    // Creates an empty ClpExpression (no KQL definition, no remaining expression).
+    /**
+     * Creates an empty ClpExpression (no KQL definition, no remaining expression).
+     */
     public ClpExpression()
     {
-        this (null, null);
+        this(null, null);
     }
 
-    // Creates a ClpExpression from a fully translatable KQL string.
+    /**
+     * Creates a ClpExpression from a fully translatable KQL string.
+     * @param definition
+     */
     public ClpExpression(String definition)
     {
         this(definition, null);
     }
 
-    // Creates a ClpExpression from a non-translatable RowExpression.
+    /**
+     * Creates a ClpExpression from a non-translatable RowExpression.
+     * @param remainingExpression
+     */
     public ClpExpression(RowExpression remainingExpression)
     {
         this(null, remainingExpression);

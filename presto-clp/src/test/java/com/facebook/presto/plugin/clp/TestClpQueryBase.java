@@ -29,11 +29,9 @@ import com.facebook.presto.metadata.TablePropertyManager;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.SchemaTableName;
-import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
-import com.facebook.presto.sql.ExpressionUtils;
 import com.facebook.presto.sql.parser.ParsingOptions;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.TypeProvider;
@@ -55,7 +53,10 @@ import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
 import static com.facebook.presto.metadata.SessionPropertyManager.createTestingSessionPropertyManager;
+import static com.facebook.presto.spi.WarningCollector.NOOP;
+import static com.facebook.presto.sql.ExpressionUtils.rewriteIdentifiersToSymbolReferences;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypes;
+import static com.facebook.presto.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
 import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static java.util.stream.Collectors.toMap;
@@ -94,8 +95,8 @@ public class TestClpQueryBase
 
     public static Expression expression(String sql)
     {
-        return ExpressionUtils.rewriteIdentifiersToSymbolReferences(
-                new SqlParser().createExpression(sql, new ParsingOptions(ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL)));
+        return rewriteIdentifiersToSymbolReferences(
+                new SqlParser().createExpression(sql, ParsingOptions.builder().setDecimalLiteralTreatment(AS_DECIMAL).build()));
     }
 
     protected RowExpression toRowExpression(Expression expression, TypeProvider typeProvider, Session session)
@@ -107,7 +108,7 @@ public class TestClpQueryBase
                 typeProvider,
                 expression,
                 ImmutableMap.of(),
-                WarningCollector.NOOP);
+                NOOP);
         return SqlToRowExpressionTranslator.translate(expression, expressionTypes, ImmutableMap.of(), functionAndTypeManager, session);
     }
 

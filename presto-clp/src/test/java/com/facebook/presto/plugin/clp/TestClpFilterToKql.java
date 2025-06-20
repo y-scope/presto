@@ -26,27 +26,6 @@ import static org.testng.Assert.assertTrue;
 public class TestClpFilterToKql
         extends TestClpQueryBase
 {
-    private void testFilter(String sqlExpression, Optional<String> expectedKqlExpression,
-                            Optional<String> expectedRemainingExpression, SessionHolder sessionHolder)
-    {
-        RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
-        ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(standardFunctionResolution, functionAndTypeManager, variableToColumnHandleMap), null);
-        Optional<String> kqlExpression = clpExpression.getDefinition();
-        Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
-        if (expectedKqlExpression.isPresent()) {
-            assertTrue(kqlExpression.isPresent());
-            assertEquals(kqlExpression.get(), expectedKqlExpression.get());
-        }
-
-        if (expectedRemainingExpression.isPresent()) {
-            assertTrue(remainingExpression.isPresent());
-            assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression.get(), sessionHolder));
-        }
-        else {
-            assertFalse(remainingExpression.isPresent());
-        }
-    }
-
     @Test
     public void testStringMatchPushdown()
     {
@@ -211,5 +190,25 @@ public class TestClpFilterToKql
                 Optional.of("((city.Region.Id: 1 AND (fare > 0 OR NOT city.Name: \"b*\")))"),
                 Optional.of("lower(city.Region.Name) = 'hello world' OR city.Name IS NULL"),
                 sessionHolder);
+    }
+
+    private void testFilter(String sqlExpression, Optional<String> expectedKqlExpression, Optional<String> expectedRemainingExpression, SessionHolder sessionHolder)
+    {
+        RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
+        ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(standardFunctionResolution, functionAndTypeManager, variableToColumnHandleMap), null);
+        Optional<String> kqlExpression = clpExpression.getDefinition();
+        Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
+        if (expectedKqlExpression.isPresent()) {
+            assertTrue(kqlExpression.isPresent());
+            assertEquals(kqlExpression.get(), expectedKqlExpression.get());
+        }
+
+        if (expectedRemainingExpression.isPresent()) {
+            assertTrue(remainingExpression.isPresent());
+            assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression.get(), sessionHolder));
+        }
+        else {
+            assertFalse(remainingExpression.isPresent());
+        }
     }
 }

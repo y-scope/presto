@@ -41,12 +41,17 @@ import java.util.Set;
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.function.OperatorType.GREATER_THAN;
 import static com.facebook.presto.common.function.OperatorType.GREATER_THAN_OR_EQUAL;
+import static com.facebook.presto.common.function.OperatorType.IS_DISTINCT_FROM;
 import static com.facebook.presto.common.function.OperatorType.LESS_THAN;
 import static com.facebook.presto.common.function.OperatorType.LESS_THAN_OR_EQUAL;
+import static com.facebook.presto.common.function.OperatorType.NEGATION;
 import static com.facebook.presto.common.function.OperatorType.NOT_EQUAL;
+import static com.facebook.presto.common.function.OperatorType.flip;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
+import static java.lang.Integer.parseInt;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -75,7 +80,8 @@ public class ClpFilterToKqlConverter
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
 
-    public ClpFilterToKqlConverter(StandardFunctionResolution standardFunctionResolution,
+    public ClpFilterToKqlConverter(
+            StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
             Map<VariableReferenceExpression, ColumnHandle> assignments)
     {
@@ -100,7 +106,7 @@ public class ClpFilterToKqlConverter
         Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
         if (operatorTypeOptional.isPresent()) {
             OperatorType operatorType = operatorTypeOptional.get();
-            if (operatorType.isComparisonOperator() && operatorType != OperatorType.IS_DISTINCT_FROM) {
+            if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
                 return handleLogicalBinary(operatorType, node);
             }
         }
@@ -139,14 +145,20 @@ public class ClpFilterToKqlConverter
         }
     }
 
-    // For all other expressions, return the original expression
     @Override
     public ClpExpression visitExpression(RowExpression node, Void context)
     {
+        // For all other expressions, return the original expression
         return new ClpExpression(node);
     }
 
-    private static String getLiteralString(ConstantExpression literal)
+    /**
+     * Extracts the string representation of a constant expression.
+     *
+     * @param literal the constant expression
+     * @return the string representation of the literal
+     */
+    private String getLiteralString(ConstantExpression literal)
     {
         if (literal.getValue() instanceof Slice) {
             return ((Slice) literal.getValue()).toStringUtf8();
@@ -154,6 +166,12 @@ public class ClpFilterToKqlConverter
         return literal.toString();
     }
 
+    /**
+     * Retrieves the original column name from a variable reference.
+     *
+     * @param variable the variable reference expression
+     * @return the original column name as a string
+     */
     private String getVariableName(VariableReferenceExpression variable)
     {
         return ((ClpColumnHandle) assignments.get(variable)).getOriginalColumnName();
@@ -162,8 +180,10 @@ public class ClpFilterToKqlConverter
     /**
      * Handles the logical NOT expression.
      * Example:
-     *   Input: NOT (col1 = 5)
-     *   Output: NOT col1: 5
+     * - NOT (col1 = 5) → NOT col1: 5
+     *
+     * @param node the NOT call expression
+     * @return a ClpExpression with the translated KQL query, or the original expression if unsupported
      */
     private ClpExpression handleNot(CallExpression node)
     {
@@ -181,18 +201,353 @@ public class ClpFilterToKqlConverter
     }
 
     /**
+     * Handles LIKE expressions.
+     * Converts SQL LIKE patterns into equivalent KQL queries using * (for %) and ? (for _).
+     * Only supports constant patterns or constant cast patterns.
+     * Example:
+     * - col1 LIKE 'a_bc%' → col1: "a?bc*"
+     *
+     * @param node the LIKE call expression
+     * @return a ClpExpression with the KQL equivalent of the LIKE expression, or the original node if unsupported
+     */
+    private ClpExpression handleLike(CallExpression node)
+    {
+        if (node.getArguments().size() != 2) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "LIKE operator must have exactly two arguments. Received: " + node);
+        }
+        ClpExpression variable = node.getArguments().get(0).accept(this, null);
+        if (!variable.getDefinition().isPresent()) {
+            return new ClpExpression(node);
+        }
+
+        String variableName = variable.getDefinition().get();
+        RowExpression argument = node.getArguments().get(1);
+
+        String pattern;
+        if (argument instanceof ConstantExpression) {
+            ConstantExpression literal = (ConstantExpression) argument;
+            pattern = getLiteralString(literal);
+        }
+        else if (argument instanceof CallExpression) {
+            CallExpression callExpression = (CallExpression) argument;
+            if (!standardFunctionResolution.isCastFunction(callExpression.getFunctionHandle())) {
+                return new ClpExpression(node);
+            }
+            if (callExpression.getArguments().size() != 1) {
+                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "CAST function must have exactly one argument. Received: " + callExpression);
+            }
+            if (!(callExpression.getArguments().get(0) instanceof ConstantExpression)) {
+                return new ClpExpression(node);
+            }
+            pattern = getLiteralString((ConstantExpression) callExpression.getArguments().get(0));
+        }
+        else {
+            return new ClpExpression(node);
+        }
+        pattern = pattern.replace("%", "*").replace("_", "?");
+        return new ClpExpression(format("%s: \"%s\"", variableName, pattern));
+    }
+
+    /**
+     * Handles logical binary operators (e.g., =, !=, <, >) between two expressions.
+     * Supports constant on either side by flipping the operator when needed.
+     * Also checks for SUBSTR(x, ...) = 'value' patterns and delegates to substring handler.
+     * If the expression cannot be translated, it returns a fallback expression that preserves the original node.
+     *
+     * @param operator the logical binary operator (e.g., EQUAL, NOT_EQUAL, LESS_THAN)
+     * @param node the call expression representing the binary operation
+     * @return an expression with a KQL query if possible, otherwise a fallback expression
+     */
+    private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
+    {
+        if (node.getArguments().size() != 2) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Logical binary operator must have exactly two arguments. Received: " + node);
+        }
+        RowExpression left = node.getArguments().get(0);
+        RowExpression right = node.getArguments().get(1);
+
+        ClpExpression maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right);
+        if (maybeLeftSubstring.getDefinition().isPresent()) {
+            return maybeLeftSubstring;
+        }
+
+        ClpExpression maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left);
+        if (maybeRightSubstring.getDefinition().isPresent()) {
+            return maybeRightSubstring;
+        }
+
+        ClpExpression leftExpression = left.accept(this, null);
+        ClpExpression rightExpression = right.accept(this, null);
+        Optional<String> leftDefinition = leftExpression.getDefinition();
+        Optional<String> rightDefinition = rightExpression.getDefinition();
+        if (!leftDefinition.isPresent() || !rightDefinition.isPresent()) {
+            return new ClpExpression(node);
+        }
+
+        boolean leftIsConstant = (left instanceof ConstantExpression);
+        boolean rightIsConstant = (right instanceof ConstantExpression);
+
+        Type leftType = left.getType();
+        Type rightType = right.getType();
+
+        if (rightIsConstant) {
+            return buildClpExpression(
+                    leftDefinition.get(),    // variable
+                    rightDefinition.get(),   // literal
+                    operator,
+                    rightType,
+                    node);
+        }
+        else if (leftIsConstant) {
+            OperatorType newOperator = flip(operator);
+            return buildClpExpression(
+                    rightDefinition.get(),   // variable
+                    leftDefinition.get(),    // literal
+                    newOperator,
+                    leftType,
+                    node);
+        }
+        // fallback
+        return new ClpExpression(node);
+    }
+
+    /**
+     * Builds a CLP expression from a basic comparison between a variable and a literal.
+     * Handles different operator types (EQUAL, NOT_EQUAL, and logical binary ops like <, >, etc.)
+     * and formats them appropriately based on whether the literal is a string or a non-string type.
+     * Examples:
+     * - col = 'abc'  →  col: "abc"
+     * - col != 42    →  NOT col: 42
+     * - 5 < col      →  col > 5
+     *
+     * @param variableName name of the variable
+     * @param literalString string representation of the literal
+     * @param operator operator used in the comparison
+     * @param literalType type of the literal
+     * @param originalNode the original RowExpression node
+     * @return a ClpExpression containing the KQL filter or fallback to the original node if unsupported
+     */
+    private ClpExpression buildClpExpression(
+            String variableName,
+            String literalString,
+            OperatorType operator,
+            Type literalType,
+            RowExpression originalNode)
+    {
+        if (operator.equals(EQUAL)) {
+            if (literalType instanceof VarcharType) {
+                return new ClpExpression(format("%s: \"%s\"", variableName, literalString));
+            }
+            else {
+                return new ClpExpression(format("%s: %s", variableName, literalString));
+            }
+        }
+        else if (operator.equals(NOT_EQUAL)) {
+            if (literalType instanceof VarcharType) {
+                return new ClpExpression(format("NOT %s: \"%s\"", variableName, literalString));
+            }
+            else {
+                return new ClpExpression(format("NOT %s: %s", variableName, literalString));
+            }
+        }
+        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
+            return new ClpExpression(format("%s %s %s", variableName, operator.getOperator(), literalString));
+        }
+        return new ClpExpression(originalNode);
+    }
+
+    /**
+     * Checks whether the given expression matches the pattern SUBSTR(x, ...) = 'someString',
+     * and if so, attempts to convert it into a KQL query using wildcards and construct a CLP expression.
+     *
+     * @param operator the comparison operator (should be EQUAL)
+     * @param possibleSubstring the left or right expression, possibly a SUBSTR call
+     * @param possibleLiteral the opposite expression, possibly a string constant
+     * @return a ClpExpression containing the translated KQL filter or an empty one if conversion fails
+     */
+    private ClpExpression tryInterpretSubstringEquality(
+            OperatorType operator,
+            RowExpression possibleSubstring,
+            RowExpression possibleLiteral)
+    {
+        if (!operator.equals(EQUAL)) {
+            return new ClpExpression();
+        }
+
+        if (!(possibleSubstring instanceof CallExpression) ||
+                !(possibleLiteral instanceof ConstantExpression)) {
+            return new ClpExpression();
+        }
+
+        Optional<SubstrInfo> maybeSubstringCall = parseSubstringCall((CallExpression) possibleSubstring);
+        if (!maybeSubstringCall.isPresent()) {
+            return new ClpExpression();
+        }
+
+        String targetString = getLiteralString((ConstantExpression) possibleLiteral);
+        return interpretSubstringEquality(maybeSubstringCall.get(), targetString);
+    }
+
+    /**
+     * Parses a SUBSTR(x, start [, length]) call into a SubstrInfo object if valid.
+     *
+     * @param callExpression the call expression to inspect
+     * @return an Optional containing SubstrInfo if the expression is a valid SUBSTR call, otherwise empty
+     */
+    private Optional<SubstrInfo> parseSubstringCall(CallExpression callExpression)
+    {
+        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(callExpression.getFunctionHandle());
+        String functionName = functionMetadata.getName().getObjectName();
+        if (!functionName.equals("substr")) {
+            return Optional.empty();
+        }
+
+        int argCount = callExpression.getArguments().size();
+        if (argCount < 2 || argCount > 3) {
+            return Optional.empty();
+        }
+
+        ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
+        if (!variable.getDefinition().isPresent()) {
+            return Optional.empty();
+        }
+
+        String varName = variable.getDefinition().get();
+        RowExpression startExpression = callExpression.getArguments().get(1);
+        RowExpression lengthExpression = null;
+        if (argCount == 3) {
+            lengthExpression = callExpression.getArguments().get(2);
+        }
+
+        return Optional.of(new SubstrInfo(varName, startExpression, lengthExpression));
+    }
+
+    /**
+     * Converts a SUBSTR(x, start [, length]) = 'someString' into a KQL-style wildcard query.
+     * Examples:
+     * - SUBSTR(message, 1, 3) = 'abc' → message: "abc*"
+     * - SUBSTR(message, 4, 3) = 'abc' → message: "???abc*"
+     * - SUBSTR(message, 2) = 'hello' → message: "?hello"
+     * - SUBSTR(message, -5) = 'hello' → message: "*hello"
+     *
+     * @param info parsed SUBSTR call info
+     * @param targetString the literal string being compared to
+     * @return a ClpExpression containing the translated KQL query if successful; otherwise, an empty ClpExpression
+     */
+    private ClpExpression interpretSubstringEquality(SubstrInfo info, String targetString)
+    {
+        if (info.lengthExpression != null) {
+            Optional<Integer> maybeStart = parseIntValue(info.startExpression);
+            Optional<Integer> maybeLen = parseLengthLiteral(info.lengthExpression, targetString);
+
+            if (maybeStart.isPresent() && maybeLen.isPresent()) {
+                int start = maybeStart.get();
+                int len = maybeLen.get();
+                if (start > 0 && len == targetString.length()) {
+                    StringBuilder result = new StringBuilder();
+                    result.append(info.variableName).append(": \"");
+                    for (int i = 1; i < start; i++) {
+                        result.append("?");
+                    }
+                    result.append(targetString).append("*\"");
+                    return new ClpExpression(result.toString());
+                }
+            }
+        }
+        else {
+            Optional<Integer> maybeStart = parseIntValue(info.startExpression);
+            if (maybeStart.isPresent()) {
+                int start = maybeStart.get();
+                if (start > 0) {
+                    StringBuilder result = new StringBuilder();
+                    result.append(info.variableName).append(": \"");
+                    for (int i = 1; i < start; i++) {
+                        result.append("?");
+                    }
+                    result.append(targetString).append("\"");
+                    return new ClpExpression(result.toString());
+                }
+                if (start == -targetString.length()) {
+                    return new ClpExpression(format("%s: \"*%s\"", info.variableName, targetString));
+                }
+            }
+        }
+
+        return new ClpExpression();
+    }
+
+    /**
+     * Attempts to parse a RowExpression as an integer constant.
+     *
+     * @param expression the row expression to parse
+     * @return an Optional containing the parsed integer value, if successful
+     */
+    private Optional<Integer> parseIntValue(RowExpression expression)
+    {
+        if (expression instanceof ConstantExpression) {
+            try {
+                return Optional.of(parseInt(getLiteralString((ConstantExpression) expression)));
+            }
+            catch (NumberFormatException ignored) {
+            }
+        }
+        else if (expression instanceof CallExpression) {
+            CallExpression call = (CallExpression) expression;
+            FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(call.getFunctionHandle());
+            Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
+            if (operatorTypeOptional.isPresent() && operatorTypeOptional.get().equals(NEGATION)) {
+                RowExpression arg0 = call.getArguments().get(0);
+                if (arg0 instanceof ConstantExpression) {
+                    try {
+                        return Optional.of(-parseInt(getLiteralString((ConstantExpression) arg0)));
+                    }
+                    catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Attempts to parse the length expression and match it against the target string's length.
+     *
+     * @param lengthExpression the expression representing the length parameter
+     * @param targetString the target string to compare length against
+     * @return an Optional containing the length if it matches targetString.length(), otherwise empty
+     */
+    private Optional<Integer> parseLengthLiteral(RowExpression lengthExpression, String targetString)
+    {
+        if (lengthExpression instanceof ConstantExpression) {
+            String val = getLiteralString((ConstantExpression) lengthExpression);
+            try {
+                int parsed = parseInt(val);
+                if (parsed == targetString.length()) {
+                    return Optional.of(parsed);
+                }
+            }
+            catch (NumberFormatException ignored) {
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Handles the logical AND expression.
      * Combines all definable child expressions into a single KQL query joined by AND.
-     * Any unsupported children are collected into remaining expressions.
+     * Any unsupported children are collected into a remaining expression.
      * Example:
-     *   Input: col1 = 5 AND col2 = 'abc'
-     *   Output: (col1: 5 AND col2: "abc")
+     * - col1 = 5 AND col2 = 'abc' → (col1: 5 AND col2: "abc")
+     *
+     * @param node the AND special form expression
+     * @return a ClpExpression containing the KQL query and any remaining sub-expressions
      */
     private ClpExpression handleAnd(SpecialFormExpression node)
     {
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
-        ArrayList<RowExpression> remainingExpressions = new ArrayList<>();
+        List<RowExpression> remainingExpressions = new ArrayList<>();
         boolean hasDefinition = false;
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
@@ -224,11 +579,13 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the logical OR expression.
-     * Combines all fully convertible child expressions into a single CLP query joined by OR.
-     * Returns the original node if any child is unsupported.
+     * Combines all fully convertible child expressions into a single KQL query joined by OR.
+     * Falls back to the original node if any child cannot be converted.
      * Example:
-     *   Input: col1 = 5 OR col1 = 10
-     *   Output: (col1: 5 OR col1: 10)
+     * - col1 = 5 OR col1 = 10 → (col1: 5 OR col1: 10)
+     *
+     * @param node the OR special form expression
+     * @return a ClpExpression containing the OR-based KQL string, or the original expression if not fully convertible
      */
     private ClpExpression handleOr(SpecialFormExpression node)
     {
@@ -249,8 +606,10 @@ public class ClpFilterToKqlConverter
     /**
      * Handles the IN predicate.
      * Example:
-     *   Input: col1 IN (1, 2, 3)
-     *   Output: (col1: 1 OR col1: 2 OR col1: 3)
+     * - col1 IN (1, 2, 3) → (col1: 1 OR col1: 2 OR col1: 3)
+     *
+     * @param node the IN special form expression
+     * @return a ClpExpression with the generated KQL query, or the original expression if unsupported
      */
     private ClpExpression handleIn(SpecialFormExpression node)
     {
@@ -283,8 +642,10 @@ public class ClpFilterToKqlConverter
     /**
      * Handles the IS NULL predicate.
      * Example:
-     *   Input: col1 IS NULL
-     *   Output: NOT col1: *
+     * - col1 IS NULL → NOT col1: *
+     *
+     * @param node the IS_NULL special form expression
+     * @return a ClpExpression with the KQL query for null checking, or the original expression if unsupported
      */
     private ClpExpression handleIsNull(SpecialFormExpression node)
     {
@@ -299,15 +660,17 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = expression.getDefinition().get();
-        return new ClpExpression(String.format("NOT %s: *", variableName));
+        return new ClpExpression(format("NOT %s: *", variableName));
     }
 
     /**
      * Handles dereference expressions on RowTypes (e.g., col.row_field).
-     * Converts row dereferences into dot-separated field access.
+     * Converts nested row field access into dot-separated KQL-compatible field names.
      * Example:
-     *   Input: address.city (from a RowType 'address')
-     *   Output: address.city
+     * - address.city (from a RowType 'address') → address.city
+     *
+     * @param expression the dereference expression (SpecialFormExpression or VariableReferenceExpression)
+     * @return a ClpExpression containing the dot-separated field name, or the original expression if unsupported
      */
     private ClpExpression handleDereference(RowExpression expression)
     {
@@ -359,321 +722,17 @@ public class ClpFilterToKqlConverter
         return new ClpExpression(baseString.getDefinition().get() + "." + fieldName);
     }
 
-    /**
-     * Handles LIKE expressions.
-     * Transforms SQL LIKE into KQL queries using wildcards (* and ?).
-     * Supports constant patterns or constant casts only.
-     * Example:
-     *   Input: col1 LIKE 'a_bc%'
-     *   Output: col1: "a?bc*"
-     */
-    private ClpExpression handleLike(CallExpression node)
-    {
-        if (node.getArguments().size() != 2) {
-            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "LIKE operator must have exactly two arguments. Received: " + node);
-        }
-        ClpExpression variable = node.getArguments().get(0).accept(this, null);
-        if (!variable.getDefinition().isPresent()) {
-            return new ClpExpression(node);
-        }
-
-        String variableName = variable.getDefinition().get();
-        RowExpression argument = node.getArguments().get(1);
-
-        String pattern;
-        if (argument instanceof ConstantExpression) {
-            ConstantExpression literal = (ConstantExpression) argument;
-            pattern = getLiteralString(literal);
-        }
-        else if (argument instanceof CallExpression) {
-            CallExpression callExpression = (CallExpression) argument;
-            if (!standardFunctionResolution.isCastFunction(callExpression.getFunctionHandle())) {
-                return new ClpExpression(node);
-            }
-            if (callExpression.getArguments().size() != 1) {
-                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "CAST function must have exactly one argument. Received: " + callExpression);
-            }
-            if (!(callExpression.getArguments().get(0) instanceof ConstantExpression)) {
-                return new ClpExpression(node);
-            }
-            pattern = getLiteralString((ConstantExpression) callExpression.getArguments().get(0));
-        }
-        else {
-            return new ClpExpression(node);
-        }
-        pattern = pattern.replace("%", "*").replace("_", "?");
-        return new ClpExpression(String.format("%s: \"%s\"", variableName, pattern));
-    }
-
     private static class SubstrInfo
     {
         String variableName;
         RowExpression startExpression;
         RowExpression lengthExpression;
+
         SubstrInfo(String variableName, RowExpression start, RowExpression length)
         {
             this.variableName = variableName;
             this.startExpression = start;
             this.lengthExpression = length;
         }
-    }
-
-    /**
-     * Parse SUBSTR(...) calls that appear either as:
-     *   SUBSTR(x, start)
-     * or
-     *   SUBSTR(x, start, length)
-     */
-    private Optional<SubstrInfo> parseSubstringCall(CallExpression callExpression)
-    {
-        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(callExpression.getFunctionHandle());
-        String functionName = functionMetadata.getName().getObjectName();
-        if (!functionName.equals("substr")) {
-            return Optional.empty();
-        }
-
-        int argCount = callExpression.getArguments().size();
-        if (argCount < 2 || argCount > 3) {
-            return Optional.empty();
-        }
-
-        ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
-        if (!variable.getDefinition().isPresent()) {
-            return Optional.empty();
-        }
-
-        String varName = variable.getDefinition().get();
-        RowExpression startExpression = callExpression.getArguments().get(1);
-        RowExpression lengthExpression = null;
-        if (argCount == 3) {
-            lengthExpression = callExpression.getArguments().get(2);
-        }
-
-        return Optional.of(new SubstrInfo(varName, startExpression, lengthExpression));
-    }
-
-    /**
-     * Attempt to parse "start" or "length" as an integer.
-     */
-    private Optional<Integer> parseIntValue(RowExpression expression)
-    {
-        if (expression instanceof ConstantExpression) {
-            try {
-                return Optional.of(Integer.parseInt(getLiteralString((ConstantExpression) expression)));
-            }
-            catch (NumberFormatException ignored) { }
-        }
-        else if (expression instanceof CallExpression) {
-            CallExpression call = (CallExpression) expression;
-            FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(call.getFunctionHandle());
-            Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
-            if (operatorTypeOptional.isPresent() && operatorTypeOptional.get().equals(OperatorType.NEGATION)) {
-                RowExpression arg0 = call.getArguments().get(0);
-                if (arg0 instanceof ConstantExpression) {
-                    try {
-                        return Optional.of(-Integer.parseInt(getLiteralString((ConstantExpression) arg0)));
-                    }
-                    catch (NumberFormatException ignored) { }
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * If lengthExpression is a constant integer that matches targetString.length(),
-     * return that length. Otherwise empty.
-     */
-    private Optional<Integer> parseLengthLiteralOrFunction(RowExpression lengthExpression, String targetString)
-    {
-        if (lengthExpression instanceof ConstantExpression) {
-            String val = getLiteralString((ConstantExpression) lengthExpression);
-            try {
-                int parsed = Integer.parseInt(val);
-                if (parsed == targetString.length()) {
-                    return Optional.of(parsed);
-                }
-            }
-            catch (NumberFormatException ignored) { }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * Translate SUBSTR(x, start) or SUBSTR(x, start, length) = 'someString' to KQL.
-     * Examples:
-     *   SUBSTR(message, 1, 3) = 'abc'
-     *     → message: "abc*"
-     *   SUBSTR(message, 4, 3) = 'abc'
-     *     → message: "???abc*"
-     *   SUBSTR(message, 2) = 'hello'
-     *     → message: "?hello"
-     *   SUBSTR(message, -5) = 'hello'
-     *     → message: "*hello"
-     */
-    private ClpExpression interpretSubstringEquality(SubstrInfo info, String targetString)
-    {
-        if (info.lengthExpression != null) {
-            Optional<Integer> maybeStart = parseIntValue(info.startExpression);
-            Optional<Integer> maybeLen = parseLengthLiteralOrFunction(info.lengthExpression, targetString);
-
-            if (maybeStart.isPresent() && maybeLen.isPresent()) {
-                int start = maybeStart.get();
-                int len = maybeLen.get();
-                if (start > 0 && len == targetString.length()) {
-                    StringBuilder result = new StringBuilder();
-                    result.append(info.variableName).append(": \"");
-                    for (int i = 1; i < start; i++) {
-                        result.append("?");
-                    }
-                    result.append(targetString).append("*\"");
-                    return new ClpExpression(result.toString());
-                }
-            }
-        }
-        else {
-            Optional<Integer> maybeStart = parseIntValue(info.startExpression);
-            if (maybeStart.isPresent()) {
-                int start = maybeStart.get();
-                if (start > 0) {
-                    StringBuilder result = new StringBuilder();
-                    result.append(info.variableName).append(": \"");
-                    for (int i = 1; i < start; i++) {
-                        result.append("?");
-                    }
-                    result.append(targetString).append("\"");
-                    return new ClpExpression(result.toString());
-                }
-                if (start == -targetString.length()) {
-                    return new ClpExpression(String.format("%s: \"*%s\"", info.variableName, targetString));
-                }
-            }
-        }
-
-        return new ClpExpression();
-    }
-
-    /**
-     * Checks whether the given expression matches the pattern SUBSTR(x, ...) = 'someString',
-     * and if so, attempts to convert it into a KQL query using wildcards and construct a CLP expression.
-     */
-    private ClpExpression tryInterpretSubstringEquality(
-            OperatorType operator,
-            RowExpression possibleSubstring,
-            RowExpression possibleLiteral)
-    {
-        if (!operator.equals(OperatorType.EQUAL)) {
-            return new ClpExpression();
-        }
-
-        if (!(possibleSubstring instanceof CallExpression) ||
-                !(possibleLiteral instanceof ConstantExpression)) {
-            return new ClpExpression();
-        }
-
-        Optional<SubstrInfo> maybeSubstringCall = parseSubstringCall((CallExpression) possibleSubstring);
-        if (!maybeSubstringCall.isPresent()) {
-            return new ClpExpression();
-        }
-
-        String targetString = getLiteralString((ConstantExpression) possibleLiteral);
-        return interpretSubstringEquality(maybeSubstringCall.get(), targetString);
-    }
-
-    /**
-     * Builds a CLP expression from a basic comparison between a variable and a literal.
-     * Handles different operator types (EQUAL, NOT_EQUAL, and logical binary ops like <, >, etc.)
-     * and formats them appropriately based on whether the literal is a string or a non-string type.
-     * Examples:
-     *   col = 'abc'       → col: "abc"
-     *   col != 42         → NOT col: 42
-     *   5 < col           → col > 5
-     */
-    private ClpExpression buildClpExpression(
-            String variableName,
-            String literalString,
-            OperatorType operator,
-            Type literalType,
-            RowExpression originalNode)
-    {
-        if (operator.equals(OperatorType.EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                return new ClpExpression(String.format("%s: \"%s\"", variableName, literalString));
-            }
-            else {
-                return new ClpExpression(String.format("%s: %s", variableName, literalString));
-            }
-        }
-        else if (operator.equals(OperatorType.NOT_EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                return new ClpExpression(String.format("NOT %s: \"%s\"", variableName, literalString));
-            }
-            else {
-                return new ClpExpression(String.format("NOT %s: %s", variableName, literalString));
-            }
-        }
-        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
-            return new ClpExpression(String.format("%s %s %s", variableName, operator.getOperator(), literalString));
-        }
-        return new ClpExpression(originalNode);
-    }
-
-    /**
-     * Handles logical binary operators (e.g., =, !=, <, >) between two expressions.
-     * Supports constant on either side by flipping the operator when needed.
-     * Also checks for SUBSTR(x, ...) = 'value' patterns and delegates to substring handler.
-     */
-    private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
-    {
-        if (node.getArguments().size() != 2) {
-            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "Logical binary operator must have exactly two arguments. Received: " + node);
-        }
-        RowExpression left = node.getArguments().get(0);
-        RowExpression right = node.getArguments().get(1);
-
-        ClpExpression maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right);
-        if (maybeLeftSubstring.getDefinition().isPresent()) {
-            return maybeLeftSubstring;
-        }
-
-        ClpExpression maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left);
-        if (maybeRightSubstring.getDefinition().isPresent()) {
-            return maybeRightSubstring;
-        }
-
-        ClpExpression leftExpression = left.accept(this, null);
-        ClpExpression rightExpression = right.accept(this, null);
-        Optional<String> leftDefinition = leftExpression.getDefinition();
-        Optional<String> rightDefinition = rightExpression.getDefinition();
-        if (!leftDefinition.isPresent() || !rightDefinition.isPresent()) {
-            return new ClpExpression(node);
-        }
-
-        boolean leftIsConstant = (left instanceof ConstantExpression);
-        boolean rightIsConstant = (right instanceof ConstantExpression);
-
-        Type leftType = left.getType();
-        Type rightType = right.getType();
-
-        if (rightIsConstant) {
-            return buildClpExpression(
-                    leftDefinition.get(),    // variable
-                    rightDefinition.get(),   // literal
-                    operator,
-                    rightType,
-                    node);
-        }
-        else if (leftIsConstant) {
-            OperatorType newOperator = OperatorType.flip(operator);
-            return buildClpExpression(
-                    rightDefinition.get(),   // variable
-                    leftDefinition.get(),    // literal
-                    newOperator,
-                    leftType,
-                    node);
-        }
-        // fallback
-        return new ClpExpression(node);
     }
 }
