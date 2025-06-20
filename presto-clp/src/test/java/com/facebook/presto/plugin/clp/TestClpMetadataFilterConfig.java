@@ -26,7 +26,7 @@ import java.util.Set;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
-public class TestClpMetadataFilter
+public class TestClpMetadataFilterConfig
 {
     private String filterConfigPath;
     private File tempFile;
