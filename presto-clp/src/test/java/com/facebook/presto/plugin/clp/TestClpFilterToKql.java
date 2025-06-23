@@ -196,7 +196,7 @@ public class TestClpFilterToKql
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         ClpExpression clpExpression = pushDownExpression.accept(new ClpFilterToKqlConverter(standardFunctionResolution, functionAndTypeManager, variableToColumnHandleMap), null);
-        Optional<String> kqlExpression = clpExpression.getDefinition();
+        Optional<String> kqlExpression = clpExpression.getKqlQuery();
         Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
         if (expectedKqlExpression != null) {
             assertTrue(kqlExpression.isPresent());

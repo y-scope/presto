@@ -55,20 +55,25 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
- * ClpFilterToKqlConverter translates Presto RowExpressions into KQL (Kibana Query Language) filters
- * used as CLP queries. This is used primarily for pushing down supported filters to the CLP engine.
- * This class implements the RowExpressionVisitor interface and recursively walks Presto filter expressions,
- * attempting to convert supported expressions (e.g., comparisons, logical AND/OR, LIKE, IN, IS NULL,
- * and SUBSTR-based expressions) into corresponding KQL filter strings. Any part of the expression that
- * cannot be translated is preserved as a "remaining expression" for potential fallback processing.
+ * A translator to translate Presto RowExpressions into KQL (Kibana Query Language) filters used as
+ * CLP queries. This is used primarily for pushing down supported filters to the CLP engine. This
+ * class implements the RowExpressionVisitor interface and recursively walks Presto filter
+ * expressions, attempting to convert supported expressions into corresponding KQL filter strings.
+ * Any part of the expression that cannot be translated is preserved as a "remaining expression" for
+ * potential fallback processing.
+ * <p></p>
  * Supported translations include:
- * - Variable-to-literal comparisons (e.g., =, !=, <, >, <=, >=)
- * - String pattern matches using LIKE
- * - Membership checks using IN
- * - NULL checks via IS NULL
- * - Substring comparisons (e.g., SUBSTR(x, start, len) = "val") mapped to wildcard KQL queries
- * - Dereferencing fields from row-typed variables
- * - Logical operators AND, OR, and NOT
+ * <ul>
+ *     <li>Comparisons between variables and constants (e.g., =, !=, <, >, <=, >=).</li>
+ *     <li>String pattern matches using LIKE with constant patterns only. <code>"^%[^%_]*%$"</code>
+ *         is not supported.</li>
+ *     <li>Membership checks using IN with a list of constants only</li>
+ *     <li>NULL checks via IS NULL</li>
+ *     <li>Substring comparisons (e.g., <code>SUBSTR(x, start, len) = "val"</code>) are supported
+ *         only when compared against a constant.</li>
+ *     <li>Dereferencing fields from row-typed variables</li>
+ *     <li>Logical operators AND, OR, and NOT</li>
+ * </ul>
  */
 public class ClpFilterToKqlConverter
         implements RowExpressionVisitor<ClpExpression, Void>
@@ -179,11 +184,12 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the logical NOT expression.
-     * Example:
-     * - NOT (col1 = 5) → NOT col1: 5
+     * <p></p>
+     * Example: <code>NOT (col1 = 5)</code> → <code>NOT col1: 5</code>
      *
      * @param node the NOT call expression
-     * @return a ClpExpression with the translated KQL query, or the original expression if unsupported
+     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleNot(CallExpression node)
     {
@@ -194,21 +200,23 @@ public class ClpFilterToKqlConverter
 
         RowExpression input = node.getArguments().get(0);
         ClpExpression expression = input.accept(this, null);
-        if (expression.getRemainingExpression().isPresent() || !expression.getDefinition().isPresent()) {
+        if (expression.getRemainingExpression().isPresent() || !expression.getKqlQuery().isPresent()) {
             return new ClpExpression(node);
         }
-        return new ClpExpression("NOT " + expression.getDefinition().get());
+        return new ClpExpression("NOT " + expression.getKqlQuery().get());
     }
 
     /**
      * Handles LIKE expressions.
-     * Converts SQL LIKE patterns into equivalent KQL queries using * (for %) and ? (for _).
-     * Only supports constant patterns or constant cast patterns.
-     * Example:
-     * - col1 LIKE 'a_bc%' → col1: "a?bc*"
+     * <p></p>
+     * Converts SQL LIKE patterns into equivalent KQL queries using <code>*</code> (for <code>%</code>)
+     * and <code>?</code> (for <code>_</code>). Only supports constant or casted constant patterns.
+     * <p></p>
+     * Example: <code>col1 LIKE 'a_bc%'</code> → <code>col1: "a?bc*"</code>
      *
      * @param node the LIKE call expression
-     * @return a ClpExpression with the KQL equivalent of the LIKE expression, or the original node if unsupported
+     * @return a ClpExpression containing the equivalent KQL query, or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleLike(CallExpression node)
     {
@@ -216,11 +224,11 @@ public class ClpFilterToKqlConverter
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "LIKE operator must have exactly two arguments. Received: " + node);
         }
         ClpExpression variable = node.getArguments().get(0).accept(this, null);
-        if (!variable.getDefinition().isPresent()) {
+        if (!variable.getKqlQuery().isPresent()) {
             return new ClpExpression(node);
         }
 
-        String variableName = variable.getDefinition().get();
+        String variableName = variable.getKqlQuery().get();
         RowExpression argument = node.getArguments().get(1);
 
         String pattern;
@@ -249,14 +257,15 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles logical binary operators (e.g., =, !=, <, >) between two expressions.
-     * Supports constant on either side by flipping the operator when needed.
-     * Also checks for SUBSTR(x, ...) = 'value' patterns and delegates to substring handler.
-     * If the expression cannot be translated, it returns a fallback expression that preserves the original node.
+     * Handles logical binary operators (e.g., <code>=, !=, <, ></code>) between two expressions.
+     * <p></p>
+     * Supports constant values on either side and flips the operator if necessary. Also delegates to a
+     * substring handler for <code>SUBSTR(x, ...) = 'value'</code> patterns.
      *
-     * @param operator the logical binary operator (e.g., EQUAL, NOT_EQUAL, LESS_THAN)
+     * @param operator the binary operator (e.g., EQUAL, NOT_EQUAL)
      * @param node the call expression representing the binary operation
-     * @return an expression with a KQL query if possible, otherwise a fallback expression
+     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
     {
@@ -268,19 +277,19 @@ public class ClpFilterToKqlConverter
         RowExpression right = node.getArguments().get(1);
 
         ClpExpression maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right);
-        if (maybeLeftSubstring.getDefinition().isPresent()) {
+        if (maybeLeftSubstring.getKqlQuery().isPresent()) {
             return maybeLeftSubstring;
         }
 
         ClpExpression maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left);
-        if (maybeRightSubstring.getDefinition().isPresent()) {
+        if (maybeRightSubstring.getKqlQuery().isPresent()) {
             return maybeRightSubstring;
         }
 
         ClpExpression leftExpression = left.accept(this, null);
         ClpExpression rightExpression = right.accept(this, null);
-        Optional<String> leftDefinition = leftExpression.getDefinition();
-        Optional<String> rightDefinition = rightExpression.getDefinition();
+        Optional<String> leftDefinition = leftExpression.getKqlQuery();
+        Optional<String> rightDefinition = rightExpression.getKqlQuery();
         if (!leftDefinition.isPresent() || !rightDefinition.isPresent()) {
             return new ClpExpression(node);
         }
@@ -313,20 +322,25 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Builds a CLP expression from a basic comparison between a variable and a literal.
-     * Handles different operator types (EQUAL, NOT_EQUAL, and logical binary ops like <, >, etc.)
-     * and formats them appropriately based on whether the literal is a string or a non-string type.
+     * Builds a CLP expression from a basic comparison between a variable and a constant.
+     * <p></p>
+     * Handles different operator types and formats them appropriately based on whether the literal
+     * is a string or a non-string type.
+     * <p></p>
      * Examples:
-     * - col = 'abc'  →  col: "abc"
-     * - col != 42    →  NOT col: 42
-     * - 5 < col      →  col > 5
+     * <ul>
+     *   <li><code>col = 'abc'</code> → <code>col: "abc"</code></li>
+     *   <li><code>col != 42</code> → <code>NOT col: 42</code></li>
+     *   <li><code>5 < col</code> → <code>col > 5</code></li>
+     * </ul>
      *
      * @param variableName name of the variable
      * @param literalString string representation of the literal
-     * @param operator operator used in the comparison
-     * @param literalType type of the literal
+     * @param operator the comparison operator
+     * @param literalType the type of the literal
      * @param originalNode the original RowExpression node
-     * @return a ClpExpression containing the KQL filter or fallback to the original node if unsupported
+     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression buildClpExpression(
             String variableName,
@@ -390,7 +404,7 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Parses a SUBSTR(x, start [, length]) call into a SubstrInfo object if valid.
+     * Parses a <code>SUBSTR(x, start [, length])</code> call into a SubstrInfo object if valid.
      *
      * @param callExpression the call expression to inspect
      * @return an Optional containing SubstrInfo if the expression is a valid SUBSTR call, otherwise empty
@@ -409,11 +423,11 @@ public class ClpFilterToKqlConverter
         }
 
         ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
-        if (!variable.getDefinition().isPresent()) {
+        if (!variable.getKqlQuery().isPresent()) {
             return Optional.empty();
         }
 
-        String varName = variable.getDefinition().get();
+        String varName = variable.getKqlQuery().get();
         RowExpression startExpression = callExpression.getArguments().get(1);
         RowExpression lengthExpression = null;
         if (argCount == 3) {
@@ -424,12 +438,15 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Converts a SUBSTR(x, start [, length]) = 'someString' into a KQL-style wildcard query.
+     * Converts a <code>SUBSTR(x, start [, length]) = 'someString'</code> into a KQL-style wildcard query.
+     * <p></p>
      * Examples:
-     * - SUBSTR(message, 1, 3) = 'abc' → message: "abc*"
-     * - SUBSTR(message, 4, 3) = 'abc' → message: "???abc*"
-     * - SUBSTR(message, 2) = 'hello' → message: "?hello"
-     * - SUBSTR(message, -5) = 'hello' → message: "*hello"
+     * <ul>
+     *   <li><code>SUBSTR(message, 1, 3) = 'abc'</code> → <code>message: "abc*"</code></li>
+     *   <li><code>SUBSTR(message, 4, 3) = 'abc'</code> → <code>message: "???abc*"</code></li>
+     *   <li><code>SUBSTR(message, 2) = 'hello'</code> → <code>message: "?hello"</code></li>
+     *   <li><code>SUBSTR(message, -5) = 'hello'</code> → <code>message: "*hello"</code></li>
+     * </ul>
      *
      * @param info parsed SUBSTR call info
      * @param targetString the literal string being compared to
@@ -535,10 +552,11 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the logical AND expression.
+     * <p></p>
      * Combines all definable child expressions into a single KQL query joined by AND.
      * Any unsupported children are collected into a remaining expression.
-     * Example:
-     * - col1 = 5 AND col2 = 'abc' → (col1: 5 AND col2: "abc")
+     * <p></p>
+     * Example: <code>col1 = 5 AND col2 = 'abc'</code> → <code>(col1: 5 AND col2: "abc")</code>
      *
      * @param node the AND special form expression
      * @return a ClpExpression containing the KQL query and any remaining sub-expressions
@@ -551,9 +569,9 @@ public class ClpFilterToKqlConverter
         boolean hasDefinition = false;
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getDefinition().isPresent()) {
+            if (expression.getKqlQuery().isPresent()) {
                 hasDefinition = true;
-                queryBuilder.append(expression.getDefinition().get());
+                queryBuilder.append(expression.getKqlQuery().get());
                 queryBuilder.append(" AND ");
             }
             if (expression.getRemainingExpression().isPresent()) {
@@ -579,10 +597,11 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the logical OR expression.
+     * <p></p>
      * Combines all fully convertible child expressions into a single KQL query joined by OR.
      * Falls back to the original node if any child cannot be converted.
-     * Example:
-     * - col1 = 5 OR col1 = 10 → (col1: 5 OR col1: 10)
+     * <p></p>
+     * Example: <code>col1 = 5 OR col1 = 10</code> → <code>(col1: 5 OR col1: 10)</code>
      *
      * @param node the OR special form expression
      * @return a ClpExpression containing the OR-based KQL string, or the original expression if not fully convertible
@@ -593,10 +612,10 @@ public class ClpFilterToKqlConverter
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getRemainingExpression().isPresent() || !expression.getDefinition().isPresent()) {
+            if (expression.getRemainingExpression().isPresent() || !expression.getKqlQuery().isPresent()) {
                 return new ClpExpression(node);
             }
-            queryBuilder.append(expression.getDefinition().get());
+            queryBuilder.append(expression.getKqlQuery().get());
             queryBuilder.append(" OR ");
         }
         // Remove the last " OR " from the query
@@ -605,19 +624,20 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the IN predicate.
-     * Example:
-     * - col1 IN (1, 2, 3) → (col1: 1 OR col1: 2 OR col1: 3)
+     * <p></p>
+     * Example: <code>col1 IN (1, 2, 3)</code> → <code>(col1: 1 OR col1: 2 OR col1: 3)</code>
      *
      * @param node the IN special form expression
-     * @return a ClpExpression with the generated KQL query, or the original expression if unsupported
+     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleIn(SpecialFormExpression node)
     {
         ClpExpression variable = node.getArguments().get(0).accept(this, null);
-        if (!variable.getDefinition().isPresent()) {
+        if (!variable.getKqlQuery().isPresent()) {
             return new ClpExpression(node);
         }
-        String variableName = variable.getDefinition().get();
+        String variableName = variable.getKqlQuery().get();
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments().subList(1, node.getArguments().size())) {
@@ -641,11 +661,12 @@ public class ClpFilterToKqlConverter
 
     /**
      * Handles the IS NULL predicate.
-     * Example:
-     * - col1 IS NULL → NOT col1: *
+     * <p></p>
+     * Example: <code>col1 IS NULL</code> → <code>NOT col1: *</code>
      *
      * @param node the IS_NULL special form expression
-     * @return a ClpExpression with the KQL query for null checking, or the original expression if unsupported
+     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleIsNull(SpecialFormExpression node)
     {
@@ -655,22 +676,24 @@ public class ClpFilterToKqlConverter
         }
 
         ClpExpression expression = node.getArguments().get(0).accept(this, null);
-        if (!expression.getDefinition().isPresent()) {
+        if (!expression.getKqlQuery().isPresent()) {
             return new ClpExpression(node);
         }
 
-        String variableName = expression.getDefinition().get();
+        String variableName = expression.getKqlQuery().get();
         return new ClpExpression(format("NOT %s: *", variableName));
     }
 
     /**
-     * Handles dereference expressions on RowTypes (e.g., col.row_field).
+     * Handles dereference expressions on RowTypes (e.g., <code>col.row_field</code>).
+     * <p></p>
      * Converts nested row field access into dot-separated KQL-compatible field names.
-     * Example:
-     * - address.city (from a RowType 'address') → address.city
+     * <p></p>
+     * Example: <code>address.city</code> (from a RowType 'address') → <code>address.city</code>
      *
      * @param expression the dereference expression (SpecialFormExpression or VariableReferenceExpression)
-     * @return a ClpExpression containing the dot-separated field name, or the original expression if unsupported
+     * @return a ClpExpression containing the dot-separated field name or the original expression if it
+     * couldn't be translated
      */
     private ClpExpression handleDereference(RowExpression expression)
     {
@@ -716,10 +739,10 @@ public class ClpFilterToKqlConverter
         String fieldName = field.getName().orElse("field" + fieldIndex);
 
         ClpExpression baseString = handleDereference(base);
-        if (!baseString.getDefinition().isPresent()) {
+        if (!baseString.getKqlQuery().isPresent()) {
             return new ClpExpression(expression);
         }
-        return new ClpExpression(baseString.getDefinition().get() + "." + fieldName);
+        return new ClpExpression(baseString.getKqlQuery().get() + "." + fieldName);
     }
 
     private static class SubstrInfo

@@ -42,18 +42,14 @@ public class ClpPlanOptimizer
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
 
-    public ClpPlanOptimizer(FunctionMetadataManager functionManager,
-            StandardFunctionResolution functionResolution)
+    public ClpPlanOptimizer(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
     }
 
     @Override
-    public PlanNode optimize(PlanNode maxSubplan,
-            ConnectorSession session,
-            VariableAllocator variableAllocator,
-            PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
         return rewriteWith(new Rewriter(idAllocator), maxSubplan);
     }
@@ -81,7 +77,7 @@ public class ClpPlanOptimizer
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpExpression clpExpression = node.getPredicate()
                     .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, assignments), null);
-            Optional<String> kqlQuery = clpExpression.getDefinition();
+            Optional<String> kqlQuery = clpExpression.getKqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
             if (!kqlQuery.isPresent()) {
                 return node;

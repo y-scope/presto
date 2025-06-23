@@ -18,25 +18,21 @@ import com.facebook.presto.spi.relation.RowExpression;
 import java.util.Optional;
 
 /**
- * Represents the result of converting a Presto RowExpression into a CLP-compatible KQL query.
- * There are three possible cases:
- * 1. The entire RowExpression is convertible to KQL: `definition` is set, `remainingExpression` is empty.
- * 2. Part of the RowExpression is convertible: the KQL part is stored in `definition`,
- *    and the remaining untranslatable part is stored in `remainingExpression`.
- * 3. None of the expression is convertible: the full RowExpression is stored in `remainingExpression`,
- *    and `definition` is empty.
+ * Represents the result of converting a Presto RowExpression into a CLP-compatible KQL query. In
+ * every case, `kqlQuery` represents the part of the RowExpression that could be converted to a
+ * KQL expression, and `remainingExpression` represents the part that could not be converted.
  */
 public class ClpExpression
 {
     // Optional KQL query string representing the fully or partially translatable part of the expression.
-    private final Optional<String> definition;
+    private final Optional<String> kqlQuery;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String definition, RowExpression remainingExpression)
+    public ClpExpression(String kqlQuery, RowExpression remainingExpression)
     {
-        this.definition = Optional.ofNullable(definition);
+        this.kqlQuery = Optional.ofNullable(kqlQuery);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
@@ -50,15 +46,17 @@ public class ClpExpression
 
     /**
      * Creates a ClpExpression from a fully translatable KQL string.
-     * @param definition
+     *
+     * @param kqlQuery
      */
-    public ClpExpression(String definition)
+    public ClpExpression(String kqlQuery)
     {
-        this(definition, null);
+        this(kqlQuery, null);
     }
 
     /**
      * Creates a ClpExpression from a non-translatable RowExpression.
+     *
      * @param remainingExpression
      */
     public ClpExpression(RowExpression remainingExpression)
@@ -66,9 +64,9 @@ public class ClpExpression
         this(null, remainingExpression);
     }
 
-    public Optional<String> getDefinition()
+    public Optional<String> getKqlQuery()
     {
-        return definition;
+        return kqlQuery;
     }
 
     public Optional<RowExpression> getRemainingExpression()

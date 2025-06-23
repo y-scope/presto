@@ -30,8 +30,7 @@ public class ClpPlanOptimizerProvider
     private final StandardFunctionResolution functionResolution;
 
     @Inject
-    public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager,
-            StandardFunctionResolution functionResolution)
+    public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution)
     {
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
