@@ -77,7 +77,7 @@ public class ClpPlanOptimizer
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpExpression clpExpression = node.getPredicate()
                     .accept(new ClpFilterToKqlConverter(functionResolution, functionManager, assignments), null);
-            Optional<String> kqlQuery = clpExpression.getKqlQuery();
+            Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
             if (!kqlQuery.isPresent()) {
                 return node;

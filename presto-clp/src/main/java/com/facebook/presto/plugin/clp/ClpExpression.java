@@ -24,20 +24,20 @@ import java.util.Optional;
  */
 public class ClpExpression
 {
-    // Optional KQL query string representing the fully or partially translatable part of the expression.
-    private final Optional<String> kqlQuery;
+    // Optional KQL query or column name representing the fully or partially translatable part of the expression.
+    private final Optional<String> pushDownExpression;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String kqlQuery, RowExpression remainingExpression)
+    public ClpExpression(String pushDownExpression, RowExpression remainingExpression)
     {
-        this.kqlQuery = Optional.ofNullable(kqlQuery);
+        this.pushDownExpression = Optional.ofNullable(pushDownExpression);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
     /**
-     * Creates an empty ClpExpression (no KQL definition, no remaining expression).
+     * Creates an empty ClpExpression with neither pushdown nor remaining expressions.
      */
     public ClpExpression()
     {
@@ -45,13 +45,13 @@ public class ClpExpression
     }
 
     /**
-     * Creates a ClpExpression from a fully translatable KQL string.
+     * Creates a ClpExpression from a fully translatable KQL query or column name.
      *
-     * @param kqlQuery
+     * @param pushDownExpression
      */
-    public ClpExpression(String kqlQuery)
+    public ClpExpression(String pushDownExpression)
     {
-        this(kqlQuery, null);
+        this(pushDownExpression, null);
     }
 
     /**
@@ -64,9 +64,9 @@ public class ClpExpression
         this(null, remainingExpression);
     }
 
-    public Optional<String> getKqlQuery()
+    public Optional<String> getPushDownExpression()
     {
-        return kqlQuery;
+        return pushDownExpression;
     }
 
     public Optional<RowExpression> getRemainingExpression()

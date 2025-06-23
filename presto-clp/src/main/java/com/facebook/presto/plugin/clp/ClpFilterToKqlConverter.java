@@ -200,10 +200,10 @@ public class ClpFilterToKqlConverter
 
         RowExpression input = node.getArguments().get(0);
         ClpExpression expression = input.accept(this, null);
-        if (expression.getRemainingExpression().isPresent() || !expression.getKqlQuery().isPresent()) {
+        if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
-        return new ClpExpression("NOT " + expression.getKqlQuery().get());
+        return new ClpExpression("NOT " + expression.getPushDownExpression().get());
     }
 
     /**
@@ -224,11 +224,11 @@ public class ClpFilterToKqlConverter
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "LIKE operator must have exactly two arguments. Received: " + node);
         }
         ClpExpression variable = node.getArguments().get(0).accept(this, null);
-        if (!variable.getKqlQuery().isPresent()) {
+        if (!variable.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
 
-        String variableName = variable.getKqlQuery().get();
+        String variableName = variable.getPushDownExpression().get();
         RowExpression argument = node.getArguments().get(1);
 
         String pattern;
@@ -277,19 +277,19 @@ public class ClpFilterToKqlConverter
         RowExpression right = node.getArguments().get(1);
 
         ClpExpression maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right);
-        if (maybeLeftSubstring.getKqlQuery().isPresent()) {
+        if (maybeLeftSubstring.getPushDownExpression().isPresent()) {
             return maybeLeftSubstring;
         }
 
         ClpExpression maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left);
-        if (maybeRightSubstring.getKqlQuery().isPresent()) {
+        if (maybeRightSubstring.getPushDownExpression().isPresent()) {
             return maybeRightSubstring;
         }
 
         ClpExpression leftExpression = left.accept(this, null);
         ClpExpression rightExpression = right.accept(this, null);
-        Optional<String> leftDefinition = leftExpression.getKqlQuery();
-        Optional<String> rightDefinition = rightExpression.getKqlQuery();
+        Optional<String> leftDefinition = leftExpression.getPushDownExpression();
+        Optional<String> rightDefinition = rightExpression.getPushDownExpression();
         if (!leftDefinition.isPresent() || !rightDefinition.isPresent()) {
             return new ClpExpression(node);
         }
@@ -423,11 +423,11 @@ public class ClpFilterToKqlConverter
         }
 
         ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
-        if (!variable.getKqlQuery().isPresent()) {
+        if (!variable.getPushDownExpression().isPresent()) {
             return Optional.empty();
         }
 
-        String varName = variable.getKqlQuery().get();
+        String varName = variable.getPushDownExpression().get();
         RowExpression startExpression = callExpression.getArguments().get(1);
         RowExpression lengthExpression = null;
         if (argCount == 3) {
@@ -566,19 +566,19 @@ public class ClpFilterToKqlConverter
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         List<RowExpression> remainingExpressions = new ArrayList<>();
-        boolean hasDefinition = false;
+        boolean hasPushDownExpression = false;
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getKqlQuery().isPresent()) {
-                hasDefinition = true;
-                queryBuilder.append(expression.getKqlQuery().get());
+            if (expression.getPushDownExpression().isPresent()) {
+                hasPushDownExpression = true;
+                queryBuilder.append(expression.getPushDownExpression().get());
                 queryBuilder.append(" AND ");
             }
             if (expression.getRemainingExpression().isPresent()) {
                 remainingExpressions.add(expression.getRemainingExpression().get());
             }
         }
-        if (!hasDefinition) {
+        if (!hasPushDownExpression) {
             return new ClpExpression(node);
         }
         else if (!remainingExpressions.isEmpty()) {
@@ -612,10 +612,10 @@ public class ClpFilterToKqlConverter
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
-            if (expression.getRemainingExpression().isPresent() || !expression.getKqlQuery().isPresent()) {
+            if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
                 return new ClpExpression(node);
             }
-            queryBuilder.append(expression.getKqlQuery().get());
+            queryBuilder.append(expression.getPushDownExpression().get());
             queryBuilder.append(" OR ");
         }
         // Remove the last " OR " from the query
@@ -634,10 +634,10 @@ public class ClpFilterToKqlConverter
     private ClpExpression handleIn(SpecialFormExpression node)
     {
         ClpExpression variable = node.getArguments().get(0).accept(this, null);
-        if (!variable.getKqlQuery().isPresent()) {
+        if (!variable.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
-        String variableName = variable.getKqlQuery().get();
+        String variableName = variable.getPushDownExpression().get();
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments().subList(1, node.getArguments().size())) {
@@ -676,11 +676,11 @@ public class ClpFilterToKqlConverter
         }
 
         ClpExpression expression = node.getArguments().get(0).accept(this, null);
-        if (!expression.getKqlQuery().isPresent()) {
+        if (!expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
 
-        String variableName = expression.getKqlQuery().get();
+        String variableName = expression.getPushDownExpression().get();
         return new ClpExpression(format("NOT %s: *", variableName));
     }
 
@@ -739,10 +739,10 @@ public class ClpFilterToKqlConverter
         String fieldName = field.getName().orElse("field" + fieldIndex);
 
         ClpExpression baseString = handleDereference(base);
-        if (!baseString.getKqlQuery().isPresent()) {
+        if (!baseString.getPushDownExpression().isPresent()) {
             return new ClpExpression(expression);
         }
-        return new ClpExpression(baseString.getKqlQuery().get() + "." + fieldName);
+        return new ClpExpression(baseString.getPushDownExpression().get() + "." + fieldName);
     }
 
     private static class SubstrInfo
