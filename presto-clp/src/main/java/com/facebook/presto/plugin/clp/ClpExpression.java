@@ -27,13 +27,15 @@ public class ClpExpression
 {
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
-
+    // Optinal SQL string extracted from the definition, which is only made of given metadata columns.
+    private final Optional<String> metadataSql;
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String pushDownExpression, RowExpression remainingExpression)
+    public ClpExpression(String pushDownExpression, String metadataSql, RowExpression remainingExpression)
     {
         this.pushDownExpression = Optional.ofNullable(pushDownExpression);
+        this.metadataSql = Optional.ofNullable(metadataSql);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
@@ -42,7 +44,7 @@ public class ClpExpression
      */
     public ClpExpression()
     {
-        this(null, null);
+        this(null, null, null);
     }
 
     /**
@@ -52,7 +54,18 @@ public class ClpExpression
      */
     public ClpExpression(String pushDownExpression)
     {
-        this(pushDownExpression, null);
+        this(pushDownExpression, null, null);
+    }
+
+    /**
+     * Creates a ClpExpression from a fully translatable KQL string and give it metadata SQL.
+     *
+     * @param pushDownExpression
+     * @param metadataSql
+     */
+    public ClpExpression(String pushDownExpression, String metadataSql)
+    {
+        this(pushDownExpression, metadataSql, null);
     }
 
     /**
@@ -62,12 +75,17 @@ public class ClpExpression
      */
     public ClpExpression(RowExpression remainingExpression)
     {
-        this(null, remainingExpression);
+        this(null, null, remainingExpression);
     }
 
     public Optional<String> getPushDownExpression()
     {
         return pushDownExpression;
+    }
+
+    public Optional<String> getMetadataSql()
+    {
+        return metadataSql;
     }
 
     public Optional<RowExpression> getRemainingExpression()
