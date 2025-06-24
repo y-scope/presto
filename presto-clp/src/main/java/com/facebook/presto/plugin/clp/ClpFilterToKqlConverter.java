@@ -65,14 +65,14 @@ import static java.util.Objects.requireNonNull;
  * Supported translations include:
  * <ul>
  *     <li>Comparisons between variables and constants (e.g., =, !=, <, >, <=, >=).</li>
- *     <li>String pattern matches using LIKE with constant patterns only. <code>"^%[^%_]*%$"</code>
- *         is not supported.</li>
- *     <li>Membership checks using IN with a list of constants only</li>
- *     <li>NULL checks via IS NULL</li>
- *     <li>Substring comparisons (e.g., <code>SUBSTR(x, start, len) = "val"</code>) are supported
- *         only when compared against a constant.</li>
- *     <li>Dereferencing fields from row-typed variables</li>
- *     <li>Logical operators AND, OR, and NOT</li>
+ *     <li>String pattern matches using LIKE with constant patterns only. Patterns that begin and
+ *         end with <code>%</code> (i.e., <code>"^%[^%_]*%$"</code>) are not supported.</li>
+ *     <li>Membership checks using IN with a list of constants only.</li>
+ *     <li>NULL checks via IS NULL.</li>
+ *     <li>Substring comparisons (e.g., <code>SUBSTR(x, start, len) = "val"</code>) against a
+ *         constant.</li>
+ *     <li>Dereferencing fields from row-typed variables.</li>
+ *     <li>Logical operators AND, OR, and NOT.</li>
  * </ul>
  */
 public class ClpFilterToKqlConverter
@@ -188,8 +188,8 @@ public class ClpFilterToKqlConverter
      * Example: <code>NOT (col1 = 5)</code> → <code>NOT col1: 5</code>
      *
      * @param node the NOT call expression
-     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
-     * couldn't be translated
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleNot(CallExpression node)
     {
@@ -209,14 +209,15 @@ public class ClpFilterToKqlConverter
     /**
      * Handles LIKE expressions.
      * <p></p>
-     * Converts SQL LIKE patterns into equivalent KQL queries using <code>*</code> (for <code>%</code>)
-     * and <code>?</code> (for <code>_</code>). Only supports constant or casted constant patterns.
+     * Converts SQL LIKE patterns into equivalent KQL queries using <code>*</code> (for
+     * <code>%</code>) and <code>?</code> (for <code>_</code>). Only supports constant or casted
+     * constant patterns.
      * <p></p>
      * Example: <code>col1 LIKE 'a_bc%'</code> → <code>col1: "a?bc*"</code>
      *
      * @param node the LIKE call expression
-     * @return a ClpExpression containing the equivalent KQL query, or the original expression if it
-     * couldn't be translated
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleLike(CallExpression node)
     {
@@ -259,13 +260,13 @@ public class ClpFilterToKqlConverter
     /**
      * Handles logical binary operators (e.g., <code>=, !=, <, ></code>) between two expressions.
      * <p></p>
-     * Supports constant values on either side and flips the operator if necessary. Also delegates to a
-     * substring handler for <code>SUBSTR(x, ...) = 'value'</code> patterns.
+     * Supports constant values on either side and flips the operator if necessary. Also delegates
+     * to a substring handler for <code>SUBSTR(x, ...) = 'value'</code> patterns.
      *
      * @param operator the binary operator (e.g., EQUAL, NOT_EQUAL)
      * @param node the call expression representing the binary operation
-     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
-     * couldn't be translated
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
     {
@@ -339,8 +340,8 @@ public class ClpFilterToKqlConverter
      * @param operator the comparison operator
      * @param literalType the type of the literal
      * @param originalNode the original RowExpression node
-     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
-     * couldn't be translated
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression buildClpExpression(
             String variableName,
@@ -372,13 +373,15 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Checks whether the given expression matches the pattern SUBSTR(x, ...) = 'someString',
-     * and if so, attempts to convert it into a KQL query using wildcards and construct a CLP expression.
+     * Checks whether the given expression matches the pattern
+     * <code>SUBSTR(x, ...) = 'someString'</code>, and if so, attempts to convert it into a KQL
+     * query using wildcards and constructs a CLP expression.
      *
      * @param operator the comparison operator (should be EQUAL)
      * @param possibleSubstring the left or right expression, possibly a SUBSTR call
      * @param possibleLiteral the opposite expression, possibly a string constant
-     * @return a ClpExpression containing the translated KQL filter or an empty one if conversion fails
+     * @return a ClpExpression containing either the equivalent KQL query, or nothing if it couldn't
+     * be translated
      */
     private ClpExpression tryInterpretSubstringEquality(
             OperatorType operator,
@@ -407,7 +410,7 @@ public class ClpFilterToKqlConverter
      * Parses a <code>SUBSTR(x, start [, length])</code> call into a SubstrInfo object if valid.
      *
      * @param callExpression the call expression to inspect
-     * @return an Optional containing SubstrInfo if the expression is a valid SUBSTR call, otherwise empty
+     * @return an Optional containing SubstrInfo if the expression is a valid SUBSTR call
      */
     private Optional<SubstrInfo> parseSubstringCall(CallExpression callExpression)
     {
@@ -438,7 +441,8 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Converts a <code>SUBSTR(x, start [, length]) = 'someString'</code> into a KQL-style wildcard query.
+     * Converts a <code>SUBSTR(x, start [, length]) = 'someString'</code> into a KQL-style wildcard
+     * query.
      * <p></p>
      * Examples:
      * <ul>
@@ -450,7 +454,8 @@ public class ClpFilterToKqlConverter
      *
      * @param info parsed SUBSTR call info
      * @param targetString the literal string being compared to
-     * @return a ClpExpression containing the translated KQL query if successful; otherwise, an empty ClpExpression
+     * @return a ClpExpression containing either the equivalent KQL query, or nothing if it couldn't
+     * be translated
      */
     private ClpExpression interpretSubstringEquality(SubstrInfo info, String targetString)
     {
@@ -498,7 +503,7 @@ public class ClpFilterToKqlConverter
      * Attempts to parse a RowExpression as an integer constant.
      *
      * @param expression the row expression to parse
-     * @return an Optional containing the parsed integer value, if successful
+     * @return an Optional containing the integer value if it could be parsed
      */
     private Optional<Integer> parseIntValue(RowExpression expression)
     {
@@ -532,7 +537,7 @@ public class ClpFilterToKqlConverter
      *
      * @param lengthExpression the expression representing the length parameter
      * @param targetString the target string to compare length against
-     * @return an Optional containing the length if it matches targetString.length(), otherwise empty
+     * @return an Optional containing the length if it matches targetString.length()
      */
     private Optional<Integer> parseLengthLiteral(RowExpression lengthExpression, String targetString)
     {
@@ -551,14 +556,14 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles the logical AND expression.
+     * Handles the logical <code>AND</code> expression.
      * <p></p>
-     * Combines all definable child expressions into a single KQL query joined by AND.
-     * Any unsupported children are collected into a remaining expression.
+     * Combines all definable child expressions into a single KQL query joined by AND. Any
+     * unsupported children are collected into the remaining expression.
      * <p></p>
      * Example: <code>col1 = 5 AND col2 = 'abc'</code> → <code>(col1: 5 AND col2: "abc")</code>
      *
-     * @param node the AND special form expression
+     * @param node the <code>AND</code> special form expression
      * @return a ClpExpression containing the KQL query and any remaining sub-expressions
      */
     private ClpExpression handleAnd(SpecialFormExpression node)
@@ -596,15 +601,16 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles the logical OR expression.
+     * Handles the logical <code>OR</code> expression.
      * <p></p>
      * Combines all fully convertible child expressions into a single KQL query joined by OR.
      * Falls back to the original node if any child cannot be converted.
      * <p></p>
      * Example: <code>col1 = 5 OR col1 = 10</code> → <code>(col1: 5 OR col1: 10)</code>
      *
-     * @param node the OR special form expression
-     * @return a ClpExpression containing the OR-based KQL string, or the original expression if not fully convertible
+     * @param node the <code>OR</code> special form expression
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be fully translated
      */
     private ClpExpression handleOr(SpecialFormExpression node)
     {
@@ -623,13 +629,13 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles the IN predicate.
+     * Handles the <code>IN</code> predicate.
      * <p></p>
      * Example: <code>col1 IN (1, 2, 3)</code> → <code>(col1: 1 OR col1: 2 OR col1: 3)</code>
      *
-     * @param node the IN special form expression
-     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
-     * couldn't be translated
+     * @param node the <code>IN</code> special form expression
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleIn(SpecialFormExpression node)
     {
@@ -655,18 +661,19 @@ public class ClpFilterToKqlConverter
             }
             queryBuilder.append(" OR ");
         }
+
         // Remove the last " OR " from the query
         return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 4) + ")");
     }
 
     /**
-     * Handles the IS NULL predicate.
+     * Handles the <code>IS NULL</code> predicate.
      * <p></p>
      * Example: <code>col1 IS NULL</code> → <code>NOT col1: *</code>
      *
-     * @param node the IS_NULL special form expression
-     * @return a ClpExpression containing the equivalent KQL query or the original expression if it
-     * couldn't be translated
+     * @param node the <code>IS_NULL</code> special form expression
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleIsNull(SpecialFormExpression node)
     {
@@ -687,13 +694,14 @@ public class ClpFilterToKqlConverter
     /**
      * Handles dereference expressions on RowTypes (e.g., <code>col.row_field</code>).
      * <p></p>
-     * Converts nested row field access into dot-separated KQL-compatible field names.
+     * Converts nested row field accesses into dot-separated KQL-compatible field names.
      * <p></p>
      * Example: <code>address.city</code> (from a RowType 'address') → <code>address.city</code>
      *
-     * @param expression the dereference expression (SpecialFormExpression or VariableReferenceExpression)
-     * @return a ClpExpression containing the dot-separated field name or the original expression if it
-     * couldn't be translated
+     * @param expression the dereference expression ({@link SpecialFormExpression} or
+     * {@link VariableReferenceExpression})
+     * @return a ClpExpression containing either the dot-separated field name, or the original
+     * expression if it couldn't be translated
      */
     private ClpExpression handleDereference(RowExpression expression)
     {
