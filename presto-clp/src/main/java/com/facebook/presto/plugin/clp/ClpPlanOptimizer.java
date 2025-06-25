@@ -89,8 +89,7 @@ public class ClpPlanOptimizer
             Optional<String> metadataSql = clpExpression.getMetadataSql();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
-            // This must be checked before check if the KQL is present, otherwise KQL can be emptry then this function
-            // directly exits.
+            // Check metadata filters before the KQL query
             metadataFilterProvider.checkContainsAllFilters(clpTableHandle.getSchemaTableName(), metadataSql.orElse(""));
             if (metadataSql.isPresent()) {
                 metadataSql = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSql.get()));

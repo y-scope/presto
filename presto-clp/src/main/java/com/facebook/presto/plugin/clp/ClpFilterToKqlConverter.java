@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.common.function.OperatorType.BETWEEN;
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.function.OperatorType.GREATER_THAN;
 import static com.facebook.presto.common.function.OperatorType.GREATER_THAN_OR_EQUAL;
@@ -118,35 +119,58 @@ public class ClpFilterToKqlConverter
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
                 return handleLogicalBinary(operatorType, node);
             }
-            else if (OperatorType.BETWEEN == operatorType) {
-                return handleBetween(operatorType, node);
+            if (BETWEEN == operatorType) {
+                return handleBetween(node);
             }
         }
 
         return new ClpExpression(node);
     }
 
-    private ClpExpression handleBetween(OperatorType operator, CallExpression node)
+    /**
+     * Handles the BETWEEN expression for numeric range, the range must be numeric. If the first
+     * argument is not a variable reference expression or either range boundaries is not constant
+     * expressions it won't translate the expression.
+     *
+     * <p></p>
+     * Example: <code>col1 BETWEEN 0 AND 5</code> → <code>col1 >= 0 AND col1 <= 5</code>
+     *
+     * @param node the BETWEEN call expression
+     * @return a ClpExpression containing either the equivalent KQL query, or the original
+     * expression if it couldn't be translated
+     */
+    private ClpExpression handleBetween(CallExpression node)
     {
         if (node.getArguments().size() != 3) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "Logical binary operator must have exactly two arguments. Received: " + node);
+                    "Between operator must have exactly three arguments. Received: " + node);
         }
-        Optional<String> variableReferenceDefinition = node.getArguments().get(0).accept(this, null).getPushDownExpression();
-        Optional<String> lowerBoundConstantDefinition = node.getArguments().get(1).accept(this, null).getPushDownExpression();
-        Optional<String> upperBoundConstantDefinition = node.getArguments().get(2).accept(this, null).getPushDownExpression();
-        if (!variableReferenceDefinition.isPresent() || !lowerBoundConstantDefinition.isPresent() || !upperBoundConstantDefinition.isPresent()) {
+        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)
+                || !(node.getArguments().get(1) instanceof ConstantExpression)
+                || !(node.getArguments().get(2) instanceof ConstantExpression)) {
             return new ClpExpression(node);
         }
+        Optional<String> variableReferencePushDownExpression = node.getArguments().get(0).accept(this, null).getPushDownExpression();
+        if (!variableReferencePushDownExpression.isPresent()) {
+            return new ClpExpression(node);
+        }
+
+        String lowerBoundConstantPushDownExpression = getLiteralString((ConstantExpression) node.getArguments().get(1));
+        String upperBoundConstantPushDownExpression = getLiteralString((ConstantExpression) node.getArguments().get(2));
         String metadataSql = null;
-        String kql = String.format(
-                "\"%s\" >= %s AND \"%s\" <= %s",
-                variableReferenceDefinition.get(),
-                lowerBoundConstantDefinition.get(),
-                variableReferenceDefinition.get(),
-                upperBoundConstantDefinition.get());
-        if (metadataFilterColumns.contains(variableReferenceDefinition.get())) {
-            metadataSql = kql;
+        String kql = format(
+                "%s >= %s AND %s <= %s",
+                variableReferencePushDownExpression.get(),
+                lowerBoundConstantPushDownExpression,
+                variableReferencePushDownExpression.get(),
+                upperBoundConstantPushDownExpression);
+        if (metadataFilterColumns.contains(variableReferencePushDownExpression.get())) {
+            metadataSql = format(
+                    "\"%s\" >= %s AND \"%s\" <= %s",
+                    variableReferencePushDownExpression.get(),
+                    lowerBoundConstantPushDownExpression,
+                    variableReferencePushDownExpression.get(),
+                    upperBoundConstantPushDownExpression);
         }
         return new ClpExpression(kql, metadataSql);
     }
@@ -235,11 +259,12 @@ public class ClpFilterToKqlConverter
         if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
+        String notPushDownExpression = "NOT " + expression.getPushDownExpression().get();
         if (expression.getMetadataSql().isPresent()) {
-            return new ClpExpression("NOT " + expression.getPushDownExpression().get(), "NOT " + expression.getMetadataSql());
+            return new ClpExpression(notPushDownExpression, "NOT " + expression.getMetadataSql());
         }
         else {
-            return new ClpExpression("NOT " + expression.getPushDownExpression().get());
+            return new ClpExpression(notPushDownExpression);
         }
     }
 

@@ -48,13 +48,13 @@ public final class ClpMetadataDbSetUp
     public static final String METADATA_DB_TABLE_PREFIX = "clp_";
     public static final String METADATA_DB_URL_TEMPLATE = "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
     public static final String METADATA_DB_USER = "sa";
-    public static final String ARCHIVE_STORAGE_DIRECTORY_BASE = "/tmp/archives/";
+    public static final String ARCHIVES_STORAGE_DIRECTORY_BASE = "/tmp/archives/";
 
     private static final Logger log = Logger.get(ClpMetadataDbSetUp.class);
     private static final String DATASETS_TABLE_NAME = METADATA_DB_TABLE_PREFIX + DATASETS_TABLE_SUFFIX;
-    private static final String ARCHIVE_TABLE_COLUMN_BEGIN_TIMESTAMP = "begin_timestamp";
+    private static final String ARCHIVES_TABLE_COLUMN_BEGIN_TIMESTAMP = "begin_timestamp";
     private static final String ARCHIVES_TABLE_COLUMN_PAGINATION_ID = "pagination_id";
-    private static final String ARCHIVE_TABLE_COLUMN_END_TIMESTAMP = "end_timestamp";
+    private static final String ARCHIVES_TABLE_COLUMN_END_TIMESTAMP = "end_timestamp";
 
     private ClpMetadataDbSetUp()
     {
@@ -143,8 +143,8 @@ public final class ClpMetadataDbSetUp
                         archiveTableName,
                         ARCHIVES_TABLE_COLUMN_PAGINATION_ID,
                         ARCHIVES_TABLE_COLUMN_ID,
-                        ARCHIVE_TABLE_COLUMN_BEGIN_TIMESTAMP,
-                        ARCHIVE_TABLE_COLUMN_END_TIMESTAMP);
+                        ARCHIVES_TABLE_COLUMN_BEGIN_TIMESTAMP,
+                        ARCHIVES_TABLE_COLUMN_END_TIMESTAMP);
 
                 stmt.execute(createArchiveTableSQL);
 
@@ -152,8 +152,8 @@ public final class ClpMetadataDbSetUp
                         "INSERT INTO %s (%s, %s, %s) VALUES (?, ?, ?)",
                         archiveTableName,
                         ARCHIVES_TABLE_COLUMN_ID,
-                        ARCHIVE_TABLE_COLUMN_BEGIN_TIMESTAMP,
-                        ARCHIVE_TABLE_COLUMN_END_TIMESTAMP);
+                        ARCHIVES_TABLE_COLUMN_BEGIN_TIMESTAMP,
+                        ARCHIVES_TABLE_COLUMN_END_TIMESTAMP);
                 try (PreparedStatement pstmt = conn.prepareStatement(insertArchiveTableSQL)) {
                     for (ArchiveTableRow split : tableSplits.getValue()) {
                         pstmt.setString(1, split.id);
@@ -213,7 +213,7 @@ public final class ClpMetadataDbSetUp
                 DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY);
         try (PreparedStatement pstmt = conn.prepareStatement(insertDatasetsTableSql)) {
             pstmt.setString(1, tableName);
-            pstmt.setString(2, ARCHIVE_STORAGE_DIRECTORY_BASE + tableName);
+            pstmt.setString(2, ARCHIVES_STORAGE_DIRECTORY_BASE + tableName);
             pstmt.executeUpdate();
         }
     }

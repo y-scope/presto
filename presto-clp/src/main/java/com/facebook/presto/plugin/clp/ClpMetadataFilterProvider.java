@@ -24,9 +24,7 @@ import com.google.inject.Inject;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,8 +35,37 @@ import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Provides metadata filter configuration and utilities for remapping and validating metadata
+ * filters based on a JSON configuration file.
+ * <p>
+ * The configuration file locates at {@code clp.metadata-filter-config} and defines metadata filters
+ * for different scopes:
+ * <ul>
+ *   <li><b>Catalog-level</b>: applies to all schemas and tables under the catalog.</li>
+ *   <li><b>Schema-level</b>: applies to all tables under the specified catalog and schema.</li>
+ *   <li><b>Table-level</b>: applies to the fully qualified catalog.schema.table.</li>
+ * </ul>
+ * <p>
+ * Each scope maps to a list of filter definitions. Each filter includes:
+ * <ul>
+ *   <li>{@code filterName}: must match a column name in the table's schema. Note that only numeric
+ *   type column can be used as metadata filter now.</li>
+ *   <li>{@code rangeMapping} (optional): specifies how the filter should be remapped when it
+ *   targets metadata-only columns. Note that this option is valid only if the column is numeric
+ *   type.
+ *       For example, a condition like {@code "msg.timestamp" > 1234} will be rewritten as
+ *       {@code end_timestamp > 1234} to ensure metadata-based filtering produces a superset of the
+ *       actual result.</li>
+ * </ul>
+ * <p>
+ * This provider is used by {@code ClpFilterToKqlConverter} to determine which columns are eligible
+ * for metadata filter push down, and by {@code ClpMySqlSplitProvider} to construct metadata filter
+ * queries that determine which splits to read.
+ */
 public class ClpMetadataFilterProvider
 {
     private final Map<String, TableConfig> filterMap;
@@ -68,8 +95,7 @@ public class ClpMetadataFilterProvider
     {
         boolean hasAllMetadataFilterColumns = true;
         String notFoundFilterColumnName = "";
-        for (String columnName : getFilterNames(
-                CONNECTOR_NAME + "." + schemaTableName.toString())) {
+        for (String columnName : getFilterNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
             if (!metadataFilterKqlQuery.contains(columnName)) {
                 hasAllMetadataFilterColumns = false;
                 notFoundFilterColumnName = columnName;
@@ -101,12 +127,14 @@ public class ClpMetadataFilterProvider
         String remappedSql = sql;
         for (Map.Entry<String, RangeMapping> entry : mappings.entrySet()) {
             remappedSql = remappedSql.replaceAll(
-                    "\"(" + entry.getKey() + ")\"\\s(>=?)\\s([0-9]*)", entry.getValue().upperBound + " $2 $3");
+                    format("\"(%s)\"\\s(>=?)\\s([0-9]*)", entry.getKey()),
+                    format("%s $2 $3", entry.getValue().upperBound));
             remappedSql = remappedSql.replaceAll(
-                    "\"(" + entry.getKey() + ")\"\\s(<=?)\\s([0-9]*)", entry.getValue().lowerBound + " $2 $3");
+                    format("\"(%s)\"\\s(<=?)\\s([0-9]*)", entry.getKey()),
+                    format("%s $2 $3", entry.getValue().lowerBound));
             remappedSql = remappedSql.replaceAll(
-                    "\"(" + entry.getKey() + ")\"\\s(=)\\s([0-9]*)",
-                    "(" + entry.getValue().lowerBound + " <= $3 AND " + entry.getValue().upperBound + " >= $3)");
+                    format("\"(%s)\"\\s(=)\\s([0-9]*)", entry.getKey()),
+                    format("(%s <= $3 AND %s >= $3)", entry.getValue().lowerBound, entry.getValue().upperBound));
         }
         return remappedSql;
     }
@@ -115,18 +143,19 @@ public class ClpMetadataFilterProvider
     {
         String[] splitScope = scope.split("\\.");
         if (0 == splitScope.length) {
-            return Collections.emptySet();
+            return ImmutableSet.of();
         }
-        Set<String> filterNames = new HashSet<>(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0])));
+        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+        builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
-            filterNames.addAll(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
+            builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
         }
 
         if (3 == splitScope.length) {
-            filterNames.addAll(getAllFilerNamesFromTableConfig(filterMap.get(scope)));
+            builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(scope)));
         }
-        return ImmutableSet.copyOf(filterNames);
+        return builder.build();
     }
 
     private Set<String> getAllFilerNamesFromTableConfig(TableConfig tableConfig)

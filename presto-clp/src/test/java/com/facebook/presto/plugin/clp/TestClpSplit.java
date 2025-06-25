@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVE_STORAGE_DIRECTORY_BASE;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ArchiveTableRow;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.DbHandle;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
@@ -58,6 +58,9 @@ public class TestClpSplit
             List<ArchiveTableRow> values = new ArrayList<>();
 
             for (int j = 0; j < numValuesPerKey; j++) {
+                // We generate synthetic begin_timestamp and end_timestamp values for each split
+                // by offsetting two base timestamps (1747075922599L and 1749667914417L) with a
+                // fixed increment per split (10^10 * j).
                 values.add(new ArchiveTableRow(
                         "id_" + j,
                         1747075922599L + 10000000000L * j,
@@ -143,10 +146,9 @@ public class TestClpSplit
             List<Integer> expectedSplitIds)
     {
         String tableName = entry.getKey();
-        String tablePath = ARCHIVE_STORAGE_DIRECTORY_BASE + tableName;
+        String tablePath = ARCHIVES_STORAGE_DIRECTORY_BASE + tableName;
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName),
-                        tablePath),
+                new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),
                 metadataSql);
         List<ArchiveTableRow> expectedSplits = expectedSplitIds.stream()

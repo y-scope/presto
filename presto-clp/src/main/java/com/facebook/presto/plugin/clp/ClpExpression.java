@@ -58,7 +58,7 @@ public class ClpExpression
     }
 
     /**
-     * Creates a ClpExpression from a fully translatable KQL string and give it metadata SQL.
+     * Creates a ClpExpression from a fully translatable KQL string and a metadata SQL string.
      *
      * @param pushDownExpression
      * @param metadataSql

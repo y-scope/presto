@@ -14,13 +14,14 @@
 package com.facebook.presto.plugin.clp;
 
 import com.google.common.collect.ImmutableSet;
-import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.io.File;
-import java.io.FileWriter;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.Set;
 
 import static org.testng.Assert.assertEquals;
@@ -29,50 +30,16 @@ import static org.testng.Assert.assertEquals;
 public class TestClpMetadataFilterConfig
 {
     private String filterConfigPath;
-    private File tempFile;
 
     @BeforeMethod
-    public void setUp() throws IOException
+    public void setUp() throws IOException, URISyntaxException
     {
-        tempFile = File.createTempFile("metadata-filter", ".json");
-        tempFile.deleteOnExit();
-        filterConfigPath = tempFile.getAbsolutePath();
-
-        String json =
-                "{\n" +
-                        "  \"clp\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"level\"\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  },\n" +
-                        "  \"clp.default\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"author\"\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  },\n" +
-                        "  \"clp.default.table_1\": {\n" +
-                        "    \"filters\": [\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"msg.timestamp\",\n" +
-                        "        \"rangeMapping\": {\n" +
-                        "          \"lowerBound\": \"begin_timestamp\",\n" +
-                        "          \"upperBound\": \"end_timestamp\"\n" +
-                        "        }\n" +
-                        "      },\n" +
-                        "      {\n" +
-                        "        \"filterName\": \"file_name\"\n" +
-                        "      }\n" +
-                        "    ]\n" +
-                        "  }\n" +
-                        "}";
-
-        try (FileWriter writer = new FileWriter(tempFile)) {
-            writer.write(json);
+        URL resource = getClass().getClassLoader().getResource("test-metadata-filter.json");
+        if (resource == null) {
+            throw new FileNotFoundException("test-metadata-filter.json not found in resources");
         }
+
+        filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
     }
 
     @Test
@@ -115,13 +82,5 @@ public class TestClpMetadataFilterConfig
         String metadataFilterSql5 = "(\"msg.timestamp\" = 1234)";
         String remappedSql5 = filterProvider.remapFilterSql("clp.default.table_1", metadataFilterSql5);
         assertEquals(remappedSql5, "((begin_timestamp <= 1234 AND end_timestamp >= 1234))");
-    }
-
-    @AfterMethod
-    public void tearDown()
-    {
-        if (null != tempFile && tempFile.exists()) {
-            tempFile.delete();
-        }
     }
 }

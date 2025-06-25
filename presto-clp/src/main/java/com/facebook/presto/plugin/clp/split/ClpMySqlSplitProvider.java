@@ -73,7 +73,7 @@ public class ClpMySqlSplitProvider
             String metadataFilterQuery = clpTableLayoutHandle.getMetadataSql().get();
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
-        log.info("Query for archive: %s", archivePathQuery);
+        log.debug("Query for archive: %s", archivePathQuery);
 
         try (Connection connection = getConnection()) {
             // Fetch archive IDs and create splits

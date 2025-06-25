@@ -1,0 +1,30 @@
+{
+  "clp": {
+    "filters": [
+      {
+        "filterName": "level"
+      }
+    ]
+  },
+  "clp.default": {
+    "filters": [
+      {
+        "filterName": "author"
+      }
+    ]
+  },
+  "clp.default.table_1": {
+    "filters": [
+      {
+        "filterName": "msg.timestamp",
+        "rangeMapping": {
+          "lowerBound": "begin_timestamp",
+          "upperBound": "end_timestamp"
+        }
+      },
+      {
+        "filterName": "file_name"
+      }
+    ]
+  }
+}
