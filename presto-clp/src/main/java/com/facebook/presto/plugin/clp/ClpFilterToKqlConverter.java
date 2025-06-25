@@ -50,7 +50,8 @@ import static com.facebook.presto.common.function.OperatorType.NOT_EQUAL;
 import static com.facebook.presto.common.function.OperatorType.flip;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
-import static com.facebook.presto.plugin.clp.ClpUtils.KqlUtils.escapeKqlSpecialCharsForStringValue;
+import static com.facebook.presto.plugin.clp.ClpUtils.escapeKqlSpecialCharsForStringValue;
+import static com.facebook.presto.plugin.clp.ClpUtils.isNumericType;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
@@ -128,9 +129,9 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles the BETWEEN expression for numeric range, the range must be numeric. If the first
-     * argument is not a variable reference expression or either range boundaries is not constant
-     * expressions it won't translate the expression.
+     * Handles the BETWEEN expression for numeric range, all arguments must be numeric. If the first
+     * argument is not a variable reference expression or either the second or the third is not
+     * constant expressions it won't translate the expression.
      *
      * <p></p>
      * Example: <code>col1 BETWEEN 0 AND 5</code> → <code>col1 >= 0 AND col1 <= 5</code>
@@ -148,6 +149,10 @@ public class ClpFilterToKqlConverter
         if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)
                 || !(node.getArguments().get(1) instanceof ConstantExpression)
                 || !(node.getArguments().get(2) instanceof ConstantExpression)) {
+            return new ClpExpression(node);
+        }
+        if (!isNumericType(node.getArguments().get(0).getType())) {
+            // Let the Presto SQL analyzer throw exception
             return new ClpExpression(node);
         }
         Optional<String> variableReferencePushDownExpression = node.getArguments().get(0).accept(this, null).getPushDownExpression();

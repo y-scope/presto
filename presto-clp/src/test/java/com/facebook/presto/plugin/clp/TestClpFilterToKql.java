@@ -106,14 +106,8 @@ public class TestClpFilterToKql
         testFilter(tryPushDown("0 BETWEEN NULL AND 5", sessionHolder, ImmutableSet.of()), null, "BETWEEN(0, null, 5)", sessionHolder, false);
 
         // Illegal cases
-        assertThrows(SemanticException.class, () -> {
-            testFilter(
-                    tryPushDown("fare BETWEEN 'Apple' AND 'Pear'", sessionHolder, ImmutableSet.of()),
-                    "fare >= 0 AND fare <= 5",
-                    null,
-                    sessionHolder,
-                    true);
-        });
+        assertThrows(SemanticException.class, () -> tryPushDown("fare BETWEEN 'Apple' AND 'Pear'", sessionHolder, ImmutableSet.of()));
+        assertThrows(SemanticException.class, () -> tryPushDown("city.Name BETWEEN 0 AND 5", sessionHolder, ImmutableSet.of()));
     }
 
     @Test
@@ -288,6 +282,12 @@ public class TestClpFilterToKql
                 sessionHolder,
                 "(fare > 0 AND city.Name: \"b*\")",
                 "(\"fare\" > 0)");
+        testFilterWithMetadataSql(
+                tryPushDown("((fare BETWEEN 0 AND 5) AND city.Name like 'b%')",
+                        sessionHolder, ImmutableSet.of("fare")),
+                sessionHolder,
+                "(fare >= 0 AND fare <= 5 AND city.Name: \"b*\")",
+                "(\"fare\" >= 0 AND \"fare\" <= 5)");
         testFilterWithMetadataSql(
                 tryPushDown("(fare > 0 OR city.Name like 'b%')",
                         sessionHolder, ImmutableSet.of("fare")),
