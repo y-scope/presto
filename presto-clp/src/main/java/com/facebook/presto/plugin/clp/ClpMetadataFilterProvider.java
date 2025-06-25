@@ -57,9 +57,9 @@ import static java.util.Objects.requireNonNull;
  *   <li>{@code rangeMapping} (optional): specifies how the filter should be remapped when it
  *   targets metadata-only columns. Note that this option is valid only if the column is numeric
  *   type.
- *       For example, a condition like {@code "msg.timestamp" > 1234} will be rewritten as
- *       {@code end_timestamp > 1234} to ensure metadata-based filtering produces a superset of the
- *       actual result.</li>
+ *       For example, a condition like {@code "msg.timestamp" > 1234 AND "msg.timestamp" < 5678}
+ *       will be rewritten as {@code end_timestamp > 1234 AND begin_timestamp < 5678} to ensure
+ *       metadata-based filtering produces a superset of the actual result.</li>
  * </ul>
  * <p>
  * This provider is used by {@code ClpFilterToKqlConverter} to determine which columns are eligible

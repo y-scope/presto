@@ -143,7 +143,7 @@ public class ClpFilterToKqlConverter
     {
         if (node.getArguments().size() != 3) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "Between operator must have exactly three arguments. Received: " + node);
+                    "BETWEEN operator must have exactly three arguments. Received: " + node);
         }
         if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)
                 || !(node.getArguments().get(1) instanceof ConstantExpression)

@@ -29,6 +29,7 @@ following contents, modifying the properties as appropriate:
     clp.metadata-db-name=clp_db
     clp.metadata-db-user=clp_user
     clp.metadata-db-password=clp_password
+    clp.metadata-filter-config=/path/to/metadata-filter-config.json
     clp.metadata-table-prefix=clp_
     clp.split-provider-type=mysql
 
@@ -68,6 +69,7 @@ Property Name                      Description                                  
                                    database name is not specified in the URL.
 ``clp.metadata-db-password``       The password for the metadata database user. This option is required if
                                    ``clp.metadata-provider-type`` is set to ``mysql``.
+``clp.metadata-filter-config``     The absolute path of the metadata filter config file.
 ``clp.metadata-table-prefix``      A string prefix prepended to all metadata table names when querying the
                                    database. Useful for namespacing or avoiding collisions. This option is
                                    required if ``clp.metadata-provider-type`` is set to ``mysql``.
@@ -93,6 +95,35 @@ automatically populates the database with the required information.
 If you prefer to use a different source--or the same source with a custom implementation--you can provide your own
 implementations of the ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and configure the connector
 accordingly.
+
+Metadata Filter Config File
+----------------------------
+
+The configuration file defines metadata filters for different scopes:
+
+- **Catalog-level**: applies to all schemas and tables under the catalog.
+- **Schema-level**: applies to all tables under the specified catalog and schema.
+- **Table-level**: applies to the fully qualified ``catalog.schema.table``.
+
+Each scope maps to a list of filter definitions. Each filter includes:
+
+- ``filterName``: must match a column name in the table’s schema.
+
+  .. note::
+     Only numeric-type columns can currently be used as metadata filters.
+
+- ``rangeMapping`` *(optional)*: specifies how the filter should be remapped when it targets metadata-only columns.
+
+  .. note::
+     This option is only valid if the column is numeric type.
+
+  For example, a condition like:
+  ::
+     "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
+  will be rewritten as:
+  ::
+     end_timestamp > 1234 AND begin_timestamp < 5678
+  This ensures that metadata-based filtering produces a superset of the actual result.
 
 Data Types
 ----------
