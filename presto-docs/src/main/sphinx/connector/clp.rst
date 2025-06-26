@@ -118,12 +118,70 @@ Each scope maps to a list of filter definitions. Each filter includes:
      This option is only valid if the column is numeric type.
 
   For example, a condition like:
+
   ::
+
      "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
   will be rewritten as:
+
   ::
+
      end_timestamp > 1234 AND begin_timestamp < 5678
+
   This ensures that metadata-based filtering produces a superset of the actual result.
+
+Here is an example of a metadata filter config file:
+
+.. code-block:: json
+
+    {
+      "clp": {
+        "filters": [
+          {
+            "filterName": "level"
+          }
+        ]
+      },
+      "clp.default": {
+        "filters": [
+          {
+            "filterName": "author"
+          }
+        ]
+      },
+      "clp.default.table_1": {
+        "filters": [
+          {
+            "filterName": "msg.timestamp",
+            "rangeMapping": {
+              "lowerBound": "begin_timestamp",
+              "upperBound": "end_timestamp"
+            }
+          },
+          {
+            "filterName": "file_name"
+          }
+        ]
+      }
+    }
+
+Explanation:
+
+- The top-level keys in this JSON object (`"clp"`, `"clp.default"`, and `"clp.default.table_1"`) represent **scopes** where metadata filters apply:
+
+  - ``"clp"``: filters applied globally to all schemas and tables under the `clp` catalog.
+  - ``"clp.default"``: filters applied to all tables under the `clp.default` schema.
+  - ``"clp.default.table_1"``: filters applied specifically to the table named `table_1` under `clp.default`.
+
+- Each scope contains a list of `filters`, where each filter specifies a field name via `filterName`. The field name must match a column in the logical schema.
+
+- Some filters (like `"msg.timestamp"`) include an optional `rangeMapping` block. This is used to map the filter to physical metadata columns:
+
+  - In this example, filtering by `"msg.timestamp"` will be rewritten as a condition involving `begin_timestamp` and `end_timestamp`, allowing the engine to prune files or splits that don't match the filter.
+
+- Filters without a `rangeMapping` (like `"level"`, `"author"`, or `"file_name"`) are used as-is and must directly correspond to metadata columns in the split metadata schema.
+
+This configuration enables flexible, hierarchical specification of which metadata filters are valid for which tables, and how they should be mapped to physical metadata fields for push down and split filtering.
 
 Data Types
 ----------

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -62,8 +63,8 @@ import static java.util.Objects.requireNonNull;
  *       metadata-based filtering produces a superset of the actual result.</li>
  * </ul>
  * <p>
- * This provider is used by {@code ClpFilterToKqlConverter} to determine which columns are eligible
- * for metadata filter push down, and by {@code ClpMySqlSplitProvider} to construct metadata filter
+ * This provider is used by {@link ClpFilterToKqlConverter} to determine which columns are eligible
+ * for metadata filter push down, and by {@link ClpMySqlSplitProvider} to construct metadata filter
  * queries that determine which splits to read.
  */
 public class ClpMetadataFilterProvider
@@ -86,11 +87,6 @@ public class ClpMetadataFilterProvider
         }
     }
 
-    public Map<String, TableConfig> getFilterMap()
-    {
-        return filterMap;
-    }
-
     public void checkContainsAllFilters(SchemaTableName schemaTableName, String metadataFilterKqlQuery)
     {
         boolean hasAllMetadataFilterColumns = true;
@@ -107,6 +103,31 @@ public class ClpMetadataFilterProvider
         }
     }
 
+    /**
+     * Rewrites the input SQL string by remapping filter conditions based on the configured
+     * metadata filter range mappings for the given scope.
+     *
+     * <p>The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
+     * which filter mappings to apply. For each level of scope (catalog, schema, table), this
+     * method collects all range mappings defined in the metadata filter configuration. Mappings
+     * from more specific scopes (e.g., table-level) override or supplement those from broader
+     * scopes (e.g., catalog-level).
+     *
+     * <p>This method performs regex-based replacements to convert numeric filter expressions such
+     * as:
+     *
+     * <ul>
+     *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
+     *   <li>{@code "msg.timestamp" <= 5678} → {@code begin_timestamp <= 5678}</li>
+     *   <li>{@code "msg.timestamp" = 4567} →
+     *   {@code (begin_timestamp <= 4567 AND end_timestamp >= 4567)}</li>
+     * </ul>
+     *
+     * @param scope the catalog.schema.table scope used to resolve applicable filter mappings
+     * @param sql the original SQL expression to be remapped
+     * @return the rewritten SQL string with metadata filter expressions remapped according to the
+     * configured range mappings
+     */
     public String remapFilterSql(String scope, String sql)
     {
         String[] splitScope = scope.split("\\.");
@@ -146,19 +167,19 @@ public class ClpMetadataFilterProvider
             return ImmutableSet.of();
         }
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0])));
+        builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
-            builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
+            builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
         }
 
         if (3 == splitScope.length) {
-            builder.addAll(getAllFilerNamesFromTableConfig(filterMap.get(scope)));
+            builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(scope)));
         }
         return builder.build();
     }
 
-    private Set<String> getAllFilerNamesFromTableConfig(TableConfig tableConfig)
+    private Set<String> getAllFilterNamesFromTableConfig(TableConfig tableConfig)
     {
         return null != tableConfig ? tableConfig.filters.stream()
                 .map(filter -> filter.filterName)

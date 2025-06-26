@@ -151,7 +151,9 @@ public class ClpFilterToKqlConverter
                 || !(node.getArguments().get(2) instanceof ConstantExpression)) {
             return new ClpExpression(node);
         }
-        if (!isNumericType(node.getArguments().get(0).getType())) {
+        if (!isNumericType(node.getArguments().get(0).getType())
+            || !isNumericType(node.getArguments().get(1).getType())
+            || !isNumericType(node.getArguments().get(2).getType())) {
             // Let the Presto SQL analyzer throw exception
             return new ClpExpression(node);
         }

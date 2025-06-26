@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.plugin.clp.metadata.ClpSchemaTree;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
@@ -47,7 +48,7 @@ public class ClpUtils
 
     /**
      * Check if the type is one of the numeric types that CLP will handle. Refer to
-     * {@code ClpSchemaTree} for all types that CLP will handle.
+     * {@link ClpSchemaTree} for all types that CLP will handle.
      *
      * @param type the type to check
      * @return is the type numeric or not

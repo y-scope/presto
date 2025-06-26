@@ -120,7 +120,7 @@ public final class ClpMetadataDbSetUp
         return new ClpMetadata(config, metadataProvider);
     }
 
-    public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<ArchiveTableRow>> splits)
+    public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<ArchivesTableRow>> splits)
     {
         final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
         final String archiveTableFormat = METADATA_DB_TABLE_PREFIX + "%s" + ARCHIVES_TABLE_SUFFIX;
@@ -129,7 +129,7 @@ public final class ClpMetadataDbSetUp
             createDatasetsTable(stmt);
 
             // Create and populate archive tables
-            for (Map.Entry<String, List<ArchiveTableRow>> tableSplits : splits.entrySet()) {
+            for (Map.Entry<String, List<ArchivesTableRow>> tableSplits : splits.entrySet()) {
                 String tableName = tableSplits.getKey();
                 updateDatasetsTable(conn, tableName);
 
@@ -155,7 +155,7 @@ public final class ClpMetadataDbSetUp
                         ARCHIVES_TABLE_COLUMN_BEGIN_TIMESTAMP,
                         ARCHIVES_TABLE_COLUMN_END_TIMESTAMP);
                 try (PreparedStatement pstmt = conn.prepareStatement(insertArchiveTableSQL)) {
-                    for (ArchiveTableRow split : tableSplits.getValue()) {
+                    for (ArchivesTableRow split : tableSplits.getValue()) {
                         pstmt.setString(1, split.id);
                         pstmt.setLong(2, split.beginTimestamp);
                         pstmt.setLong(3, split.endTimestamp);
@@ -228,16 +228,13 @@ public final class ClpMetadataDbSetUp
         }
     }
 
-    static final class ArchiveTableRow
+    static final class ArchivesTableRow
     {
         private final String id;
         private final long beginTimestamp;
         private final long endTimestamp;
 
-        ArchiveTableRow(
-                String id,
-                long beginTimestamp,
-                long endTimestamp)
+        ArchivesTableRow(String id, long beginTimestamp, long endTimestamp)
         {
             this.id = id;
             this.beginTimestamp = beginTimestamp;

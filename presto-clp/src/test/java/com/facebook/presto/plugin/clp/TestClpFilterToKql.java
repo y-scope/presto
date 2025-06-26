@@ -311,7 +311,8 @@ public class TestClpFilterToKql
     private ClpExpression tryPushDown(String sqlExpression, SessionHolder sessionHolder, Set<String> metadataFilterColumns)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
-        return pushDownExpression.accept(new ClpFilterToKqlConverter(
+        return pushDownExpression.accept(
+                new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
                         variableToColumnHandleMap,
