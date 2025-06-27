@@ -14,17 +14,15 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.spi.relation.RowExpression;
-import com.facebook.presto.sql.analyzer.SemanticException;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertNull;
-import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 @Test
@@ -37,23 +35,23 @@ public class TestClpFilterToKql
         SessionHolder sessionHolder = new SessionHolder();
 
         // Exact match
-        testFilter(tryPushDown("city.Name = 'hello world'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello world\"", null, sessionHolder, true);
-        testFilter(tryPushDown("'hello world' = city.Name", sessionHolder, ImmutableSet.of()), "city.Name: \"hello world\"", null, sessionHolder, true);
+        testPushDown(sessionHolder, "city.Name = 'hello world'", "city.Name: \"hello world\"", null);
+        testPushDown(sessionHolder, "'hello world' = city.Name", "city.Name: \"hello world\"", null);
 
         // Like predicates that are transformed into substring match
-        testFilter(tryPushDown("city.Name like 'hello%'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like '%hello'", sessionHolder, ImmutableSet.of()), "city.Name: \"*hello\"", null, sessionHolder, true);
+        testPushDown(sessionHolder, "city.Name like 'hello%'", "city.Name: \"hello*\"", null);
+        testPushDown(sessionHolder, "city.Name like '%hello'", "city.Name: \"*hello\"", null);
 
-        // Like predicates that are transformed into CARDINALITY(SPLIT(x, 'some string', 2)) = 2 form, and they are not pushed down for now
-        testFilter(tryPushDown("city.Name like '%hello%'", sessionHolder, ImmutableSet.of()), null, "city.Name like '%hello%'", sessionHolder, true);
+        // Like predicate not pushed down (e.g., contains match)
+        testPushDown(sessionHolder, "city.Name like '%hello%'", null, "city.Name like '%hello%'");
 
         // Like predicates that are kept in the original forms
-        testFilter(tryPushDown("city.Name like 'hello_'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello?\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like '_hello'", sessionHolder, ImmutableSet.of()), "city.Name: \"?hello\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like 'hello_w%'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello?w*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like '%hello_w'", sessionHolder, ImmutableSet.of()), "city.Name: \"*hello?w\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like 'hello%world'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello*world\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name like 'hello%wor%ld'", sessionHolder, ImmutableSet.of()), "city.Name: \"hello*wor*ld\"", null, sessionHolder, true);
+        testPushDown(sessionHolder, "city.Name like 'hello_'", "city.Name: \"hello?\"", null);
+        testPushDown(sessionHolder, "city.Name like '_hello'", "city.Name: \"?hello\"", null);
+        testPushDown(sessionHolder, "city.Name like 'hello_w%'", "city.Name: \"hello?w*\"", null);
+        testPushDown(sessionHolder, "city.Name like '%hello_w'", "city.Name: \"*hello?w\"", null);
+        testPushDown(sessionHolder, "city.Name like 'hello%world'", "city.Name: \"hello*world\"", null);
+        testPushDown(sessionHolder, "city.Name like 'hello%wor%ld'", "city.Name: \"hello*wor*ld\"", null);
     }
 
     @Test
@@ -61,14 +59,15 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown("substr(city.Name, 1, 2) = 'he'", sessionHolder, ImmutableSet.of()), "city.Name: \"he*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("substr(city.Name, 5, 2) = 'he'", sessionHolder, ImmutableSet.of()), "city.Name: \"????he*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("substr(city.Name, 5) = 'he'", sessionHolder, ImmutableSet.of()), "city.Name: \"????he\"", null, sessionHolder, true);
-        testFilter(tryPushDown("substr(city.Name, -2) = 'he'", sessionHolder, ImmutableSet.of()), "city.Name: \"*he\"", null, sessionHolder, true);
+        // Substring match simulated with prefix/wildcard expressions
+        testPushDown(sessionHolder, "substr(city.Name, 1, 2) = 'he'", "city.Name: \"he*\"", null);
+        testPushDown(sessionHolder, "substr(city.Name, 5, 2) = 'he'", "city.Name: \"????he*\"", null);
+        testPushDown(sessionHolder, "substr(city.Name, 5) = 'he'", "city.Name: \"????he\"", null);
+        testPushDown(sessionHolder, "substr(city.Name, -2) = 'he'", "city.Name: \"*he\"", null);
 
-        // Invalid substring index is not pushed down
-        testFilter(tryPushDown("substr(city.Name, 1, 5) = 'he'", sessionHolder, ImmutableSet.of()), null, "substr(city.Name, 1, 5) = 'he'", sessionHolder, true);
-        testFilter(tryPushDown("substr(city.Name, -5) = 'he'", sessionHolder, ImmutableSet.of()), null, "substr(city.Name, -5) = 'he'", sessionHolder, true);
+        // Invalid substring index — not pushed down
+        testPushDown(sessionHolder, "substr(city.Name, 1, 5) = 'he'", null, "substr(city.Name, 1, 5) = 'he'");
+        testPushDown(sessionHolder, "substr(city.Name, -5) = 'he'", null, "substr(city.Name, -5) = 'he'");
     }
 
     @Test
@@ -76,20 +75,21 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown("fare > 0", sessionHolder, ImmutableSet.of()), "fare > 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare >= 0", sessionHolder, ImmutableSet.of()), "fare >= 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare < 0", sessionHolder, ImmutableSet.of()), "fare < 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare <= 0", sessionHolder, ImmutableSet.of()), "fare <= 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare = 0", sessionHolder, ImmutableSet.of()), "fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare != 0", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare <> 0", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 < fare", sessionHolder, ImmutableSet.of()), "fare > 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 <= fare", sessionHolder, ImmutableSet.of()), "fare >= 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 > fare", sessionHolder, ImmutableSet.of()), "fare < 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 >= fare", sessionHolder, ImmutableSet.of()), "fare <= 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 = fare", sessionHolder, ImmutableSet.of()), "fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 != fare", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("0 <> fare", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
+        // Numeric comparisons
+        testPushDown(sessionHolder, "fare > 0", "fare > 0", null);
+        testPushDown(sessionHolder, "fare >= 0", "fare >= 0", null);
+        testPushDown(sessionHolder, "fare < 0", "fare < 0", null);
+        testPushDown(sessionHolder, "fare <= 0", "fare <= 0", null);
+        testPushDown(sessionHolder, "fare = 0", "fare: 0", null);
+        testPushDown(sessionHolder, "fare != 0", "NOT fare: 0", null);
+        testPushDown(sessionHolder, "fare <> 0", "NOT fare: 0", null);
+        testPushDown(sessionHolder, "0 < fare", "fare > 0", null);
+        testPushDown(sessionHolder, "0 <= fare", "fare >= 0", null);
+        testPushDown(sessionHolder, "0 > fare", "fare < 0", null);
+        testPushDown(sessionHolder, "0 >= fare", "fare <= 0", null);
+        testPushDown(sessionHolder, "0 = fare", "fare: 0", null);
+        testPushDown(sessionHolder, "0 != fare", "NOT fare: 0", null);
+        testPushDown(sessionHolder, "0 <> fare", "NOT fare: 0", null);
     }
 
     @Test
@@ -98,16 +98,29 @@ public class TestClpFilterToKql
         SessionHolder sessionHolder = new SessionHolder();
 
         // Normal cases
-        testFilter(tryPushDown("fare BETWEEN 0 AND 5", sessionHolder, ImmutableSet.of()), "fare >= 0 AND fare <= 5", null, sessionHolder, true);
-        testFilter(tryPushDown("fare BETWEEN 5 AND 0", sessionHolder, ImmutableSet.of()), "fare >= 5 AND fare <= 0", null, sessionHolder, true);
+        testPushDown(sessionHolder, "fare BETWEEN 0 AND 5", "fare >= 0 AND fare <= 5", null);
+        testPushDown(sessionHolder, "fare BETWEEN 5 AND 0", "fare >= 5 AND fare <= 0", null);
 
         // No push down cases
-        testFilter(tryPushDown("NULL BETWEEN 0 AND 5", sessionHolder, ImmutableSet.of()), null, "BETWEEN(null, 0, 5)", sessionHolder, false);
-        testFilter(tryPushDown("0 BETWEEN NULL AND 5", sessionHolder, ImmutableSet.of()), null, "BETWEEN(0, null, 5)", sessionHolder, false);
-
-        // Illegal cases
-        assertThrows(SemanticException.class, () -> tryPushDown("fare BETWEEN 'Apple' AND 'Pear'", sessionHolder, ImmutableSet.of()));
-        assertThrows(SemanticException.class, () -> tryPushDown("city.Name BETWEEN 0 AND 5", sessionHolder, ImmutableSet.of()));
+        testPushDown(sessionHolder, "NULL BETWEEN 0 AND 5", null, "BETWEEN(null, 0, 5)", false);
+        testPushDown(sessionHolder, "0 BETWEEN NULL AND 5", null, "BETWEEN(0, null, 5)", false);
+        // No push down for non-constant expressions
+        testPushDown(
+                sessionHolder,
+                "fare BETWEEN (city.Region.Id - 5) AND (city.Region.Id + 5)",
+                null,
+                "BETWEEN(fare, SUBTRACT(DEREFERENCE(DEREFERENCE(city, 0), 0), 5), ADD(DEREFERENCE(DEREFERENCE(city, 0), 0), 5))",
+                false);
+        // If the last two arguments of BETWEEN are not numeric constants, then CLP connector won't do push down
+        String actual = tryPushDown(
+                "city.Name BETWEEN 'a' AND 'b'",
+                sessionHolder,
+                ImmutableSet.of()).getRemainingExpression()
+                        .orElseThrow(() -> new RuntimeException("The remaining expression should exist!"))
+                        .toString();
+        Pattern pattern = Pattern.compile(
+                "BETWEEN\\(DEREFERENCE\\(city, 1\\), Slice\\{base=\\[B@[^,]+, address=16, length=1}, Slice\\{base=\\[B@[^,]+, address=16, length=1}\\)");
+        assertTrue(pattern.matcher(actual).matches());
     }
 
     @Test
@@ -115,39 +128,25 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown("fare > 0 OR city.Name like 'b%'",
-                sessionHolder,
-                ImmutableSet.of()),
+        // OR conditions with partial push down support
+        testPushDown(sessionHolder,
+                "fare > 0 OR city.Name like 'b%'",
                 "(fare > 0 OR city.Name: \"b*\")",
-                null,
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
+                null);
+        testPushDown(sessionHolder,
                 "lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 null,
-                "(lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1)",
-                sessionHolder,
-                true);
+                "(lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1)");
 
         // Multiple ORs
-        testFilter(tryPushDown(
+        testPushDown(sessionHolder,
                 "fare > 0 OR city.Name like 'b%' OR lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 null,
-                "fare > 0 OR city.Name like 'b%' OR lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1",
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
+                "fare > 0 OR city.Name like 'b%' OR lower(city.Region.Name) = 'hello world' OR city.Region.Id != 1");
+        testPushDown(sessionHolder,
                 "fare > 0 OR city.Name like 'b%' OR city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 "((fare > 0 OR city.Name: \"b*\") OR NOT city.Region.Id: 1)",
-                null,
-                sessionHolder,
-                true);
+                null);
     }
 
     @Test
@@ -155,40 +154,27 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown(
+        // AND conditions with partial/full push down
+        testPushDown(sessionHolder,
                 "fare > 0 AND city.Name like 'b%'",
-                sessionHolder,
-                ImmutableSet.of()),
                 "(fare > 0 AND city.Name: \"b*\")",
-                null,
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
+                null);
+
+        testPushDown(sessionHolder,
                 "lower(city.Region.Name) = 'hello world' AND city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 "(NOT city.Region.Id: 1)",
-                "lower(city.Region.Name) = 'hello world'",
-                sessionHolder,
-                true);
+                "lower(city.Region.Name) = 'hello world'");
 
         // Multiple ANDs
-        testFilter(tryPushDown(
+        testPushDown(sessionHolder,
                 "fare > 0 AND city.Name like 'b%' AND lower(city.Region.Name) = 'hello world' AND city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 "(((fare > 0 AND city.Name: \"b*\")) AND NOT city.Region.Id: 1)",
-                "(lower(city.Region.Name) = 'hello world')",
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
+                "(lower(city.Region.Name) = 'hello world')");
+
+        testPushDown(sessionHolder,
                 "fare > 0 AND city.Name like '%b%' AND lower(city.Region.Name) = 'hello world' AND city.Region.Id != 1",
-                sessionHolder,
-                ImmutableSet.of()),
                 "(((fare > 0)) AND NOT city.Region.Id: 1)",
-                "city.Name like '%b%' AND lower(city.Region.Name) = 'hello world'",
-                sessionHolder,
-                true);
+                "city.Name like '%b%' AND lower(city.Region.Name) = 'hello world'");
     }
 
     @Test
@@ -196,33 +182,20 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown("city.Region.Name NOT LIKE 'hello%'", sessionHolder, ImmutableSet.of()), "NOT city.Region.Name: \"hello*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("NOT (city.Region.Name LIKE 'hello%')", sessionHolder, ImmutableSet.of()), "NOT city.Region.Name: \"hello*\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name != 'hello world'", sessionHolder, ImmutableSet.of()), "NOT city.Name: \"hello world\"", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name <> 'hello world'", sessionHolder, ImmutableSet.of()), "NOT city.Name: \"hello world\"", null, sessionHolder, true);
-        testFilter(tryPushDown("NOT (city.Name = 'hello world')", sessionHolder, ImmutableSet.of()), "NOT city.Name: \"hello world\"", null, sessionHolder, true);
-        testFilter(tryPushDown("fare != 0", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("fare <> 0", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown("NOT (fare = 0)", sessionHolder, ImmutableSet.of()), "NOT fare: 0", null, sessionHolder, true);
+        // NOT and inequality predicates
+        testPushDown(sessionHolder, "city.Region.Name NOT LIKE 'hello%'", "NOT city.Region.Name: \"hello*\"", null);
+        testPushDown(sessionHolder, "NOT (city.Region.Name LIKE 'hello%')", "NOT city.Region.Name: \"hello*\"", null);
+        testPushDown(sessionHolder, "city.Name != 'hello world'", "NOT city.Name: \"hello world\"", null);
+        testPushDown(sessionHolder, "city.Name <> 'hello world'", "NOT city.Name: \"hello world\"", null);
+        testPushDown(sessionHolder, "NOT (city.Name = 'hello world')", "NOT city.Name: \"hello world\"", null);
+        testPushDown(sessionHolder, "fare != 0", "NOT fare: 0", null);
+        testPushDown(sessionHolder, "fare <> 0", "NOT fare: 0", null);
+        testPushDown(sessionHolder, "NOT (fare = 0)", "NOT fare: 0", null);
 
         // Multiple NOTs
-        testFilter(tryPushDown("NOT (NOT fare = 0)", sessionHolder, ImmutableSet.of()), "NOT NOT fare: 0", null, sessionHolder, true);
-        testFilter(tryPushDown(
-                "NOT (fare = 0 AND city.Name = 'hello world')",
-                sessionHolder,
-                ImmutableSet.of()),
-                "NOT (fare: 0 AND city.Name: \"hello world\")",
-                null,
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
-                "NOT (fare = 0 OR city.Name = 'hello world')",
-                sessionHolder,
-                ImmutableSet.of()),
-                "NOT (fare: 0 OR city.Name: \"hello world\")",
-                null,
-                sessionHolder,
-                true);
+        testPushDown(sessionHolder, "NOT (NOT fare = 0)", "NOT NOT fare: 0", null);
+        testPushDown(sessionHolder, "NOT (fare = 0 AND city.Name = 'hello world')", "NOT (fare: 0 AND city.Name: \"hello world\")", null);
+        testPushDown(sessionHolder, "NOT (fare = 0 OR city.Name = 'hello world')", "NOT (fare: 0 OR city.Name: \"hello world\")", null);
     }
 
     @Test
@@ -230,14 +203,11 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown(
+        // IN predicate
+        testPushDown(sessionHolder,
                 "city.Name IN ('hello world', 'hello world 2')",
-                sessionHolder,
-                ImmutableSet.of()),
                 "(city.Name: \"hello world\" OR city.Name: \"hello world 2\")",
-                null,
-                sessionHolder,
-                true);
+                null);
     }
 
     @Test
@@ -245,9 +215,10 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown("city.Name IS NULL", sessionHolder, ImmutableSet.of()), "NOT city.Name: *", null, sessionHolder, true);
-        testFilter(tryPushDown("city.Name IS NOT NULL", sessionHolder, ImmutableSet.of()), "NOT NOT city.Name: *", null, sessionHolder, true);
-        testFilter(tryPushDown("NOT (city.Name IS NULL)", sessionHolder, ImmutableSet.of()), "NOT NOT city.Name: *", null, sessionHolder, true);
+        // IS NULL / IS NOT NULL predicates
+        testPushDown(sessionHolder, "city.Name IS NULL", "NOT city.Name: *", null);
+        testPushDown(sessionHolder, "city.Name IS NOT NULL", "NOT NOT city.Name: *", null);
+        testPushDown(sessionHolder, "NOT (city.Name IS NULL)", "NOT NOT city.Name: *", null);
     }
 
     @Test
@@ -255,57 +226,86 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
 
-        testFilter(tryPushDown(
+        // Complex AND/OR with partial pushdown
+        testPushDown(sessionHolder,
                 "(fare > 0 OR city.Name like 'b%') AND (lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)",
-                sessionHolder,
-                ImmutableSet.of()),
-                "((fare > 0 OR city.Name: \"b*\"))", "(lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)",
-                sessionHolder,
-                true);
-        testFilter(tryPushDown(
+                "((fare > 0 OR city.Name: \"b*\"))",
+                "(lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)");
+
+        testPushDown(sessionHolder,
                 "city.Region.Id = 1 AND (fare > 0 OR city.Name NOT like 'b%') AND (lower(city.Region.Name) = 'hello world' OR city.Name IS NULL)",
-                sessionHolder,
-                ImmutableSet.of()),
                 "((city.Region.Id: 1 AND (fare > 0 OR NOT city.Name: \"b*\")))",
-                "lower(city.Region.Name) = 'hello world' OR city.Name IS NULL",
-                sessionHolder,
-                true);
+                "lower(city.Region.Name) = 'hello world' OR city.Name IS NULL");
     }
 
     @Test
     public void testMetadataSqlGeneration()
     {
         SessionHolder sessionHolder = new SessionHolder();
-        testFilterWithMetadataSql(
-                tryPushDown("(fare > 0 AND city.Name like 'b%')",
-                        sessionHolder, ImmutableSet.of("fare")),
+        Set<String> testMetadataFilterColumns = ImmutableSet.of("fare");
+
+        // Normal case
+        testPushDown(
                 sessionHolder,
+                "(fare > 0 AND city.Name like 'b%')",
                 "(fare > 0 AND city.Name: \"b*\")",
-                "(\"fare\" > 0)");
-        testFilterWithMetadataSql(
-                tryPushDown("((fare BETWEEN 0 AND 5) AND city.Name like 'b%')",
-                        sessionHolder, ImmutableSet.of("fare")),
+                "(\"fare\" > 0)",
+                testMetadataFilterColumns);
+
+        // With BETWEEN
+        testPushDown(
                 sessionHolder,
+                "((fare BETWEEN 0 AND 5) AND city.Name like 'b%')",
                 "(fare >= 0 AND fare <= 5 AND city.Name: \"b*\")",
-                "(\"fare\" >= 0 AND \"fare\" <= 5)");
-        testFilterWithMetadataSql(
-                tryPushDown("(fare > 0 OR city.Name like 'b%')",
-                        sessionHolder, ImmutableSet.of("fare")),
+                "(\"fare\" >= 0 AND \"fare\" <= 5)",
+                testMetadataFilterColumns);
+
+        // The cases of that the metadata filter column exist but cannot be push down
+        testPushDown(
                 sessionHolder,
+                "(fare > 0 OR city.Name like 'b%')",
                 "(fare > 0 OR city.Name: \"b*\")",
-                null);
-        testFilterWithMetadataSql(
-                tryPushDown("(fare > 0 AND city.Name like 'b%') OR city.Region.Id = 1",
-                        sessionHolder, ImmutableSet.of("fare")),
+                null,
+                testMetadataFilterColumns);
+        testPushDown(
                 sessionHolder,
+                "(fare > 0 AND city.Name like 'b%') OR city.Region.Id = 1",
                 "((fare > 0 AND city.Name: \"b*\") OR city.Region.Id: 1)",
-                null);
-        testFilterWithMetadataSql(
-                tryPushDown("fare = 0 AND (city.Name like 'b%' OR city.Region.Id = 1)",
-                        sessionHolder, ImmutableSet.of("fare")),
+                null,
+                testMetadataFilterColumns);
+
+        // Complicated case
+        testPushDown(
                 sessionHolder,
+                "fare = 0 AND (city.Name like 'b%' OR city.Region.Id = 1)",
                 "(fare: 0 AND (city.Name: \"b*\" OR city.Region.Id: 1))",
-                "(\"fare\" = 0)");
+                "(\"fare\" = 0)",
+                testMetadataFilterColumns);
+    }
+
+    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
+    {
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
+        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder, true);
+    }
+
+    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining, boolean remainingToRowExpression)
+    {
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
+        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder, remainingToRowExpression);
+    }
+
+    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSql, Set<String> metadataFilterColumns)
+    {
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
+        testFilter(clpExpression, expectedKql, null, sessionHolder, true);
+        if (expectedMetadataSql != null) {
+            assertTrue(clpExpression.getMetadataSql().isPresent());
+            assertEquals(clpExpression.getMetadataSql().get(), expectedMetadataSql);
+        }
+        else {
+            assertFalse(clpExpression.getMetadataSql().isPresent());
+        }
     }
 
     private ClpExpression tryPushDown(String sqlExpression, SessionHolder sessionHolder, Set<String> metadataFilterColumns)
@@ -348,21 +348,6 @@ public class TestClpFilterToKql
         }
         else {
             assertFalse(remainingExpression.isPresent());
-        }
-    }
-
-    private void testFilterWithMetadataSql(
-            ClpExpression clpExpression,
-            SessionHolder sessionHolder,
-            String expectedKqlExpression,
-            String expectedMetadataSqlExpression)
-    {
-        testFilter(clpExpression, expectedKqlExpression, null, sessionHolder, true);
-        if (clpExpression.getMetadataSql().isPresent()) {
-            assertEquals(clpExpression.getMetadataSql().get(), expectedMetadataSqlExpression);
-        }
-        else {
-            assertNull(expectedMetadataSqlExpression);
         }
     }
 }

@@ -27,7 +27,7 @@ public class ClpExpression
 {
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
-    // Optinal SQL string extracted from the definition, which is only made of given metadata columns.
+    // Optional SQL string extracted from the pushDownExpression, which is only made of given metadata columns.
     private final Optional<String> metadataSql;
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;

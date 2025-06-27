@@ -19,6 +19,7 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
@@ -87,19 +88,20 @@ public class ClpMetadataFilterProvider
         }
     }
 
-    public void checkContainsAllFilters(SchemaTableName schemaTableName, String metadataFilterKqlQuery)
+    public void checkContainsAllFilters(SchemaTableName schemaTableName, String metadataFilterSql)
     {
         boolean hasAllMetadataFilterColumns = true;
-        String notFoundFilterColumnName = "";
+        ImmutableList.Builder<String> notFoundFilterColumnNameListBuilder = ImmutableList.builder();
         for (String columnName : getFilterNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
-            if (!metadataFilterKqlQuery.contains(columnName)) {
+            if (!metadataFilterSql.contains(columnName)) {
                 hasAllMetadataFilterColumns = false;
-                notFoundFilterColumnName = columnName;
-                break;
+                notFoundFilterColumnNameListBuilder.add(columnName);
             }
         }
         if (!hasAllMetadataFilterColumns) {
-            throw new PrestoException(CLP_MANDATORY_METADATA_FILTER_NOT_VALID, notFoundFilterColumnName + " is a mandatory metadata filter column but not valid");
+            throw new PrestoException(
+                    CLP_MANDATORY_METADATA_FILTER_NOT_VALID,
+                    notFoundFilterColumnNameListBuilder.build() + " is a mandatory metadata filter column but not valid");
         }
     }
 
@@ -131,9 +133,6 @@ public class ClpMetadataFilterProvider
     public String remapFilterSql(String scope, String sql)
     {
         String[] splitScope = scope.split("\\.");
-        if (0 == splitScope.length) {
-            return sql;
-        }
 
         Map<String, RangeMapping> mappings = new HashMap<>(getAllMappingsFromTableConfig(filterMap.get(splitScope[0])));
 
@@ -147,15 +146,17 @@ public class ClpMetadataFilterProvider
 
         String remappedSql = sql;
         for (Map.Entry<String, RangeMapping> entry : mappings.entrySet()) {
+            String key = entry.getKey();
+            RangeMapping value = entry.getValue();
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(>=?)\\s([0-9]*)", entry.getKey()),
-                    format("%s $2 $3", entry.getValue().upperBound));
+                    format("\"(%s)\"\\s(>=?)\\s([0-9]*)", key),
+                    format("%s $2 $3", value.upperBound));
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(<=?)\\s([0-9]*)", entry.getKey()),
-                    format("%s $2 $3", entry.getValue().lowerBound));
+                    format("\"(%s)\"\\s(<=?)\\s([0-9]*)", key),
+                    format("%s $2 $3", value.lowerBound));
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(=)\\s([0-9]*)", entry.getKey()),
-                    format("(%s <= $3 AND %s >= $3)", entry.getValue().lowerBound, entry.getValue().upperBound));
+                    format("\"(%s)\"\\s(=)\\s([0-9]*)", key),
+                    format("(%s <= $3 AND %s >= $3)", value.lowerBound, value.upperBound));
         }
         return remappedSql;
     }

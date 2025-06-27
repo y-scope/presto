@@ -14,11 +14,16 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.metadata.ClpSchemaTree;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.IntegerType.INTEGER;
+import static com.facebook.presto.common.type.RealType.REAL;
+import static com.facebook.presto.common.type.SmallintType.SMALLINT;
+import static com.facebook.presto.common.type.TinyintType.TINYINT;
 
 public class ClpUtils
 {
@@ -33,7 +38,7 @@ public class ClpUtils
      * <a href="https://docs.yscope.com/clp/main/user-guide/reference-json-search-syntax">here
      * </a> for all special chars in the string value that need to be escaped.
      *
-     * @param literalString the target string to escape special chars '\', '"', ;?' and '*'
+     * @param literalString the target string to escape special chars '\', '"', '?' and '*'
      * @return the escaped string
      */
     public static String escapeKqlSpecialCharsForStringValue(String literalString)
@@ -53,8 +58,19 @@ public class ClpUtils
      * @param type the type to check
      * @return is the type numeric or not
      */
-    public static boolean isNumericType(Type type)
+    public static boolean isNumericType(Type type, boolean isOnlyHandledByClpConnector)
     {
-        return BIGINT == type || DOUBLE == type;
+        if (isOnlyHandledByClpConnector) {
+            return BIGINT == type || DOUBLE == type;
+        }
+        else {
+            return type.equals(BIGINT)
+                    || type.equals(INTEGER)
+                    || type.equals(SMALLINT)
+                    || type.equals(TINYINT)
+                    || type.equals(DOUBLE)
+                    || type.equals(REAL)
+                    || type instanceof DecimalType;
+        }
     }
 }

@@ -93,7 +93,7 @@ public class ClpPlanOptimizer
             metadataFilterProvider.checkContainsAllFilters(clpTableHandle.getSchemaTableName(), metadataSql.orElse(""));
             if (metadataSql.isPresent()) {
                 metadataSql = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSql.get()));
-                log.info("Metadata filter SQL query: %s", metadataSql);
+                log.debug("Metadata filter SQL query: %s", metadataSql);
             }
 
             if (!kqlQuery.isPresent()) {

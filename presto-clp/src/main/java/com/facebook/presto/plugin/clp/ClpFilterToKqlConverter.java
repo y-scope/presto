@@ -129,14 +129,16 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Handles the BETWEEN expression for numeric range, all arguments must be numeric. If the first
-     * argument is not a variable reference expression or either the second or the third is not
-     * constant expressions it won't translate the expression.
+     * Handles the <code>BETWEEN</code> expression. All arguments must be of numeric types.
+     * <p></p>
+     * The translation is only performed if:
+     * - The first argument is a variable reference expression.
+     * - The second and third arguments are constant expressions.
      *
      * <p></p>
      * Example: <code>col1 BETWEEN 0 AND 5</code> → <code>col1 >= 0 AND col1 <= 5</code>
      *
-     * @param node the BETWEEN call expression
+     * @param node the {@code BETWEEN} call expression
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
@@ -151,10 +153,9 @@ public class ClpFilterToKqlConverter
                 || !(node.getArguments().get(2) instanceof ConstantExpression)) {
             return new ClpExpression(node);
         }
-        if (!isNumericType(node.getArguments().get(0).getType())
-            || !isNumericType(node.getArguments().get(1).getType())
-            || !isNumericType(node.getArguments().get(2).getType())) {
-            // Let the Presto SQL analyzer throw exception
+        if (!isNumericType(node.getArguments().get(0).getType(), true)
+                || !isNumericType(node.getArguments().get(1).getType(), false)
+                || !isNumericType(node.getArguments().get(2).getType(), false)) {
             return new ClpExpression(node);
         }
         Optional<String> variableReferencePushDownExpression = node.getArguments().get(0).accept(this, null).getPushDownExpression();
