@@ -105,6 +105,10 @@ The configuration file defines metadata filters for different scopes:
 - **Schema-level**: applies to all tables under the specified catalog and schema.
 - **Table-level**: applies to the fully qualified ``catalog.schema.table``.
 
+.. note::
+   All filters defined for a table in the configuration file must be present in the query and eligible for push down.
+   If any required filter is missing or cannot be pushed down, the query will be rejected.
+
 Each scope maps to a list of filter definitions. Each filter includes:
 
 - ``filterName``: must match a column name in the table’s schema.

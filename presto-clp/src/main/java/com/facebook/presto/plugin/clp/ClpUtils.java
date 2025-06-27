@@ -58,19 +58,14 @@ public class ClpUtils
      * @param type the type to check
      * @return is the type numeric or not
      */
-    public static boolean isNumericType(Type type, boolean isOnlyHandledByClpConnector)
+    public static boolean isNumericType(Type type)
     {
-        if (isOnlyHandledByClpConnector) {
-            return BIGINT == type || DOUBLE == type;
-        }
-        else {
-            return type.equals(BIGINT)
-                    || type.equals(INTEGER)
-                    || type.equals(SMALLINT)
-                    || type.equals(TINYINT)
-                    || type.equals(DOUBLE)
-                    || type.equals(REAL)
-                    || type instanceof DecimalType;
-        }
+        return type.equals(BIGINT)
+                || type.equals(INTEGER)
+                || type.equals(SMALLINT)
+                || type.equals(TINYINT)
+                || type.equals(DOUBLE)
+                || type.equals(REAL)
+                || type instanceof DecimalType;
     }
 }

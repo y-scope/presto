@@ -79,8 +79,8 @@ public class ClpPlanOptimizer
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             String scope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
-            ClpExpression clpExpression = node.getPredicate()
-                    .accept(new ClpFilterToKqlConverter(
+            ClpExpression clpExpression = node.getPredicate().accept(
+                    new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,

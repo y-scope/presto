@@ -144,42 +144,35 @@ public class ClpFilterToKqlConverter
      */
     private ClpExpression handleBetween(CallExpression node)
     {
-        if (node.getArguments().size() != 3) {
+        List<RowExpression> arguments = node.getArguments();
+        if (arguments.size() != 3) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "BETWEEN operator must have exactly three arguments. Received: " + node);
         }
-        if (!(node.getArguments().get(0) instanceof VariableReferenceExpression)
-                || !(node.getArguments().get(1) instanceof ConstantExpression)
-                || !(node.getArguments().get(2) instanceof ConstantExpression)) {
+        RowExpression first = arguments.get(0);
+        RowExpression second = arguments.get(1);
+        RowExpression third = arguments.get(2);
+        if (!(first instanceof VariableReferenceExpression)
+                || !(second instanceof ConstantExpression)
+                || !(third instanceof ConstantExpression)) {
             return new ClpExpression(node);
         }
-        if (!isNumericType(node.getArguments().get(0).getType(), true)
-                || !isNumericType(node.getArguments().get(1).getType(), false)
-                || !isNumericType(node.getArguments().get(2).getType(), false)) {
+        if (!isNumericType(first.getType())
+                || !isNumericType(second.getType())
+                || !isNumericType(third.getType())) {
             return new ClpExpression(node);
         }
-        Optional<String> variableReferencePushDownExpression = node.getArguments().get(0).accept(this, null).getPushDownExpression();
-        if (!variableReferencePushDownExpression.isPresent()) {
+        Optional<String> variableOpt = first.accept(this, null).getPushDownExpression();
+        if (!variableOpt.isPresent()) {
             return new ClpExpression(node);
         }
-
-        String lowerBoundConstantPushDownExpression = getLiteralString((ConstantExpression) node.getArguments().get(1));
-        String upperBoundConstantPushDownExpression = getLiteralString((ConstantExpression) node.getArguments().get(2));
-        String metadataSql = null;
-        String kql = format(
-                "%s >= %s AND %s <= %s",
-                variableReferencePushDownExpression.get(),
-                lowerBoundConstantPushDownExpression,
-                variableReferencePushDownExpression.get(),
-                upperBoundConstantPushDownExpression);
-        if (metadataFilterColumns.contains(variableReferencePushDownExpression.get())) {
-            metadataSql = format(
-                    "\"%s\" >= %s AND \"%s\" <= %s",
-                    variableReferencePushDownExpression.get(),
-                    lowerBoundConstantPushDownExpression,
-                    variableReferencePushDownExpression.get(),
-                    upperBoundConstantPushDownExpression);
-        }
+        String variable = variableOpt.get();
+        String lowerBound = getLiteralString((ConstantExpression) second);
+        String upperBound = getLiteralString((ConstantExpression) third);
+        String kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+        String metadataSql = metadataFilterColumns.contains(variable)
+                ? String.format("\"%s\" >= %s AND \"%s\" <= %s", variable, lowerBound, variable, upperBound)
+                : null;
         return new ClpExpression(kql, metadataSql);
     }
 
@@ -423,10 +416,7 @@ public class ClpFilterToKqlConverter
         String metadataSql = null;
         if (operator.equals(EQUAL)) {
             if (literalType instanceof VarcharType) {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = format("\"%s\" = '%s'", variableName, literalString);
-                }
-                return new ClpExpression(format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSql);
+                return new ClpExpression(format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)));
             }
             else {
                 if (metadataFilterColumns.contains(variableName)) {
@@ -437,10 +427,7 @@ public class ClpFilterToKqlConverter
         }
         else if (operator.equals(NOT_EQUAL)) {
             if (literalType instanceof VarcharType) {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSql = format("NOT \"%s\" = '%s'", variableName, literalString);
-                }
-                return new ClpExpression(format("NOT %s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSql);
+                return new ClpExpression(format("NOT %s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)));
             }
             else {
                 if (metadataFilterColumns.contains(variableName)) {
