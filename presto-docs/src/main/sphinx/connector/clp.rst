@@ -106,8 +106,7 @@ The configuration file defines metadata filters for different scopes:
 - **Table-level**: applies to the fully qualified ``catalog.schema.table``.
 
 .. note::
-   All filters defined for a table in the configuration file must be present in the query and eligible for push down.
-   If any required filter is missing or cannot be pushed down, the query will be rejected.
+   All filters defined for a table in the configuration file must be present in the query and eligible for push down. If any required filter is missing or cannot be pushed down, the query will be rejected.
 
    Supported translations for Metadata SQL for now:
 
@@ -132,6 +131,7 @@ Each scope maps to a list of filter definitions. Each filter includes:
   ::
 
      "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
+
   will be rewritten as:
 
   ::
@@ -177,19 +177,19 @@ Here is an example of a metadata filter config file:
 
 Explanation:
 
-- The top-level keys in this JSON object (`"clp"`, `"clp.default"`, and `"clp.default.table_1"`) represent **scopes** where metadata filters apply:
+- The top-level keys in this JSON object (``"clp"``, ``"clp.default"``, and ``"clp.default.table_1"``) represent **scopes** where metadata filters apply:
 
-  - ``"clp"``: filters applied globally to all schemas and tables under the `clp` catalog.
-  - ``"clp.default"``: filters applied to all tables under the `clp.default` schema.
-  - ``"clp.default.table_1"``: filters applied specifically to the table named `table_1` under `clp.default`.
+  - ``"clp"``: filters applied globally to all schemas and tables under the ``clp`` catalog.
+  - ``"clp.default"``: filters applied to all tables under the ``clp.default`` schema.
+  - ``"clp.default.table_1"``: filters applied specifically to the table named ``table_1`` under ``clp.default``.
 
-- Each scope contains a list of `filters`, where each filter specifies a field name via `filterName`. The field name must match a column in the logical schema.
+- Each scope contains a list of ``filters``, where each filter specifies a field name via ``filterName``. The field name must match a column in the logical schema.
 
-- Some filters (like `"msg.timestamp"`) include an optional `rangeMapping` block. This is used to map the filter to physical metadata columns:
+- Some filters (like ``"msg.timestamp"``) include an optional ``rangeMapping`` block. This is used to map the filter to physical metadata columns:
 
-  - In this example, filtering by `"msg.timestamp"` will be rewritten as a condition involving `begin_timestamp` and `end_timestamp`, allowing the engine to prune files or splits that don't match the filter.
+  - In this example, filtering by ``"msg.timestamp"`` will be rewritten as a condition involving ``begin_timestamp`` and ``end_timestamp``, allowing the engine to prune files or splits that don't match the filter.
 
-- Filters without a `rangeMapping` (like `"level"`, `"author"`, or `"file_name"`) are used as-is and must directly correspond to metadata columns in the split metadata schema.
+- Filters without a ``rangeMapping`` (like ``"level"``, ``"author"``, or ``"file_name"``) are used as-is and must directly correspond to metadata columns in the split metadata schema.
 
 This configuration enables flexible, hierarchical specification of which metadata filters are valid for which tables, and how they should be mapped to physical metadata fields for push down and split filtering.
 
