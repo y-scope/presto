@@ -65,7 +65,7 @@ import static java.util.Objects.requireNonNull;
  * Any part of the expression that cannot be translated is preserved as a "remaining expression" for
  * potential fallback processing.
  * <p></p>
- * Supported translations include:
+ * Supported translations for KQL include:
  * <ul>
  *     <li>Comparisons between variables and constants (e.g., =, !=, <, >, <=, >=).</li>
  *     <li>String pattern matches using LIKE with constant patterns only. Patterns that begin and
@@ -74,6 +74,13 @@ import static java.util.Objects.requireNonNull;
  *     <li>NULL checks via IS NULL.</li>
  *     <li>Substring comparisons (e.g., <code>SUBSTR(x, start, len) = "val"</code>) against a
  *         constant.</li>
+ *     <li>Dereferencing fields from row-typed variables.</li>
+ *     <li>Logical operators AND, OR, and NOT.</li>
+ * </ul>
+ *
+ * Supported translations for Metadata SQL include:
+ * <ul>
+ *     <li>Comparisons between variables and constants (e.g., =, !=, <, >, <=, >=).</li>
  *     <li>Dereferencing fields from row-typed variables.</li>
  *     <li>Logical operators AND, OR, and NOT.</li>
  * </ul>

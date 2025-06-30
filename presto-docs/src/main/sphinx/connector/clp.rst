@@ -109,6 +109,12 @@ The configuration file defines metadata filters for different scopes:
    All filters defined for a table in the configuration file must be present in the query and eligible for push down.
    If any required filter is missing or cannot be pushed down, the query will be rejected.
 
+   Supported translations for Metadata SQL for now:
+
+   - Comparisons between variables and constants (e.g., ``=``, ``!=``, ``<``, ``>``, ``<=``, ``>=``).
+   - Dereferencing fields from row-typed variables.
+   - Logical operators ``AND``, ``OR``, and ``NOT``.
+
 Each scope maps to a list of filter definitions. Each filter includes:
 
 - ``filterName``: must match a column name in the table’s schema.
