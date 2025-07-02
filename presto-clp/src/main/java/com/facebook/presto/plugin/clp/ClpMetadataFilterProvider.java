@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
@@ -97,7 +98,7 @@ public class ClpMetadataFilterProvider
     {
         boolean hasRequiredMetadataFilterColumns = true;
         ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
-        for (String columnName : getRequiredFilterNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
+        for (String columnName : getRequiredColumnNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
             if (!metadataFilterSql.contains(columnName)) {
                 hasRequiredMetadataFilterColumns = false;
                 notFoundListBuilder.add(columnName);
@@ -166,52 +167,42 @@ public class ClpMetadataFilterProvider
         return remappedSql;
     }
 
-    public Set<String> getFilterNames(String scope)
+    public Set<String> getColumnNames(String scope)
+    {
+        return collectColumnNamesFromScopes(scope, this::getAllColumnNamesFromFilters);
+    }
+
+    private Set<String> getRequiredColumnNames(String scope)
+    {
+        return collectColumnNamesFromScopes(scope, this::getRequiredColumnNamesFromFilters);
+    }
+
+    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<Filter>, Set<String>> extractor)
     {
         String[] splitScope = scope.split("\\.");
-        if (0 == splitScope.length) {
-            return ImmutableSet.of();
-        }
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        builder.addAll(getAllFilterNamesFromFilters(filterMap.get(splitScope[0])));
 
-        if (1 < splitScope.length) {
-            builder.addAll(getAllFilterNamesFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
+        builder.addAll(extractor.apply(filterMap.get(splitScope[0])));
+
+        if (splitScope.length > 1) {
+            builder.addAll(extractor.apply(filterMap.get(splitScope[0] + "." + splitScope[1])));
         }
 
-        if (3 == splitScope.length) {
-            builder.addAll(getAllFilterNamesFromFilters(filterMap.get(scope)));
+        if (splitScope.length == 3) {
+            builder.addAll(extractor.apply(filterMap.get(scope)));
         }
+
         return builder.build();
     }
 
-    private Set<String> getAllFilterNamesFromFilters(List<Filter> filters)
+    private Set<String> getAllColumnNamesFromFilters(List<Filter> filters)
     {
         return null != filters ? filters.stream()
                 .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
 
-    private Set<String> getRequiredFilterNames(String scope)
-    {
-        String[] splitScope = scope.split("\\.");
-        if (0 == splitScope.length) {
-            return ImmutableSet.of();
-        }
-        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(splitScope[0])));
-
-        if (1 < splitScope.length) {
-            builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
-        }
-
-        if (3 == splitScope.length) {
-            builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(scope)));
-        }
-        return builder.build();
-    }
-
-    private Set<String> getRequiredFilterNamesFromFilters(List<Filter> filters)
+    private Set<String> getRequiredColumnNamesFromFilters(List<Filter> filters)
     {
         return null != filters ? filters.stream()
                 .filter(filter -> filter.required)

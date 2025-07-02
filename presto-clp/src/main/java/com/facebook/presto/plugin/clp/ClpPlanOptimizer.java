@@ -84,7 +84,7 @@ public class ClpPlanOptimizer
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataFilterProvider.getFilterNames(scope)), null);
+                            metadataFilterProvider.getColumnNames(scope)), null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();

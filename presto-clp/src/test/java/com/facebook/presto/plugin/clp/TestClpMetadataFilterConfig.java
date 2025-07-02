@@ -66,11 +66,11 @@ public class TestClpMetadataFilterConfig
         ClpConfig config = new ClpConfig();
         config.setMetadataFilterConfig(filterConfigPath);
         ClpMetadataFilterProvider filterProvider = new ClpMetadataFilterProvider(config);
-        Set<String> catalogFilterNames = filterProvider.getFilterNames("clp");
+        Set<String> catalogFilterNames = filterProvider.getColumnNames("clp");
         assertEquals(ImmutableSet.of("level"), catalogFilterNames);
-        Set<String> schemaFilterNames = filterProvider.getFilterNames("clp.default");
+        Set<String> schemaFilterNames = filterProvider.getColumnNames("clp.default");
         assertEquals(ImmutableSet.of("level", "author"), schemaFilterNames);
-        Set<String> tableFilterNames = filterProvider.getFilterNames("clp.default.table_1");
+        Set<String> tableFilterNames = filterProvider.getColumnNames("clp.default.table_1");
         assertEquals(ImmutableSet.of("level", "author", "msg.timestamp", "file_name"), tableFilterNames);
     }
 
