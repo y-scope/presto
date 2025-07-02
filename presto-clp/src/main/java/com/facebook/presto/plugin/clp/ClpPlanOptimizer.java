@@ -86,14 +86,14 @@ public class ClpPlanOptimizer
                             assignments,
                             metadataFilterProvider.getFilterNames(scope)), null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
-            Optional<String> metadataSql = clpExpression.getMetadataSql();
+            Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
-            // Check metadata filters before the KQL query
-            metadataFilterProvider.checkContainsAllFilters(clpTableHandle.getSchemaTableName(), metadataSql.orElse(""));
-            if (metadataSql.isPresent()) {
-                metadataSql = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSql.get()));
-                log.debug("Metadata filter SQL query: %s", metadataSql);
+            // Check required metadata filters before the KQL query
+            metadataFilterProvider.checkContainsRequiredFilters(clpTableHandle.getSchemaTableName(), metadataSqlQuery.orElse(""));
+            if (metadataSqlQuery.isPresent()) {
+                metadataSqlQuery = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSqlQuery.get()));
+                log.debug("Metadata SQL query: %s", metadataSqlQuery);
             }
 
             if (!kqlQuery.isPresent()) {
@@ -101,7 +101,7 @@ public class ClpPlanOptimizer
             }
             log.debug("KQL query: %s", kqlQuery);
 
-            ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSql);
+            ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSqlQuery);
             TableScanNode newTableScanNode = new TableScanNode(
                     tableScanNode.getSourceLocation(),
                     idAllocator.getNextId(),

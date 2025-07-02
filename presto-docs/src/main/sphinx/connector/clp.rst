@@ -99,24 +99,27 @@ accordingly.
 Metadata Filter Config File
 ----------------------------
 
-The configuration file defines metadata filters for different scopes:
+The metadata filter configuration file allows you to define filters that help the CLP connector determine which splits
+can be pruned early during query execution, improving performance significantly.
 
-- **Catalog-level**: applies to all schemas and tables under the catalog.
-- **Schema-level**: applies to all tables under the specified catalog and schema.
-- **Table-level**: applies to the fully qualified ``catalog.schema.table``.
+The CLP connector supports metadata filter SQL translation for the following expressions:
 
-.. note::
-   All filters defined for a table in the configuration file must be present in the query and eligible for push down. If any required filter is missing or cannot be pushed down, the query will be rejected.
+- Comparisons between variables and constants (e.g., ``=``, ``!=``, ``<``, ``>``, ``<=``, ``>=``).
+- Dereferencing fields from row-typed variables.
+- Logical operators: ``AND``, ``OR``, and ``NOT``.
 
-   Supported translations for Metadata SQL for now:
+The configuration is a JSON object where each top-level key represents a *scope* and each scope maps to a list of
+*filters*.
 
-   - Comparisons between variables and constants (e.g., ``=``, ``!=``, ``<``, ``>``, ``<=``, ``>=``).
-   - Dereferencing fields from row-typed variables.
-   - Logical operators ``AND``, ``OR``, and ``NOT``.
+The *scope* is in form of:
 
-Each scope maps to a list of filter definitions. Each filter includes:
+- **Catalog-level**: e.g., ``"clp"`` — applies to all schemas and tables under the catalog.
+- **Schema-level**: e.g., ``"clp.default"`` — applies to all tables under the specified catalog and schema.
+- **Table-level**: e.g., ``"clp.default.table_1"`` — applies only to the fully qualified table ``catalog.schema.table``.
 
-- ``filterName``: must match a column name in the table’s schema.
+Each *filter* includes:
+
+- ``columnName``: must match a column name in the table’s schema.
 
   .. note::
      Only numeric-type columns can currently be used as metadata filters.
@@ -136,62 +139,49 @@ Each scope maps to a list of filter definitions. Each filter includes:
 
   ::
 
-     end_timestamp > 1234 AND begin_timestamp < 5678
+     "end_timestamp" > 1234 AND "begin_timestamp" < 5678
 
   This ensures that metadata-based filtering produces a superset of the actual result.
+
+- ``required`` *(optional, default: false)*: marks whether the filter **must** be present in the extracted metadata filter SQL query. If a required filter is missing or cannot be pushed down, the query will be rejected.
 
 Here is an example of a metadata filter config file:
 
 .. code-block:: json
 
     {
-      "clp": {
-        "filters": [
+      "clp": [
           {
-            "filterName": "level"
+            "columnName": "level"
           }
-        ]
-      },
-      "clp.default": {
-        "filters": [
+      ],
+      "clp.default": [
           {
-            "filterName": "author"
+            "columnName": "author"
           }
-        ]
-      },
-      "clp.default.table_1": {
-        "filters": [
+      ],
+      "clp.default.table_1": [
           {
-            "filterName": "msg.timestamp",
+            "columnName": "msg.timestamp",
             "rangeMapping": {
               "lowerBound": "begin_timestamp",
               "upperBound": "end_timestamp"
-            }
+            },
+            "required": true
           },
           {
-            "filterName": "file_name"
+            "columnName": "file_name"
           }
-        ]
-      }
+      ]
     }
 
 Explanation:
 
-- The top-level keys in this JSON object (``"clp"``, ``"clp.default"``, and ``"clp.default.table_1"``) represent **scopes** where metadata filters apply:
-
-  - ``"clp"``: filters applied globally to all schemas and tables under the ``clp`` catalog.
-  - ``"clp.default"``: filters applied to all tables under the ``clp.default`` schema.
-  - ``"clp.default.table_1"``: filters applied specifically to the table named ``table_1`` under ``clp.default``.
-
-- Each scope contains a list of ``filters``, where each filter specifies a field name via ``filterName``. The field name must match a column in the logical schema.
-
-- Some filters (like ``"msg.timestamp"``) include an optional ``rangeMapping`` block. This is used to map the filter to physical metadata columns:
-
-  - In this example, filtering by ``"msg.timestamp"`` will be rewritten as a condition involving ``begin_timestamp`` and ``end_timestamp``, allowing the engine to prune files or splits that don't match the filter.
-
-- Filters without a ``rangeMapping`` (like ``"level"``, ``"author"``, or ``"file_name"``) are used as-is and must directly correspond to metadata columns in the split metadata schema.
-
-This configuration enables flexible, hierarchical specification of which metadata filters are valid for which tables, and how they should be mapped to physical metadata fields for push down and split filtering.
+- ``"clp"``: Adds a filter on the column ``level`` for all schemas and tables under the ``clp`` catalog.
+- ``"clp.default"``: Adds a filter on ``author`` for all tables under the ``clp.default`` schema.
+- ``"clp.default.table_1"``: Adds two filters for the table ``clp.default.table_1``:
+  - ``msg.timestamp`` is remapped via ``rangeMapping`` and is marked as **required**.
+  - ``file_name`` is used as-is without remapping.
 
 Data Types
 ----------

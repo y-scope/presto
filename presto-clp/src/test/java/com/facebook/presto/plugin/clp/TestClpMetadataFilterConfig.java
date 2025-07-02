@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -25,6 +27,7 @@ import java.nio.file.Paths;
 import java.util.Set;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
 
 @Test(singleThreaded = true)
 public class TestClpMetadataFilterConfig
@@ -40,6 +43,21 @@ public class TestClpMetadataFilterConfig
         }
 
         filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
+    }
+
+    @Test
+    public void checkRequiredFilters()
+    {
+        ClpConfig config = new ClpConfig();
+        config.setMetadataFilterConfig(filterConfigPath);
+        ClpMetadataFilterProvider filterProvider = new ClpMetadataFilterProvider(config);
+        SchemaTableName testTableSchemaTableName = new SchemaTableName("default", "table_1");
+        assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
+                testTableSchemaTableName,
+                "(\"level\" >= 1 AND \"level\" <= 3)"));
+        filterProvider.checkContainsRequiredFilters(
+                testTableSchemaTableName,
+                "(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)");
     }
 
     @Test

@@ -270,16 +270,16 @@ public class TestClpFilterToKql
         testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
     }
 
-    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSql, Set<String> metadataFilterColumns)
+    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSqlQuery, Set<String> metadataFilterColumns)
     {
         ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
         testFilter(clpExpression, expectedKql, null, sessionHolder);
-        if (expectedMetadataSql != null) {
-            assertTrue(clpExpression.getMetadataSql().isPresent());
-            assertEquals(clpExpression.getMetadataSql().get(), expectedMetadataSql);
+        if (expectedMetadataSqlQuery != null) {
+            assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
+            assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
         }
         else {
-            assertFalse(clpExpression.getMetadataSql().isPresent());
+            assertFalse(clpExpression.getMetadataSqlQuery().isPresent());
         }
     }
 

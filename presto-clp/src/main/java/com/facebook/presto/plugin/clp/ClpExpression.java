@@ -18,24 +18,26 @@ import com.facebook.presto.spi.relation.RowExpression;
 import java.util.Optional;
 
 /**
- * Represents the result of converting a Presto RowExpression into a CLP-compatible KQL query. In
- * every case, `pushDownExpression` represents the part of the RowExpression that could be
- * converted to a KQL expression, and `remainingExpression` represents the part that could not be
- * converted.
+ * Represents the result of converting a Presto RowExpression into a CLP-compatible KQL query and
+ * a SQL query for filtering splits by metadata database. In every case, `pushDownExpression`
+ * represents the part of the RowExpression that could be converted to a KQL expression, and
+ * `remainingExpression` represents the part that could not be converted.
  */
 public class ClpExpression
 {
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
+
     // Optional SQL string extracted from the query plan, which is only made of given metadata columns.
-    private final Optional<String> metadataSql;
+    private final Optional<String> metadataSqlQuery;
+
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String pushDownExpression, String metadataSql, RowExpression remainingExpression)
+    public ClpExpression(String pushDownExpression, String metadataSqlQuery, RowExpression remainingExpression)
     {
         this.pushDownExpression = Optional.ofNullable(pushDownExpression);
-        this.metadataSql = Optional.ofNullable(metadataSql);
+        this.metadataSqlQuery = Optional.ofNullable(metadataSqlQuery);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
@@ -58,14 +60,15 @@ public class ClpExpression
     }
 
     /**
-     * Creates a ClpExpression from a fully translatable KQL string and a metadata SQL string.
+     * Creates a ClpExpression from a fully translatable KQL string or column name, as well as a
+     * metadata SQL string.
      *
      * @param pushDownExpression
-     * @param metadataSql
+     * @param metadataSqlQuery
      */
-    public ClpExpression(String pushDownExpression, String metadataSql)
+    public ClpExpression(String pushDownExpression, String metadataSqlQuery)
     {
-        this(pushDownExpression, metadataSql, null);
+        this(pushDownExpression, metadataSqlQuery, null);
     }
 
     /**
@@ -83,9 +86,9 @@ public class ClpExpression
         return pushDownExpression;
     }
 
-    public Optional<String> getMetadataSql()
+    public Optional<String> getMetadataSqlQuery()
     {
-        return metadataSql;
+        return metadataSqlQuery;
     }
 
     public Optional<RowExpression> getRemainingExpression()

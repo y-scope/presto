@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.plugin.clp;
 
-import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -41,36 +40,42 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Provides metadata filter configuration and utilities for remapping and validating metadata
- * filters based on a JSON configuration file.
+ * Loads and manages metadata filter configurations for the CLP connector.
  * <p>
- * The configuration file locates at {@code clp.metadata-filter-config} and defines metadata filters
- * for different scopes:
+ * The configuration file is specified by the {@code clp.metadata-filter-config} property
+ * and defines metadata filters used to optimize query execution through split pruning.
+ * Filters can be declared at different scopes:
  * <ul>
- *   <li><b>Catalog-level</b>: applies to all schemas and tables under the catalog.</li>
- *   <li><b>Schema-level</b>: applies to all tables under the specified catalog and schema.</li>
- *   <li><b>Table-level</b>: applies to the fully qualified catalog.schema.table.</li>
+ *   <li><b>Catalog-level</b>: applies to all schemas and tables within a catalog.</li>
+ *   <li><b>Schema-level</b>: applies to all tables within a specific catalog and schema.</li>
+ *   <li><b>Table-level</b>: applies to a fully qualified table {@code catalog.schema.table}.</li>
  * </ul>
- * <p>
- * Each scope maps to a list of filter definitions. Each filter includes:
+ *
+ * <p>Each scope maps to a list of filter definitions. Each filter includes the following fields:
  * <ul>
- *   <li>{@code filterName}: must match a column name in the table's schema. Note that only numeric
- *   type column can be used as metadata filter now.</li>
- *   <li>{@code rangeMapping} (optional): specifies how the filter should be remapped when it
- *   targets metadata-only columns. Note that this option is valid only if the column is numeric
- *   type.
- *       For example, a condition like {@code "msg.timestamp" > 1234 AND "msg.timestamp" < 5678}
- *       will be rewritten as {@code end_timestamp > 1234 AND begin_timestamp < 5678} to ensure
- *       metadata-based filtering produces a superset of the actual result.</li>
+ *   <li><b>{@code columnName}</b> (required): the name of a column in the table's logical schema.
+ *       Only columns of numeric type are currently supported as metadata filters.</li>
+ *
+ *   <li><b>{@code rangeMapping}</b> (optional): remaps a logical filter to physical metadata-only columns.
+ *       This field is valid only for numeric-type columns.
+ *       For example, a condition such as:
+ *       <pre>{@code
+ *       "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
+ *       }</pre>
+ *       will be rewritten as:
+ *       <pre>{@code
+ *       "end_timestamp" > 1234 AND "begin_timestamp" < 5678
+ *       }</pre>
+ *       This ensures the filter applies to a superset of the actual result set, enabling safe pruning.</li>
+ *
+ *   <li><b>{@code required}</b> (optional, default: {@code false}): indicates whether the filter must be present
+ *       in the extracted metadata filter SQL query. If a required filter is missing or cannot be pushed down,
+ *       the query will be rejected.</li>
  * </ul>
- * <p>
- * This provider is used by {@link ClpFilterToKqlConverter} to determine which columns are eligible
- * for metadata filter push down, and by {@link ClpMySqlSplitProvider} to construct metadata filter
- * queries that determine which splits to read.
  */
 public class ClpMetadataFilterProvider
 {
-    private final Map<String, TableConfig> filterMap;
+    private final Map<String, List<Filter>> filterMap;
 
     @Inject
     public ClpMetadataFilterProvider(ClpConfig config)
@@ -81,27 +86,27 @@ public class ClpMetadataFilterProvider
         try {
             filterMap = mapper.readValue(
                     new File(config.getMetadataFilterConfig()),
-                    new TypeReference<Map<String, TableConfig>>() {});
+                    new TypeReference<Map<String, List<Filter>>>() {});
         }
         catch (IOException e) {
             throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to metadata filter config file open.");
         }
     }
 
-    public void checkContainsAllFilters(SchemaTableName schemaTableName, String metadataFilterSql)
+    public void checkContainsRequiredFilters(SchemaTableName schemaTableName, String metadataFilterSql)
     {
-        boolean hasAllMetadataFilterColumns = true;
-        ImmutableList.Builder<String> notFoundFilterColumnNameListBuilder = ImmutableList.builder();
-        for (String columnName : getFilterNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
+        boolean hasRequiredMetadataFilterColumns = true;
+        ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
+        for (String columnName : getRequiredFilterNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
             if (!metadataFilterSql.contains(columnName)) {
-                hasAllMetadataFilterColumns = false;
-                notFoundFilterColumnNameListBuilder.add(columnName);
+                hasRequiredMetadataFilterColumns = false;
+                notFoundListBuilder.add(columnName);
             }
         }
-        if (!hasAllMetadataFilterColumns) {
+        if (!hasRequiredMetadataFilterColumns) {
             throw new PrestoException(
                     CLP_MANDATORY_METADATA_FILTER_NOT_VALID,
-                    notFoundFilterColumnNameListBuilder.build() + " is a mandatory metadata filter column but not valid");
+                    notFoundListBuilder.build() + " is a mandatory metadata filter column but not valid");
         }
     }
 
@@ -134,14 +139,14 @@ public class ClpMetadataFilterProvider
     {
         String[] splitScope = scope.split("\\.");
 
-        Map<String, RangeMapping> mappings = new HashMap<>(getAllMappingsFromTableConfig(filterMap.get(splitScope[0])));
+        Map<String, RangeMapping> mappings = new HashMap<>(getAllMappingsFromFilters(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
-            mappings.putAll(getAllMappingsFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
+            mappings.putAll(getAllMappingsFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
         }
 
         if (3 == splitScope.length) {
-            mappings.putAll(getAllMappingsFromTableConfig(filterMap.get(scope)));
+            mappings.putAll(getAllMappingsFromFilters(filterMap.get(scope)));
         }
 
         String remappedSql = sql;
@@ -168,39 +173,61 @@ public class ClpMetadataFilterProvider
             return ImmutableSet.of();
         }
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(splitScope[0])));
+        builder.addAll(getAllFilterNamesFromFilters(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
-            builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(splitScope[0] + "." + splitScope[1])));
+            builder.addAll(getAllFilterNamesFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
         }
 
         if (3 == splitScope.length) {
-            builder.addAll(getAllFilterNamesFromTableConfig(filterMap.get(scope)));
+            builder.addAll(getAllFilterNamesFromFilters(filterMap.get(scope)));
         }
         return builder.build();
     }
 
-    private Set<String> getAllFilterNamesFromTableConfig(TableConfig tableConfig)
+    private Set<String> getAllFilterNamesFromFilters(List<Filter> filters)
     {
-        return null != tableConfig ? tableConfig.filters.stream()
-                .map(filter -> filter.filterName)
+        return null != filters ? filters.stream()
+                .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
 
-    private Map<String, RangeMapping> getAllMappingsFromTableConfig(TableConfig tableConfig)
+    private Set<String> getRequiredFilterNames(String scope)
     {
-        return tableConfig != null
-                ? tableConfig.filters.stream()
-                .filter(filter -> null != filter.rangeMapping)
-                .collect(toImmutableMap(
-                        filter -> filter.filterName,
-                        filter -> filter.rangeMapping))
-                : ImmutableMap.of();
+        String[] splitScope = scope.split("\\.");
+        if (0 == splitScope.length) {
+            return ImmutableSet.of();
+        }
+        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+        builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(splitScope[0])));
+
+        if (1 < splitScope.length) {
+            builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
+        }
+
+        if (3 == splitScope.length) {
+            builder.addAll(getRequiredFilterNamesFromFilters(filterMap.get(scope)));
+        }
+        return builder.build();
     }
 
-    private static class TableConfig
+    private Set<String> getRequiredFilterNamesFromFilters(List<Filter> filters)
     {
-        public List<Filter> filters;
+        return null != filters ? filters.stream()
+                .filter(filter -> filter.required)
+                .map(filter -> filter.columnName)
+                .collect(toImmutableSet()) : ImmutableSet.of();
+    }
+
+    private Map<String, RangeMapping> getAllMappingsFromFilters(List<Filter> filters)
+    {
+        return filters != null
+                ? filters.stream()
+                .filter(filter -> null != filter.rangeMapping)
+                .collect(toImmutableMap(
+                        filter -> filter.columnName,
+                        filter -> filter.rangeMapping))
+                : ImmutableMap.of();
     }
 
     private static class RangeMapping
@@ -234,10 +261,13 @@ public class ClpMetadataFilterProvider
 
     private static class Filter
     {
-        @JsonProperty("filterName")
-        public String filterName;
+        @JsonProperty("columnName")
+        public String columnName;
 
         @JsonProperty("rangeMapping")
         public RangeMapping rangeMapping;
+
+        @JsonProperty("required")
+        public boolean required;
     }
 }
