@@ -99,88 +99,114 @@ accordingly.
 Metadata Filter Config File
 ----------------------------
 
-The metadata filter configuration file allows you to define filters that help the CLP connector determine which splits
-can be pruned early during query execution, improving performance significantly.
+The metadata filter config file allows you to configure the set of columns that can be used to filter out irrelevant
+splits (CLP archives) when querying CLP's metadata database. This can significantly improve performance by reducing the
+amount of data that needs to be scanned. For a given query, the connector will translate any supported filter predicates
+that involve the configured columns into a query against CLP's metadata database.
 
-The CLP connector supports metadata filter SQL translation for the following expressions:
+The configuration is a JSON object where each key under the root represents a :ref:`scope<scopes>` and each scope maps
+to an array of :ref:`filter configs<filter-configs>`.
 
-- Comparisons between variables and constants (e.g., ``=``, ``!=``, ``<``, ``>``, ``<=``, ``>=``).
-- Dereferencing fields from row-typed variables.
-- Logical operators: ``AND``, ``OR``, and ``NOT``.
 
-The configuration is a JSON object where each top-level key represents a *scope* and each scope maps to a list of
-*filters*.
+.. _scopes:
 
-The *scope* is in form of:
+Scopes
+^^^^^^
 
-- **Catalog-level**: e.g., ``"clp"`` — applies to all schemas and tables under the catalog.
-- **Schema-level**: e.g., ``"clp.default"`` — applies to all tables under the specified catalog and schema.
-- **Table-level**: e.g., ``"clp.default.table_1"`` — applies only to the fully qualified table ``catalog.schema.table``.
+A *scope* can be one of the following:
 
-Each *filter* includes:
+- A catalog name
+- A fully-qualified schema name
+- A fully-qualified table name
 
-- ``columnName``: must match a column name in the table’s schema.
+Filter configs under a particular scope will apply to all child scopes. For example, filter configs at the schema level
+will apply to all tables within that schema.
 
-  **Note:** Only numeric-type columns can currently be used as metadata filters.
+.. _filter-configs:
 
-- ``rangeMapping`` *(optional)*: specifies how the filter should be remapped when it targets metadata-only columns.
+Filter Configs
+^^^^^^^^^^^^^^
 
-  **Note:** This option is only valid if the column is numeric type.
+Each `filter config` indicates how a *data column*---a column in the Presto table---should be mapped to a *metadata
+column*---a column in CLP's metadata database. In most cases, the data column and the metadata column will have the same
+name; but in some cases, the data column may be remapped.
 
-  For example, a condition like:
+For example, an integer data column (e.g., ``timestamp``), may be remapped to a pair of metadata columns that represent
+the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) of the data column within a split.
 
-  ::
+Each *filter config* has the following properties:
 
-     "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
+- ``columnName``: The data column's name.
 
-  will be rewritten as:
+  .. note:: Currently, only numeric-type columns can be used as metadata filters.
 
-  ::
+- ``rangeMapping`` *(optional)*: an object with the following properties:
 
-     "end_timestamp" > 1234 AND "begin_timestamp" < 5678
+  .. note:: This option is only valid if the column has a numeric type.
 
-  This ensures that metadata-based filtering produces a superset of the actual result.
+  - ``lowerBound``: The metadata column that represents the lower bound of values in a split for the data column.
+  - ``upperBound``: The metadata column that represents the upper bound of values in a split for the data column.
 
-- ``required`` *(optional, default: false)*: marks whether the filter **must** be present in the extracted metadata filter SQL query. If a required filter is missing or cannot be pushed down, the query will be rejected.
 
-Here is an example of a metadata filter config file:
+- ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the translated
+  metadata filter SQL query. If a required filter is missing or cannot be pushed down, the query will be rejected.
+
+
+Example
+^^^^^^^
+
+The code block shows an example metadata filter config file:
 
 .. code-block:: json
 
     {
       "clp": [
-          {
-            "columnName": "level"
-          }
+        {
+          "columnName": "level"
+        }
       ],
       "clp.default": [
-          {
-            "columnName": "author"
-          }
+        {
+          "columnName": "author"
+        }
       ],
       "clp.default.table_1": [
-          {
-            "columnName": "msg.timestamp",
-            "rangeMapping": {
-              "lowerBound": "begin_timestamp",
-              "upperBound": "end_timestamp"
-            },
-            "required": true
+        {
+          "columnName": "msg.timestamp",
+          "rangeMapping": {
+            "lowerBound": "begin_timestamp",
+            "upperBound": "end_timestamp"
           },
-          {
-            "columnName": "file_name"
-          }
+          "required": true
+        },
+        {
+          "columnName": "file_name"
+        }
       ]
     }
 
-Explanation:
+- The first key-value pair adds the following filter configs for all schemas and tables under the ``clp`` catalog:
 
-- ``"clp"``: Adds a filter on the column ``level`` for all schemas and tables under the ``clp`` catalog.
-- ``"clp.default"``: Adds a filter on ``author`` for all tables under the ``clp.default`` schema.
-- ``"clp.default.table_1"``: Adds two filters for the table ``clp.default.table_1``:
+  - The column ``level`` is used as-is without remapping.
 
-  - ``msg.timestamp`` is remapped via ``rangeMapping`` and is marked as **required**.
-  - ``file_name`` is used as-is without remapping.
+- The second key-value pair adds the following filter configs for all tables under the ``clp.default`` schema:
+
+  - The column ``author`` is used as-is without remapping.
+
+- The third key-value pair adds two filter configs for the table ``clp.default.table_1``:
+
+  - The column ``msg.timestamp`` is remapped via a ``rangeMapping`` to the metadata columns ``begin_timestamp`` and
+    ``end_timestamp``, and is required to exist in every query.
+  - The column ``file_name`` is used as-is without remapping.
+
+Supported SQL Expressions
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The connector supports translations from a Presto SQL query to the metadata filter query for the following expressions:
+
+- Comparisons between variables and constants (e.g., ``=``, ``!=``, ``<``, ``>``, ``<=``, ``>=``).
+- Dereferencing fields from row-typed variables.
+- Logical operators: ``AND``, ``OR``, and ``NOT``.
 
 Data Types
 ----------
