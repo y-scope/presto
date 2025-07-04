@@ -212,7 +212,7 @@ public class ClpMetadataFilterProvider
 
     private Map<String, RangeMapping> getAllMappingsFromFilters(List<Filter> filters)
     {
-        return filters != null
+        return null != filters
                 ? filters.stream()
                 .filter(filter -> null != filter.rangeMapping)
                 .collect(toImmutableMap(

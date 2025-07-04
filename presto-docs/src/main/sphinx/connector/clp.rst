@@ -121,13 +121,11 @@ Each *filter* includes:
 
 - ``columnName``: must match a column name in the table’s schema.
 
-  .. note::
-     Only numeric-type columns can currently be used as metadata filters.
+  **Note:** Only numeric-type columns can currently be used as metadata filters.
 
 - ``rangeMapping`` *(optional)*: specifies how the filter should be remapped when it targets metadata-only columns.
 
-  .. note::
-     This option is only valid if the column is numeric type.
+  **Note:** This option is only valid if the column is numeric type.
 
   For example, a condition like:
 
@@ -180,6 +178,7 @@ Explanation:
 - ``"clp"``: Adds a filter on the column ``level`` for all schemas and tables under the ``clp`` catalog.
 - ``"clp.default"``: Adds a filter on ``author`` for all tables under the ``clp.default`` schema.
 - ``"clp.default.table_1"``: Adds two filters for the table ``clp.default.table_1``:
+
   - ``msg.timestamp`` is remapped via ``rangeMapping`` and is marked as **required**.
   - ``file_name`` is used as-is without remapping.
 
