@@ -65,7 +65,13 @@ jobs:
     name: presto-coordinator-runtime-image
     needs: maven-checks
     runs-on: ubuntu-22.04
-    if: ${{ always() && success() }}
+    if: ${{ 
+      always() &&
+      success() &&
+      github.event_name == 'push' &&
+      github.repository == 'y-scope/presto' &&
+      github.ref == 'refs/heads/release-0.293-clp-connector'
+    }}
     steps:
       - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
@@ -98,8 +104,8 @@ jobs:
   
           docker buildx create --name container --driver docker-container --use
 
-          IMAGE_NAME=yscope-presto-with-clp-connector-coordinator \
-          REG_ORG=ghcr.io/${{github.actor}} \
+          IMAGE_NAME=coordinator-with-clp-connector \
+          REG_ORG=ghcr.io/${{github.actor}}/presto \
           PUBLISH=true \
           ./build.sh 0.293
 
