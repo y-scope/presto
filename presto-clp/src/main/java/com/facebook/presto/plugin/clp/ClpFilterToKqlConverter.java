@@ -18,7 +18,6 @@ import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
-import com.facebook.presto.plugin.clp.metadata.ClpSchemaTree;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.FunctionHandle;
@@ -64,13 +63,16 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A translator to translate Presto RowExpressions into KQL (Kibana Query Language) filters used as
- * CLP queries and SQL filters used for filtering splits by metadata database. This is used
- * primarily for pushing down supported filters to the CLP engine. This class implements the
- * {@link RowExpressionVisitor} interface and recursively walks Presto filter expressions,
- * attempting to convert supported expressions into corresponding KQL filter strings and SQL
- * filter strings for metadata filtering. Any part of the expression that cannot be translated to
- * KQL is preserved as a "remaining expression" for potential fallback processing.
+ * A translator to translate Presto {@link RowExpression}s into:
+ * <ul>
+ *     <li>KQL (Kibana Query Language) filters used to push down supported filters to the CLP
+ *     engine.</li>
+ *     <li>SQL filters used for filtering splits in CLP's metadata database.</li>
+ * </ul>
+ * This class implements the {@link RowExpressionVisitor} interface and recursively walks Presto
+ * filter expressions, attempting to convert supported expressions into corresponding KQL filter
+ * strings and SQL filter strings for metadata filtering. Any part of the expression that cannot be
+ * translated to KQL is preserved as a "remaining expression" for potential fallback processing.
  * <p></p>
  * Supported translations for KQL include:
  * <ul>
@@ -84,8 +86,8 @@ import static java.util.Objects.requireNonNull;
  *     <li>Dereferencing fields from row-typed variables.</li>
  *     <li>Logical operators AND, OR, and NOT.</li>
  * </ul>
- *
- * Supported translations for Metadata SQL include:
+ * <p></p>
+ * Supported translations for SQL include:
  * <ul>
  *     <li>Comparisons between variables and constants (e.g., =, !=, <, >, <=, >=).</li>
  *     <li>Dereferencing fields from row-typed variables.</li>
@@ -209,9 +211,11 @@ public class ClpFilterToKqlConverter
      * Handles the <code>BETWEEN</code> expression.
      * <p></p>
      * The translation is only performed if:
-     * <ul>All arguments must have numeric types.</ul>
-     * <ul>The first argument is a variable reference expression.</ul>
-     * <ul>The second and third arguments are constant expressions.</ul>
+     * <ul>
+     *     <li>all arguments have numeric types.</li>
+     *     <li>the first argument is a variable reference expression.</li>
+     *     <li>the second and third arguments are constant expressions.</li>
+     * </ul>
      * <p></p>
      * Example: <code>col1 BETWEEN 0 AND 5</code> → <code>col1 >= 0 AND col1 <= 5</code>
      *
@@ -234,9 +238,9 @@ public class ClpFilterToKqlConverter
                 || !(third instanceof ConstantExpression)) {
             return new ClpExpression(node);
         }
-        if (!isNumericType(first.getType())
-                || !isNumericType(second.getType())
-                || !isNumericType(third.getType())) {
+        if (!isClpCompatibleNumericType(first.getType())
+                || !isClpCompatibleNumericType(second.getType())
+                || !isClpCompatibleNumericType(third.getType())) {
             return new ClpExpression(node);
         }
         Optional<String> variableOpt = first.accept(this, null).getPushDownExpression();
@@ -866,12 +870,12 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Refer to
+     * See
      * <a href="https://docs.yscope.com/clp/main/user-guide/reference-json-search-syntax">here
      * </a> for all special chars in the string value that need to be escaped.
      *
-     * @param literalString the target string to escape special chars '\', '"', '?' and '*'
-     * @return the escaped string
+     * @param literalString
+     * @return the string with special characters escaped
      */
     public static String escapeKqlSpecialCharsForStringValue(String literalString)
     {
@@ -884,13 +888,12 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Check if the type is one of the numeric types that CLP will handle. Refer to
-     * {@link ClpSchemaTree} for all types that CLP will handle.
+     * Checks if the type is one of the numeric types that can be pushed down to CLP.
      *
      * @param type the type to check
-     * @return is the type numeric or not
+     * @return whether the type can be pushed down.
      */
-    public static boolean isNumericType(Type type)
+    public static boolean isClpCompatibleNumericType(Type type)
     {
         return type.equals(BIGINT)
                 || type.equals(INTEGER)

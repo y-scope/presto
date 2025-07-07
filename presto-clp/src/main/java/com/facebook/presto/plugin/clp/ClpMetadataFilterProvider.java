@@ -42,36 +42,54 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Loads and manages metadata filter configurations for the CLP connector.
- * <p>
+ * <p></p>
  * The configuration file is specified by the {@code clp.metadata-filter-config} property
  * and defines metadata filters used to optimize query execution through split pruning.
- * Filters can be declared at different scopes:
+ * <p></p>
+ * Filter configs can be declared at either a catalog, schema, or table scope. Filter configs under
+ * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
+ * to all tables within that schema).
+ * <p></p>
+ * Each filter config includes the following fields:
  * <ul>
- *   <li><b>Catalog-level</b>: applies to all schemas and tables within a catalog.</li>
- *   <li><b>Schema-level</b>: applies to all tables within a specific catalog and schema.</li>
- *   <li><b>Table-level</b>: applies to a fully qualified table {@code catalog.schema.table}.</li>
- * </ul>
+ *   <li><b>{@code columnName}</b>: the name of a column in the table's logical schema. Currently,
+ *   only numeric-type columns can be used as metadata filters.</li>
  *
- * <p>Each scope maps to a list of filter definitions. Each filter includes the following fields:
- * <ul>
- *   <li><b>{@code columnName}</b> (required): the name of a column in the table's logical schema.
- *       Only columns of numeric type are currently supported as metadata filters.</li>
+ *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object with the following properties:
  *
- *   <li><b>{@code rangeMapping}</b> (optional): remaps a logical filter to physical metadata-only columns.
- *       This field is valid only for numeric-type columns.
- *       For example, a condition such as:
- *       <pre>{@code
- *       "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
- *       }</pre>
- *       will be rewritten as:
- *       <pre>{@code
- *       "end_timestamp" > 1234 AND "begin_timestamp" < 5678
- *       }</pre>
- *       This ensures the filter applies to a superset of the actual result set, enabling safe pruning.</li>
+ *      <br><br>
+ *      <b>Note:</b> This option is only valid if the column has a numeric type.
  *
- *   <li><b>{@code required}</b> (optional, default: {@code false}): indicates whether the filter must be present
- *       in the extracted metadata filter SQL query. If a required filter is missing or cannot be pushed down,
- *       the query will be rejected.</li>
+ *      <ul>
+ *          <li>{@code lowerBound}: The metadata column that represents the lower bound of values
+ *          in a split for the data column.</li>
+ *          <li>{@code upperBound}: The metadata column that represents the upper bound of values
+ *          in a split for the data column.</li>
+ *      </ul>
+ *
+ *      <p>
+ *          For example, a condition such as:
+ *      </p>
+ *      <pre>{@code
+ *          "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
+ *      }</pre>
+ *
+ *      <p>
+ *          will be rewritten as:
+ *      </p>
+ *      <pre>{@code
+ *          "end_timestamp" > 1234 AND "begin_timestamp" < 5678
+ *      }</pre>
+ *
+ *      <p>
+ *          This ensures the filter applies to a superset of the actual result set, enabling safe
+ *          pruning.
+ *      </p>
+ *   </li>
+ *
+ *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
+ *   filter must be present in the translated metadata filter SQL query. If a required filter
+ *   is missing or cannot be pushed down, the query will be rejected.</li>
  * </ul>
  */
 public class ClpMetadataFilterProvider
@@ -112,18 +130,17 @@ public class ClpMetadataFilterProvider
     }
 
     /**
-     * Rewrites the input SQL string by remapping filter conditions based on the configured
-     * metadata filter range mappings for the given scope.
+     * Rewrites the given SQL string to remap filter conditions based on the configured range
+     * mappings for the given scope.
      *
      * <p>The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
-     * which filter mappings to apply. For each level of scope (catalog, schema, table), this
-     * method collects all range mappings defined in the metadata filter configuration. Mappings
-     * from more specific scopes (e.g., table-level) override or supplement those from broader
-     * scopes (e.g., catalog-level).
+     * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
+     * override or supplement those from broader scopes (e.g., catalog-level). For each scope
+     * (catalog, schema, table), this method collects all range mappings defined in the metadata
+     * filter configuration.
      *
      * <p>This method performs regex-based replacements to convert numeric filter expressions such
      * as:
-     *
      * <ul>
      *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
      *   <li>{@code "msg.timestamp" <= 5678} → {@code begin_timestamp <= 5678}</li>
@@ -131,10 +148,9 @@ public class ClpMetadataFilterProvider
      *   {@code (begin_timestamp <= 4567 AND end_timestamp >= 4567)}</li>
      * </ul>
      *
-     * @param scope the catalog.schema.table scope used to resolve applicable filter mappings
-     * @param sql the original SQL expression to be remapped
-     * @return the rewritten SQL string with metadata filter expressions remapped according to the
-     * configured range mappings
+     * @param scope
+     * @param sql
+     * @return the rewritten SQL string
      */
     public String remapFilterSql(String scope, String sql)
     {
