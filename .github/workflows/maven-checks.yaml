@@ -61,11 +61,11 @@ jobs:
       - name: Clean Maven Output
         run: ./mvnw clean -pl '!:presto-server,!:presto-cli,!presto-test-coverage'
   
-  presto-coordinator-runtime-image:
+  presto-coordinator-with-clp-connector-runtime-image:
     name: presto-coordinator-runtime-image
     needs: maven-checks
     runs-on: ubuntu-22.04
-    if: ${{ always() && success() && github.event_name == 'push' && github.repository == 'y-scope/presto' && github.ref == 'refs/heads/release-0.293-clp-connector' }}
+    if: ${{ always() && success() }}
     steps:
       - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
@@ -96,11 +96,21 @@ jobs:
           mv /tmp/presto-server-0.293.tar.gz ./
           mv /tmp/presto-cli-0.293-executable.jar ./
   
-          docker buildx create --name container --driver docker-container --use
+          if [ "${{ github.event_name }}" = "push" ] && \
+             [ "${{ github.repository }}" = "y-scope/presto" ] && \
+             [ "${{ github.ref }}" = "refs/heads/release-0.293-clp-connector" ]; then
+            export PUBLISH=true
+          else
+            echo "github.event_name = ${{ github.event_name }}"
+            echo "github.repository = ${{ github.repository }}"
+            echo "github.ref = ${{ github.ref }}"
+            echo "Skip publish the image"
+            export PUBLISH=false
+          fi
 
-          IMAGE_NAME=coordinator-with-clp-connector \
+          IMAGE_NAME=coordinator-with-clp-connector-runtime \
           REG_ORG=ghcr.io/${{github.actor}}/presto \
-          PUBLISH=true \
+          PUBLISH=$PUBLISH \
           ./build.sh 0.293
 
           rm presto-server-0.293.tar.gz
