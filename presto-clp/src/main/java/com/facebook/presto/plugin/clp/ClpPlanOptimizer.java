@@ -89,9 +89,8 @@ public class ClpPlanOptimizer
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
-            // Perform required metadata filter checks before handling the KQL query. If kqlQuery
-            // is not present, the method returns early skipping all subsequent logic. Therefore,
-            // the check must happen before that return.
+            // Perform required metadata filter checks before handling the KQL query (if kqlQuery
+            // isn't present, we'll return early, skipping subsequent checks).
             metadataFilterProvider.checkContainsRequiredFilters(clpTableHandle.getSchemaTableName(), metadataSqlQuery.orElse(""));
             if (metadataSqlQuery.isPresent()) {
                 metadataSqlQuery = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSqlQuery.get()));

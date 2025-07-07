@@ -46,14 +46,17 @@ import static java.util.Objects.requireNonNull;
  * The configuration file is specified by the {@code clp.metadata-filter-config} property
  * and defines metadata filters used to optimize query execution through split pruning.
  * <p></p>
+ * Each filter config indicates how a data column--a column in the Presto table--should be mapped to
+ * a metadata column--a column in CLP’s metadata database.
+ * <p></p>
  * Filter configs can be declared at either a catalog, schema, or table scope. Filter configs under
  * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
  * to all tables within that schema).
  * <p></p>
  * Each filter config includes the following fields:
  * <ul>
- *   <li><b>{@code columnName}</b>: the name of a column in the table's logical schema. Currently,
- *   only numeric-type columns can be used as metadata filters.</li>
+ *   <li><b>{@code columnName}</b>: the data column's name. Currently, only numeric-type columns can
+ *   be used as metadata filters.</li>
  *
  *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object with the following properties:
  *
@@ -66,25 +69,6 @@ import static java.util.Objects.requireNonNull;
  *          <li>{@code upperBound}: The metadata column that represents the upper bound of values
  *          in a split for the data column.</li>
  *      </ul>
- *
- *      <p>
- *          For example, a condition such as:
- *      </p>
- *      <pre>{@code
- *          "msg.timestamp" > 1234 AND "msg.timestamp" < 5678
- *      }</pre>
- *
- *      <p>
- *          will be rewritten as:
- *      </p>
- *      <pre>{@code
- *          "end_timestamp" > 1234 AND "begin_timestamp" < 5678
- *      }</pre>
- *
- *      <p>
- *          This ensures the filter applies to a superset of the actual result set, enabling safe
- *          pruning.
- *      </p>
  *   </li>
  *
  *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
