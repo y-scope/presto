@@ -65,13 +65,7 @@ jobs:
     name: presto-coordinator-runtime-image
     needs: maven-checks
     runs-on: ubuntu-22.04
-    if: ${{ 
-      always() &&
-      success() &&
-      github.event_name == 'push' &&
-      github.repository == 'y-scope/presto' &&
-      github.ref == 'refs/heads/release-0.293-clp-connector'
-    }}
+    if: ${{ always() && success() && github.event_name == 'push' && github.repository == 'y-scope/presto' && github.ref == 'refs/heads/release-0.293-clp-connector' }}
     steps:
       - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
