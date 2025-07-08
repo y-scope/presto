@@ -89,43 +89,6 @@ void from_json(const json& j, ClpSplit& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-// Loosly copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
-
-// NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
-static const std::pair<StorageType, json> StorageType_enum_table[] =
-    { // NOLINT: cert-err58-cpp
-        {StorageType::FS, "FS"},
-        {StorageType::S3, "S3"}};
-void to_json(json& j, const StorageType& e) {
-  static_assert(
-      std::is_enum<StorageType>::value, "StorageType must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(StorageType_enum_table),
-      std::end(StorageType_enum_table),
-      [e](const std::pair<StorageType, json>& ej_pair) -> bool {
-        return ej_pair.first == e;
-      });
-  j = ((it != std::end(StorageType_enum_table))
-           ? it
-           : std::begin(StorageType_enum_table))
-          ->second;
-}
-void from_json(const json& j, StorageType& e) {
-  static_assert(
-      std::is_enum<StorageType>::value, "StorageType must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(StorageType_enum_table),
-      std::end(StorageType_enum_table),
-      [&j](const std::pair<StorageType, json>& ej_pair) -> bool {
-        return ej_pair.second == j;
-      });
-  e = ((it != std::end(StorageType_enum_table))
-           ? it
-           : std::begin(StorageType_enum_table))
-          ->first;
-}
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
 ClpTableHandle::ClpTableHandle() noexcept {
   _type = "clp";
 }
@@ -141,12 +104,7 @@ void to_json(json& j, const ClpTableHandle& p) {
       "SchemaTableName",
       "schemaTableName");
   to_json_key(
-      j,
-      "storageType",
-      p.storageType,
-      "ClpTableHandle",
-      "StorageType",
-      "storageType");
+      j, "tablePath", p.tablePath, "ClpTableHandle", "String", "tablePath");
 }
 
 void from_json(const json& j, ClpTableHandle& p) {
@@ -159,12 +117,7 @@ void from_json(const json& j, ClpTableHandle& p) {
       "SchemaTableName",
       "schemaTableName");
   from_json_key(
-      j,
-      "storageType",
-      p.storageType,
-      "ClpTableHandle",
-      "StorageType",
-      "storageType");
+      j, "tablePath", p.tablePath, "ClpTableHandle", "String", "tablePath");
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
@@ -179,6 +132,13 @@ void to_json(json& j, const ClpTableLayoutHandle& p) {
       j, "table", p.table, "ClpTableLayoutHandle", "ClpTableHandle", "table");
   to_json_key(
       j, "kqlQuery", p.kqlQuery, "ClpTableLayoutHandle", "String", "kqlQuery");
+  to_json_key(
+      j,
+      "metadataFilterQuery",
+      p.metadataFilterQuery,
+      "ClpTableLayoutHandle",
+      "String",
+      "metadataFilterQuery");
 }
 
 void from_json(const json& j, ClpTableLayoutHandle& p) {
@@ -187,5 +147,12 @@ void from_json(const json& j, ClpTableLayoutHandle& p) {
       j, "table", p.table, "ClpTableLayoutHandle", "ClpTableHandle", "table");
   from_json_key(
       j, "kqlQuery", p.kqlQuery, "ClpTableLayoutHandle", "String", "kqlQuery");
+  from_json_key(
+      j,
+      "metadataFilterQuery",
+      p.metadataFilterQuery,
+      "ClpTableLayoutHandle",
+      "String",
+      "metadataFilterQuery");
 }
 } // namespace facebook::presto::protocol::clp

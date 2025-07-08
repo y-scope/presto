@@ -30,20 +30,6 @@ void to_json(json& j, const ClpTransactionHandle& p);
 
 void from_json(const json& j, ClpTransactionHandle& p);
 } // namespace facebook::presto::protocol::clp
-/*
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // ClpColumnHandle is special since it needs an implementation of
 // operator<().
 
@@ -73,14 +59,9 @@ void to_json(json& j, const ClpSplit& p);
 void from_json(const json& j, ClpSplit& p);
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-enum class StorageType { FS, S3 };
-extern void to_json(json& j, const StorageType& e);
-extern void from_json(const json& j, StorageType& e);
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
 struct ClpTableHandle : public ConnectorTableHandle {
   SchemaTableName schemaTableName = {};
-  StorageType storageType = {};
+  String tablePath = {};
 
   ClpTableHandle() noexcept;
 };
@@ -91,6 +72,7 @@ namespace facebook::presto::protocol::clp {
 struct ClpTableLayoutHandle : public ConnectorTableLayoutHandle {
   ClpTableHandle table = {};
   std::shared_ptr<String> kqlQuery = {};
+  std::shared_ptr<String> metadataFilterQuery = {};
 
   ClpTableLayoutHandle() noexcept;
 };
