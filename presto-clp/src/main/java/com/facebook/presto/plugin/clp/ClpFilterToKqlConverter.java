@@ -30,10 +30,12 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -95,7 +97,7 @@ import static java.util.Objects.requireNonNull;
  * </ul>
  */
 public class ClpFilterToKqlConverter
-        implements RowExpressionVisitor<ClpExpression, Void>
+        implements RowExpressionVisitor<ClpExpression, Set<VariableReferenceExpression>>
 {
     private static final Set<OperatorType> LOGICAL_BINARY_OPS_FILTER =
             ImmutableSet.of(EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL);
@@ -113,70 +115,71 @@ public class ClpFilterToKqlConverter
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
-        this.assignments = requireNonNull(assignments, "assignments is null");
+        this.assignments = new HashMap<>(requireNonNull(assignments, "assignments is null"));
         this.metadataFilterColumns = requireNonNull(metadataFilterColumns, "metadataFilterColumns is null");
     }
 
     @Override
-    public ClpExpression visitCall(CallExpression node, Void context)
+    public ClpExpression visitCall(CallExpression node, Set<VariableReferenceExpression> context)
     {
-        FunctionHandle functionHandle = node.getFunctionHandle();
+        CallExpression newNode = (CallExpression) maybeReplaceClpUdfArgument(node, context);
+        FunctionHandle functionHandle = newNode.getFunctionHandle();
         if (standardFunctionResolution.isNotFunction(functionHandle)) {
-            return handleNot(node);
+            return handleNot(newNode, context);
         }
 
         if (standardFunctionResolution.isLikeFunction(functionHandle)) {
-            return handleLike(node);
+            return handleLike(newNode, context);
         }
 
-        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(node.getFunctionHandle());
+        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(newNode.getFunctionHandle());
         Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
         if (operatorTypeOptional.isPresent()) {
             OperatorType operatorType = operatorTypeOptional.get();
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
-                return handleLogicalBinary(operatorType, node);
+                return handleLogicalBinary(operatorType, newNode, context);
             }
             if (BETWEEN == operatorType) {
-                return handleBetween(node);
+                return handleBetween(newNode, context);
             }
         }
 
-        return new ClpExpression(node);
+        return new ClpExpression(newNode);
     }
 
     @Override
-    public ClpExpression visitConstant(ConstantExpression node, Void context)
+    public ClpExpression visitConstant(ConstantExpression node, Set<VariableReferenceExpression> context)
     {
         return new ClpExpression(getLiteralString(node));
     }
 
     @Override
-    public ClpExpression visitVariableReference(VariableReferenceExpression node, Void context)
+    public ClpExpression visitVariableReference(VariableReferenceExpression node, Set<VariableReferenceExpression> context)
     {
         return new ClpExpression(getVariableName(node));
     }
 
     @Override
-    public ClpExpression visitSpecialForm(SpecialFormExpression node, Void context)
+    public ClpExpression visitSpecialForm(SpecialFormExpression node, Set<VariableReferenceExpression> context)
     {
         switch (node.getForm()) {
             case AND:
-                return handleAnd(node);
+                return handleAnd(node, context);
             case OR:
-                return handleOr(node);
+                return handleOr(node, context);
             case IN:
-                return handleIn(node);
+                return handleIn(node, context);
             case IS_NULL:
-                return handleIsNull(node);
+                return handleIsNull(node, context);
             case DEREFERENCE:
-                return handleDereference(node);
+                return handleDereference(node, context);
             default:
                 return new ClpExpression(node);
         }
     }
 
     @Override
-    public ClpExpression visitExpression(RowExpression node, Void context)
+    public ClpExpression visitExpression(RowExpression node, Set<VariableReferenceExpression> context)
     {
         // For all other expressions, return the original expression
         return new ClpExpression(node);
@@ -204,7 +207,77 @@ public class ClpFilterToKqlConverter
      */
     private String getVariableName(VariableReferenceExpression variable)
     {
-        return ((ClpColumnHandle) assignments.get(variable)).getOriginalColumnName();
+        Object handle = assignments.get(variable);
+        if (!(handle instanceof ClpColumnHandle)) {
+            return null;
+        }
+        return ((ClpColumnHandle) handle).getOriginalColumnName();
+    }
+
+    /**
+     * Rewrites CLP UDFs (e.g., CLP_GET_*) in a RowExpression tree into VariableReferenceExpressions,
+     * enabling them to be used as pushdown filters.
+     * <p></p>
+     * Traverses the expression tree recursively, replacing supported CLP UDFs with uniquely named
+     * variables and tracking these variables in the assignments and context. If the CLP UDF takes
+     * a constant string argument, that string is used as the new variable name. Unsupported
+     * argument types (non-constants) or invalid expressions will throw an exception.
+     * <p></p>
+     * Examples:
+     * <ul>
+     *   <li><code>CLP_GET_STRING('field')</code> → <code>field</code> (as a VariableReferenceExpression)</li>
+     *   <li><code>CLP_GET_INT('field')</code> → <code>field</code> (not mapped to a KQL column)</li>
+     * </ul>
+     *
+     * @param rowExpression the input expression to analyze and possibly rewrite
+     * @param context a set of VariableReferenceExpressions used for pushdown; newly created ones
+     * will be added here
+     * @return a possibly rewritten RowExpression with CLP UDFs replaced
+     */
+    private RowExpression maybeReplaceClpUdfArgument(RowExpression rowExpression, Set<VariableReferenceExpression> context)
+    {
+        requireNonNull(context);
+        if (!(rowExpression instanceof CallExpression)) {
+            return rowExpression;
+        }
+
+        CallExpression callExpression = (CallExpression) rowExpression;
+
+        // Recursively process the arguments of this CallExpression
+        List<RowExpression> newArgs = callExpression.getArguments().stream()
+                .map(childArg -> maybeReplaceClpUdfArgument(childArg, context))
+                .collect(ImmutableList.toImmutableList());
+
+        FunctionMetadata metadata = functionMetadataManager.getFunctionMetadata(callExpression.getFunctionHandle());
+        String functionName = metadata.getName().getObjectName().toUpperCase();
+
+        if (functionName.startsWith("CLP_GET")) {
+            // Replace CLP UDF with VariableReferenceExpression
+            int numArguments = callExpression.getArguments().size();
+            if (numArguments == 1) {
+                RowExpression argument = callExpression.getArguments().get(0);
+                if (!(argument instanceof ConstantExpression)) {
+                    throw new PrestoException(
+                            CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                            "The argument of " + functionName + " must be a ConstantExpression");
+                }
+                Optional<String> definition = argument.accept(this, context).getPushDownExpression();
+                if (definition.isPresent()) {
+                    VariableReferenceExpression newVar = new VariableReferenceExpression(
+                            Optional.empty(),
+                            definition.get(),
+                            callExpression.getType());
+                    context.add(newVar);
+                    assignments.put(newVar, new ClpColumnHandle(definition.get(), callExpression.getType(), true));
+                    return newVar;
+                }
+                else {
+                    throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unrecognized parameter in " + functionName);
+                }
+            }
+        }
+
+        return new CallExpression(callExpression.getDisplayName(), callExpression.getFunctionHandle(), callExpression.getType(), newArgs);
     }
 
     /**
@@ -219,11 +292,12 @@ public class ClpFilterToKqlConverter
      * <p></p>
      * Example: <code>col1 BETWEEN 0 AND 5</code> → <code>col1 >= 0 AND col1 <= 5</code>
      *
-     * @param node the {@code BETWEEN} call expression
+     * @param node the <code>BETWEEN</code> call expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleBetween(CallExpression node)
+    private ClpExpression handleBetween(CallExpression node, Set<VariableReferenceExpression> context)
     {
         List<RowExpression> arguments = node.getArguments();
         if (arguments.size() != 3) {
@@ -243,7 +317,7 @@ public class ClpFilterToKqlConverter
                 || !isClpCompatibleNumericType(third.getType())) {
             return new ClpExpression(node);
         }
-        Optional<String> variableOpt = first.accept(this, null).getPushDownExpression();
+        Optional<String> variableOpt = first.accept(this, context).getPushDownExpression();
         if (!variableOpt.isPresent()) {
             return new ClpExpression(node);
         }
@@ -263,10 +337,11 @@ public class ClpFilterToKqlConverter
      * Example: <code>NOT (col1 = 5)</code> → <code>NOT col1: 5</code>
      *
      * @param node the NOT call expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleNot(CallExpression node)
+    private ClpExpression handleNot(CallExpression node, Set<VariableReferenceExpression> context)
     {
         if (node.getArguments().size() != 1) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
@@ -274,7 +349,7 @@ public class ClpFilterToKqlConverter
         }
 
         RowExpression input = node.getArguments().get(0);
-        ClpExpression expression = input.accept(this, null);
+        ClpExpression expression = input.accept(this, context);
         if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
@@ -297,15 +372,16 @@ public class ClpFilterToKqlConverter
      * Example: <code>col1 LIKE 'a_bc%'</code> → <code>col1: "a?bc*"</code>
      *
      * @param node the LIKE call expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleLike(CallExpression node)
+    private ClpExpression handleLike(CallExpression node, Set<VariableReferenceExpression> context)
     {
         if (node.getArguments().size() != 2) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "LIKE operator must have exactly two arguments. Received: " + node);
         }
-        ClpExpression variable = node.getArguments().get(0).accept(this, null);
+        ClpExpression variable = node.getArguments().get(0).accept(this, context);
         if (!variable.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
@@ -346,10 +422,11 @@ public class ClpFilterToKqlConverter
      *
      * @param operator the binary operator (e.g., EQUAL, NOT_EQUAL)
      * @param node the call expression representing the binary operation
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node)
+    private ClpExpression handleLogicalBinary(OperatorType operator, CallExpression node, Set<VariableReferenceExpression> context)
     {
         if (node.getArguments().size() != 2) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
@@ -358,18 +435,28 @@ public class ClpFilterToKqlConverter
         RowExpression left = node.getArguments().get(0);
         RowExpression right = node.getArguments().get(1);
 
-        ClpExpression maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right);
-        if (maybeLeftSubstring.getPushDownExpression().isPresent()) {
-            return maybeLeftSubstring;
+        Optional<ClpExpression> maybeLeftSubstring = tryInterpretSubstringEquality(operator, left, right, context);
+        if (maybeLeftSubstring.isPresent()) {
+            return maybeLeftSubstring.get();
         }
 
-        ClpExpression maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left);
-        if (maybeRightSubstring.getPushDownExpression().isPresent()) {
-            return maybeRightSubstring;
+        Optional<ClpExpression> maybeRightSubstring = tryInterpretSubstringEquality(operator, right, left, context);
+        if (maybeRightSubstring.isPresent()) {
+            return maybeRightSubstring.get();
         }
 
-        ClpExpression leftExpression = left.accept(this, null);
-        ClpExpression rightExpression = right.accept(this, null);
+        Optional<ClpExpression> clpWildcardLeft = tryInterpretClpWildcard(left, right, operator, context, node);
+        if (clpWildcardLeft.isPresent()) {
+            return clpWildcardLeft.get();
+        }
+
+        Optional<ClpExpression> clpWildcardRight = tryInterpretClpWildcard(right, left, operator, context, node);
+        if (clpWildcardRight.isPresent()) {
+            return clpWildcardRight.get();
+        }
+
+        ClpExpression leftExpression = left.accept(this, context);
+        ClpExpression rightExpression = right.accept(this, context);
         Optional<String> leftDefinition = leftExpression.getPushDownExpression();
         Optional<String> rightDefinition = rightExpression.getPushDownExpression();
         if (!leftDefinition.isPresent() || !rightDefinition.isPresent()) {
@@ -471,26 +558,28 @@ public class ClpFilterToKqlConverter
      * @param operator the comparison operator (should be EQUAL)
      * @param possibleSubstring the left or right expression, possibly a SUBSTR call
      * @param possibleLiteral the opposite expression, possibly a string constant
-     * @return a ClpExpression containing either the equivalent KQL query, or nothing if it couldn't
-     * be translated
+     * @param context a set of VariableReferenceExpressions used for pushdown;
+     * @return an Optional containing a ClpExpression with the equivalent KQL query, or nothing if
+     * it couldn't be translated
      */
-    private ClpExpression tryInterpretSubstringEquality(
+    private Optional<ClpExpression> tryInterpretSubstringEquality(
             OperatorType operator,
             RowExpression possibleSubstring,
-            RowExpression possibleLiteral)
+            RowExpression possibleLiteral,
+            Set<VariableReferenceExpression> context)
     {
         if (!operator.equals(EQUAL)) {
-            return new ClpExpression();
+            return Optional.empty();
         }
 
         if (!(possibleSubstring instanceof CallExpression) ||
                 !(possibleLiteral instanceof ConstantExpression)) {
-            return new ClpExpression();
+            return Optional.empty();
         }
 
-        Optional<SubstrInfo> maybeSubstringCall = parseSubstringCall((CallExpression) possibleSubstring);
+        Optional<SubstrInfo> maybeSubstringCall = parseSubstringCall((CallExpression) possibleSubstring, context);
         if (!maybeSubstringCall.isPresent()) {
-            return new ClpExpression();
+            return Optional.empty();
         }
 
         String targetString = getLiteralString((ConstantExpression) possibleLiteral);
@@ -501,9 +590,10 @@ public class ClpFilterToKqlConverter
      * Parses a <code>SUBSTR(x, start [, length])</code> call into a SubstrInfo object if valid.
      *
      * @param callExpression the call expression to inspect
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return an Optional containing SubstrInfo if the expression is a valid SUBSTR call
      */
-    private Optional<SubstrInfo> parseSubstringCall(CallExpression callExpression)
+    private Optional<SubstrInfo> parseSubstringCall(CallExpression callExpression, Set<VariableReferenceExpression> context)
     {
         FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(callExpression.getFunctionHandle());
         String functionName = functionMetadata.getName().getObjectName();
@@ -516,7 +606,7 @@ public class ClpFilterToKqlConverter
             return Optional.empty();
         }
 
-        ClpExpression variable = callExpression.getArguments().get(0).accept(this, null);
+        ClpExpression variable = callExpression.getArguments().get(0).accept(this, context);
         if (!variable.getPushDownExpression().isPresent()) {
             return Optional.empty();
         }
@@ -545,10 +635,10 @@ public class ClpFilterToKqlConverter
      *
      * @param info parsed SUBSTR call info
      * @param targetString the literal string being compared to
-     * @return a ClpExpression containing either the equivalent KQL query, or nothing if it couldn't
-     * be translated
+     * @return an Optional containing either a ClpExpression with the equivalent KQL query,
+     * or empty if it couldn't be translated
      */
-    private ClpExpression interpretSubstringEquality(SubstrInfo info, String targetString)
+    private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString)
     {
         if (info.lengthExpression != null) {
             Optional<Integer> maybeStart = parseIntValue(info.startExpression);
@@ -564,7 +654,7 @@ public class ClpFilterToKqlConverter
                         result.append("?");
                     }
                     result.append(targetString).append("*\"");
-                    return new ClpExpression(result.toString());
+                    return Optional.of(new ClpExpression(result.toString()));
                 }
             }
         }
@@ -579,15 +669,15 @@ public class ClpFilterToKqlConverter
                         result.append("?");
                     }
                     result.append(targetString).append("\"");
-                    return new ClpExpression(result.toString());
+                    return Optional.of(new ClpExpression(result.toString()));
                 }
                 if (start == -targetString.length()) {
-                    return new ClpExpression(format("%s: \"*%s\"", info.variableName, targetString));
+                    return Optional.of(new ClpExpression(format("%s: \"*%s\"", info.variableName, targetString)));
                 }
             }
         }
 
-        return new ClpExpression();
+        return Optional.empty();
     }
 
     /**
@@ -647,6 +737,65 @@ public class ClpFilterToKqlConverter
     }
 
     /**
+     * Attempts to interpret a binary comparison involving a CLP_WILDCARD UDF and a constant value.
+     * <p></p>
+     * This method checks whether the <code>possibleCall</code> is a CLP_WILDCARD-style function
+     * call (e.g., <code>CLP_WILDCARD_STRING_COLUMN()</code>) and whether <code>possibleConst</code>
+     * is a {@link ConstantExpression}. If both conditions are met, it constructs a corresponding
+     * {@link ClpExpression} using the wildcard symbol "*" as the variable name.
+     * <p></p>
+     * Examples:
+     * <ul>
+     *   <li><code>CLP_WILDCARD_STRING_COLUMN() = 'abc'</code> → <code>* : "abc"</code></li>
+     *   <li><code>CLP_WILDCARD_INT_COLUMN() >= 123</code> → <code>NOT * > 123</code></li>
+     * </ul>
+     *
+     * @param possibleCall the left or right side of the comparison, expected to be a CLP_WILDCARD UDF
+     * @param possibleConst the other side of the comparison, expected to be a constant
+     * @param operator the binary operator used in the comparison (e.g., =, !=)
+     * @param context the context set to track introduced variable references (not used directly here)
+     * @param parentNode the original expression node for fallback purposes
+     * @return an {@link Optional} containing the translated {@link ClpExpression} if successful, or {@link Optional#empty()} otherwise
+     * @throws PrestoException if the CLP_WILDCARD UDF is used with a non-constant operand, or if the constant cannot be converted
+     */
+    private Optional<ClpExpression> tryInterpretClpWildcard(
+            RowExpression possibleCall,
+            RowExpression possibleConst,
+            OperatorType operator,
+            Set<VariableReferenceExpression> context,
+            CallExpression parentNode)
+    {
+        if (!(possibleCall instanceof CallExpression)) {
+            return Optional.empty();
+        }
+
+        FunctionMetadata metadata = functionMetadataManager.getFunctionMetadata(
+                ((CallExpression) possibleCall).getFunctionHandle());
+        String functionName = metadata.getName().getObjectName().toUpperCase();
+
+        if (!functionName.startsWith("CLP_WILDCARD")) {
+            return Optional.empty();
+        }
+
+        if (!(possibleConst instanceof ConstantExpression)) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "CLP_WILDCARD_COLUMN can only be used in a filter against a constant value");
+        }
+
+        ClpExpression constExpression = possibleConst.accept(this, context);
+        if (!constExpression.getPushDownExpression().isPresent()) {
+            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, possibleConst + " is not supported in CLP_WILDCARD UDFs");
+        }
+
+        return Optional.of(buildClpExpression(
+                "*",
+                constExpression.getPushDownExpression().get(),
+                operator,
+                possibleCall.getType(),
+                parentNode));
+    }
+
+    /**
      * Handles the logical <code>AND</code> expression.
      * <p></p>
      * Combines all definable child expressions into a single KQL query joined by AND. Any
@@ -655,9 +804,10 @@ public class ClpFilterToKqlConverter
      * Example: <code>col1 = 5 AND col2 = 'abc'</code> → <code>(col1: 5 AND col2: "abc")</code>
      *
      * @param node the <code>AND</code> special form expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing the KQL query and any remaining sub-expressions
      */
-    private ClpExpression handleAnd(SpecialFormExpression node)
+    private ClpExpression handleAnd(SpecialFormExpression node, Set<VariableReferenceExpression> context)
     {
         StringBuilder metadataQueryBuilder = new StringBuilder();
         metadataQueryBuilder.append("(");
@@ -667,7 +817,7 @@ public class ClpFilterToKqlConverter
         boolean hasMetadataSql = false;
         boolean hasPushDownExpression = false;
         for (RowExpression argument : node.getArguments()) {
-            ClpExpression expression = argument.accept(this, null);
+            ClpExpression expression = argument.accept(this, context);
             if (expression.getPushDownExpression().isPresent()) {
                 hasPushDownExpression = true;
                 queryBuilder.append(expression.getPushDownExpression().get());
@@ -713,20 +863,23 @@ public class ClpFilterToKqlConverter
      * Example: <code>col1 = 5 OR col1 = 10</code> → <code>(col1: 5 OR col1: 10)</code>
      *
      * @param node the <code>OR</code> special form expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be fully translated
      */
-    private ClpExpression handleOr(SpecialFormExpression node)
+    private ClpExpression handleOr(SpecialFormExpression node, Set<VariableReferenceExpression> context)
     {
         StringBuilder metadataQueryBuilder = new StringBuilder();
         metadataQueryBuilder.append("(");
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
+        boolean allPushedDown = true;
         boolean hasAllMetadataSql = true;
         for (RowExpression argument : node.getArguments()) {
-            ClpExpression expression = argument.accept(this, null);
+            ClpExpression expression = argument.accept(this, context);
             if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
-                return new ClpExpression(node);
+                allPushedDown = false;
+                continue;
             }
             queryBuilder.append(expression.getPushDownExpression().get());
             queryBuilder.append(" OR ");
@@ -738,10 +891,13 @@ public class ClpFilterToKqlConverter
                 hasAllMetadataSql = false;
             }
         }
-        // Remove the last " OR " from the query
-        return new ClpExpression(
-                queryBuilder.substring(0, queryBuilder.length() - 4) + ")",
-                hasAllMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 4) + ")" : null);
+        if (allPushedDown) {
+            // Remove the last " OR " from the query
+            return new ClpExpression(
+                    queryBuilder.substring(0, queryBuilder.length() - 4) + ")",
+                    hasAllMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 4) + ")" : null);
+        }
+        return new ClpExpression(node);
     }
 
     /**
@@ -750,12 +906,13 @@ public class ClpFilterToKqlConverter
      * Example: <code>col1 IN (1, 2, 3)</code> → <code>(col1: 1 OR col1: 2 OR col1: 3)</code>
      *
      * @param node the <code>IN</code> special form expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleIn(SpecialFormExpression node)
+    private ClpExpression handleIn(SpecialFormExpression node, Set<VariableReferenceExpression> context)
     {
-        ClpExpression variable = node.getArguments().get(0).accept(this, null);
+        ClpExpression variable = node.getArguments().get(0).accept(this, context);
         if (!variable.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
@@ -788,17 +945,18 @@ public class ClpFilterToKqlConverter
      * Example: <code>col1 IS NULL</code> → <code>NOT col1: *</code>
      *
      * @param node the <code>IS_NULL</code> special form expression
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleIsNull(SpecialFormExpression node)
+    private ClpExpression handleIsNull(SpecialFormExpression node, Set<VariableReferenceExpression> context)
     {
         if (node.getArguments().size() != 1) {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "IS NULL operator must have exactly one argument. Received: " + node);
         }
 
-        ClpExpression expression = node.getArguments().get(0).accept(this, null);
+        ClpExpression expression = node.getArguments().get(0).accept(this, context);
         if (!expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
@@ -816,13 +974,14 @@ public class ClpFilterToKqlConverter
      *
      * @param expression the dereference expression ({@link SpecialFormExpression} or
      * {@link VariableReferenceExpression})
+     * @param context a set of VariableReferenceExpressions used for pushdown;
      * @return a ClpExpression containing either the dot-separated field name, or the original
      * expression if it couldn't be translated
      */
-    private ClpExpression handleDereference(RowExpression expression)
+    private ClpExpression handleDereference(RowExpression expression, Set<VariableReferenceExpression> context)
     {
         if (expression instanceof VariableReferenceExpression) {
-            return expression.accept(this, null);
+            return expression.accept(this, context);
         }
 
         if (!(expression instanceof SpecialFormExpression)) {
@@ -862,7 +1021,7 @@ public class ClpFilterToKqlConverter
         RowType.Field field = rowType.getFields().get(fieldIndex);
         String fieldName = field.getName().orElse("field" + fieldIndex);
 
-        ClpExpression baseString = handleDereference(base);
+        ClpExpression baseString = handleDereference(base, context);
         if (!baseString.getPushDownExpression().isPresent()) {
             return new ClpExpression(expression);
         }
