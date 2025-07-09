@@ -102,12 +102,4 @@ public final class ClpFunctions
     {
         return false;
     }
-
-    @ScalarFunction(value = "CLP_GET_JSON_STRING", deterministic = false)
-    @Description("Converts an entire log record into a JSON string.")
-    @SqlType(StandardTypes.VARCHAR)
-    public static Slice clpGetJSONString()
-    {
-        return Slices.EMPTY_SLICE;
-    }
 }
