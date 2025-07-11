@@ -55,6 +55,7 @@ target_link_libraries(
   velox_abfs
   velox_aggregates
   velox_caching
+  velox_clp_connector
   velox_common_base
   velox_core
   velox_dwio_common_exception
@@ -115,8 +116,7 @@ add_executable(presto_server PrestoMain.cpp)
 # However, we also would need to add its dependencies (tpch_gen etc).
 # TODO change the target in Velox to a library target then we can move this to the
 # presto_server_lib.
-target_link_libraries(presto_server presto_server_lib velox_tpch_connector
-                      velox_clp_connector)
+target_link_libraries(presto_server presto_server_lib velox_tpch_connector)
 
 # Clang requires explicit linking with libatomic.
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang"
