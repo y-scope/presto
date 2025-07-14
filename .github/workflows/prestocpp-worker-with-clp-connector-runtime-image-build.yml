@@ -20,21 +20,45 @@ jobs:
           registry: ghcr.io
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
-      
-      - name: "Build worker image"
-        working-directory: ./presto-native-execution
-        run: |
-          sed -i 's|image: presto/prestissimo-runtime:ubuntu-22.04|image: ghcr.io/${{github.actor}}/presto/prestissimo-with-clp-connector-runtime:ubuntu-22.04|' docker-compose.yml
-          docker compose build ubuntu-native-dependency
-          docker compose build ubuntu-native-runtime
-  
-          if [ "${{ github.event_name }}" = "push" ] && \
-             [ "${{ github.repository }}" = "y-scope/presto" ] && \
-             [ "${{ github.ref }}" = "refs/heads/release-0.293-clp-connector" ]; then
-            docker push "ghcr.io/${{github.actor}}/presto/prestissimo-with-clp-connector-runtime:ubuntu-22.04"
-          else
-            echo "github.event_name = ${{ github.event_name }}"
-            echo "github.repository = ${{ github.repository }}"
-            echo "github.ref = ${{ github.ref }}"
-            echo "Skip publish the image"
-          fi
+
+      - name: "Update Metadata for Dependency Image"
+        id: "meta"
+        uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
+        with:
+          images: >-
+            ghcr.io/${{github.repository}}/prestissimo-with-clp-connector-dependency
+
+      - name: "Build and push"
+        uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"
+        with:
+          context: "./presto-native-execution/"
+          file: "./presto-native-execution/scripts/dockerfiles/ubuntu-22.04-dependency.dockerfile"
+          push: >-
+            ${{github.event_name != 'pull_request'
+            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+          tags: "${{steps.meta.outputs.tags}}"
+          labels: "${{steps.meta.outputs.labels}}"
+
+      - name: "Update Metadata for Runtime Image"
+        id: "meta"
+        uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
+        with:
+          images: >-
+            ghcr.io/${{github.repository}}/prestissimo-with-clp-connector-runtime
+
+      - name: "Build and push"
+        uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"
+        with:
+          build-args: |-
+            NUM_THREADS=2
+            DEPENDENCY_IMAGE=ghcr.io/${{github.repository}}/prestissimo-with-clp-connector-dependency
+            BASE_IMAGE=ubuntu:22.04
+            OSNAME=ubuntu
+            EXTRA_CMAKE_FLAGS=-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_S3=ON
+          context: "./presto-native-execution/"
+          file: "./presto-native-execution/scripts/dockerfiles/prestissimo-runtime.dockerfile"
+          push: >-
+            ${{github.event_name != 'pull_request'
+            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+          tags: "${{steps.meta.outputs.tags}}"
+          labels: "${{steps.meta.outputs.labels}}"
