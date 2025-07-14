@@ -30,7 +30,31 @@ jobs:
           tags: |
             type=raw,value=ubuntu-22.04
 
-      - name: "Build and push"
+      - name: "Update Metadata for Runtime Image"
+        id: "meta-runtime"
+        uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
+        with:
+          images: >-
+            ghcr.io/${{github.repository}}/prestissimo-with-clp-connector-runtime
+          tags: |
+            type=raw,value=ubuntu-22.04
+
+      - name: Check for dependency changes in presto-native-execution
+        id: dependency-changes
+        run: |
+          git fetch origin ${{ github.event.before }} --depth=1 || true
+          dep_changed=false
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^presto-native-execution/scripts'; then
+            dep_changed=true
+          fi
+          cd presto-native-execution/velox
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^scripts'; then
+            dep_changed=true
+          fi
+          echo "dep-changed=${dep_changed}" >> $GITHUB_OUTPUT
+
+      - name: "Build and push dependency image"
+        if: steps.dependency-changes.outputs.dep-changed == 'true'
         uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"
         with:
           context: "./presto-native-execution/"
@@ -41,20 +65,16 @@ jobs:
           tags: "${{steps.meta-dependency.outputs.tags}}"
           labels: "${{steps.meta-dependency.outputs.labels}}"
 
-      - name: "Update Metadata for Runtime Image"
-        id: "meta-runtime"
-        uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
-        with:
-          images: >-
-            ghcr.io/${{github.repository}}/prestissimo-with-clp-connector-runtime
-          tags: |
-            type=raw,value=ubuntu-22.04
+      - name: Get number of CPU
+        id: get-cores
+        run: |
+          echo "num-threads=$(nproc)" >> $GITHUB_OUTPUT
 
-      - name: "Build and push"
+      - name: "Build and push runtime image"
         uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"
         with:
           build-args: |-
-            NUM_THREADS=4
+            NUM_THREADS=${{ steps.get-cores.outputs.num-threads }}
             DEPENDENCY_IMAGE=${{ steps.meta-dependency.outputs.tags }}
             BASE_IMAGE=ubuntu:22.04
             OSNAME=ubuntu

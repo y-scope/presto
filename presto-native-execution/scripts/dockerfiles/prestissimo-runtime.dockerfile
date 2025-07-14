@@ -39,6 +39,15 @@ FROM ${BASE_IMAGE}
 ENV BUILD_BASE_DIR=_build
 ENV BUILD_DIR=""
 
+# TODO: This is a temporary fix for issue: https://github.com/prestodb/presto/issues/25531
+# When there is a proper fix, update this piece of code.
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata && \
+    ln -snf /usr/share/zoneinfo/America/Toronto /etc/localtime && \
+    echo "America/New_York" > /etc/timezone && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --chmod=0775 --from=prestissimo-image /prestissimo/${BUILD_BASE_DIR}/${BUILD_DIR}/presto_cpp/main/presto_server /usr/bin/
 COPY --chmod=0775 --from=prestissimo-image /runtime-libraries/* /usr/lib64/prestissimo-libs/
 COPY --chmod=0755 ./etc /opt/presto-server/etc
