@@ -14,9 +14,11 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -268,14 +270,16 @@ public class TestClpFilterToKql
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
-        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
+        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of(), clpUdfVariables);
+        testFilter(clpExpression, expectedKql, expectedRemaining, clpUdfVariables, sessionHolder);
     }
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSqlQuery, Set<String> metadataFilterColumns)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
-        testFilter(clpExpression, expectedKql, null, sessionHolder);
+        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, clpUdfVariables);
+        testFilter(clpExpression, expectedKql, null, clpUdfVariables, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
             assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
             assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
@@ -285,7 +289,11 @@ public class TestClpFilterToKql
         }
     }
 
-    private ClpExpression tryPushDown(String sqlExpression, SessionHolder sessionHolder, Set<String> metadataFilterColumns)
+    private ClpExpression tryPushDown(
+            String sqlExpression,
+            SessionHolder sessionHolder,
+            Set<String> metadataFilterColumns,
+            Set<VariableReferenceExpression> clpUdfVariables)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         return pushDownExpression.accept(
@@ -294,13 +302,14 @@ public class TestClpFilterToKql
                         functionAndTypeManager,
                         variableToColumnHandleMap,
                         metadataFilterColumns),
-                null);
+                clpUdfVariables);
     }
 
     private void testFilter(
             ClpExpression clpExpression,
             String expectedKqlExpression,
             String expectedRemainingExpression,
+            Set<VariableReferenceExpression> clpUdfVariables,
             SessionHolder sessionHolder)
     {
         Optional<String> kqlExpression = clpExpression.getPushDownExpression();
