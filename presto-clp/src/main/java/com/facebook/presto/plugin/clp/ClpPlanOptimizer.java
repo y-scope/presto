@@ -29,10 +29,9 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
@@ -77,18 +76,16 @@ public class ClpPlanOptimizer
             }
 
             TableScanNode tableScanNode = (TableScanNode) node.getSource();
-            Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
+            Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(tableScanNode.getAssignments());
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             String scope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
-            Set<VariableReferenceExpression> clpUdfVariablesInFilterNode = new HashSet<>();
             ClpExpression clpExpression = node.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
-                            assignments,
                             metadataFilterProvider.getColumnNames(scope)),
-                    clpUdfVariablesInFilterNode);
+                    assignments);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
