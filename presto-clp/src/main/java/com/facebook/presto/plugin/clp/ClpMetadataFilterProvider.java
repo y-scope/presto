@@ -84,11 +84,16 @@ public class ClpMetadataFilterProvider
     public ClpMetadataFilterProvider(ClpConfig config)
     {
         requireNonNull(config, "config is null");
+        String configPath = config.getMetadataFilterConfig();
+        if (configPath == null || configPath.isEmpty()) {
+            filterMap = ImmutableMap.of();
+            return;
+        }
 
         ObjectMapper mapper = new ObjectMapper();
         try {
             filterMap = mapper.readValue(
-                    new File(config.getMetadataFilterConfig()),
+                    new File(configPath),
                     new TypeReference<Map<String, List<Filter>>>() {});
         }
         catch (IOException e) {

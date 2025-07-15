@@ -14,9 +14,12 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -266,16 +269,56 @@ public class TestClpFilterToKql
                 testMetadataFilterColumns);
     }
 
+    @Test
+    public void testClpGetUdf()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+        testPushDown(sessionHolder, "CLP_GET_STRING('city.Name') = 'Beijing'", "city.Name: \"Beijing\"", null);
+        testPushDown(sessionHolder, "CLP_GET_INT('id') = 1", "id: 1", null);
+        testPushDown(sessionHolder, "CLP_GET_FLOAT('fare') > 0", "fare > 0", null);
+        testPushDown(sessionHolder, "CLP_GET_BOOL('isHoliday') = true", "isHoliday: true", null);
+
+        testPushDown(sessionHolder, "cardinality(CLP_GET_STRING_ARRAY('clp_array')) = 2", null, "cardinality(clp_array) = 2");
+        testPushDown(
+                sessionHolder,
+                "CLP_GET_STRING('city.Name') = 'Beijing' AND CLP_GET_INT('id') = 1 AND city.Region.Id = 1",
+                "((city.Name: \"Beijing\" AND id: 1) AND city.Region.Id: 1)",
+                null);
+        testPushDown(
+                sessionHolder,
+                "lower(CLP_GET_STRING('user.Name')) = 'John' AND CLP_GET_INT('id') = 1 AND city.Region.Id = 1",
+                "((id: 1) AND city.Region.Id: 1)",
+                "lower(\"user.Name\") = 'John'");
+    }
+
+    @Test
+    public void testClpWildcardUdf()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+        testPushDown(sessionHolder, "CLP_WILDCARD_STRING_COLUMN() = 'Beijing'", "*: \"Beijing\"", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_INT_COLUMN() = 1", "*: 1", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_FLOAT_COLUMN() > 0", "* > 0", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_BOOL_COLUMN() = true", "*: true", null);
+
+        testPushDown(
+                sessionHolder,
+                "CLP_WILDCARD_STRING_COLUMN() = 'Beijing' AND CLP_WILDCARD_INT_COLUMN() = 1 AND city.Region.Id = 1",
+                "((*: \"Beijing\" AND *: 1) AND city.Region.Id: 1)",
+                null);
+    }
+
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
-        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
+        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of(), clpUdfVariables);
+        testFilter(clpExpression, expectedKql, expectedRemaining, clpUdfVariables, sessionHolder);
     }
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSqlQuery, Set<String> metadataFilterColumns)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
-        testFilter(clpExpression, expectedKql, null, sessionHolder);
+        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, clpUdfVariables);
+        testFilter(clpExpression, expectedKql, null, clpUdfVariables, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
             assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
             assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
@@ -285,22 +328,26 @@ public class TestClpFilterToKql
         }
     }
 
-    private ClpExpression tryPushDown(String sqlExpression, SessionHolder sessionHolder, Set<String> metadataFilterColumns)
+    private ClpExpression tryPushDown(
+            String sqlExpression,
+            SessionHolder sessionHolder,
+            Set<String> metadataFilterColumns,
+            Set<VariableReferenceExpression> clpUdfVariables)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
-        return pushDownExpression.accept(
-                new ClpFilterToKqlConverter(
-                        standardFunctionResolution,
-                        functionAndTypeManager,
-                        variableToColumnHandleMap,
-                        metadataFilterColumns),
-                null);
+        ClpFilterToKqlConverter converter = new ClpFilterToKqlConverter(
+                standardFunctionResolution,
+                functionAndTypeManager,
+                variableToColumnHandleMap,
+                metadataFilterColumns);
+        return pushDownExpression.accept(converter, clpUdfVariables);
     }
 
     private void testFilter(
             ClpExpression clpExpression,
             String expectedKqlExpression,
             String expectedRemainingExpression,
+            Set<VariableReferenceExpression> clpUdfVariables,
             SessionHolder sessionHolder)
     {
         Optional<String> kqlExpression = clpExpression.getPushDownExpression();
@@ -315,7 +362,15 @@ public class TestClpFilterToKql
 
         if (expectedRemainingExpression != null) {
             assertTrue(remainingExpression.isPresent());
-            assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression, sessionHolder));
+            if (!clpUdfVariables.isEmpty()) {
+                Set<VariableReferenceExpression> newVariableSet = new HashSet<>(variableToColumnHandleMap.keySet());
+                newVariableSet.addAll(clpUdfVariables);
+                TypeProvider newTypeProvider = TypeProvider.fromVariables(newVariableSet);
+                assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression, newTypeProvider, sessionHolder));
+            }
+            else {
+                assertEquals(remainingExpression.get(), getRowExpression(expectedRemainingExpression, sessionHolder));
+            }
         }
         else {
             assertFalse(remainingExpression.isPresent());
