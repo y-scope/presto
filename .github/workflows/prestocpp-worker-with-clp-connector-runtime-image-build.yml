@@ -47,8 +47,11 @@ jobs:
           if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^presto-native-execution/scripts'; then
             dep_changed=true
           fi
+
+          velox_old_sha=$(git ls-tree ${{ github.event.before }} presto-native-execution/velox | awk '{print $3}')
+          velox_new_sha=$(git ls-tree ${{ github.sha }} presto-native-execution/velox | awk '{print $3}')
           cd presto-native-execution/velox
-          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^scripts'; then
+          if git diff --name-only ${velox_old_sha} ${velox_new_sha} | grep -q '^scripts'; then
             dep_changed=true
           fi
           echo "dep-changed=${dep_changed}" >> $GITHUB_OUTPUT
