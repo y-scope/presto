@@ -69,11 +69,9 @@ Property Name                      Description                                  
                                    database name is not specified in the URL.
 ``clp.metadata-db-password``       The password for the metadata database user. This option is required if
                                    ``clp.metadata-provider-type`` is set to ``mysql``.
-``clp.metadata-filter-config``     The absolute path of the metadata filter config file. This option is not
-                                   required. When not provided, no filters will be applied for splits
-                                   pruning; when provided, it must be a valid JSON file. See
+``clp.metadata-filter-config``     The absolute path to an optional metadata filter config file. See the
                                    :ref:`Metadata Filter Config File<metadata-filter-config-file>` section
-                                   for more details.
+                                   for details.
 ``clp.metadata-table-prefix``      A string prefix prepended to all metadata table names when querying the
                                    database. Useful for namespacing or avoiding collisions. This option is
                                    required if ``clp.metadata-provider-type`` is set to ``mysql``.
