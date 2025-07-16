@@ -30,6 +30,7 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
@@ -85,6 +86,7 @@ import static java.util.Objects.requireNonNull;
  *         constant.</li>
  *     <li>Dereferencing fields from row-typed variables.</li>
  *     <li>Logical operators AND, OR, and NOT.</li>
+ *     <li><code>CLP_GET_*</code> UDFs.</li>
  * </ul>
  * <p></p>
  * Supported translations for SQL include:
@@ -117,28 +119,29 @@ public class ClpFilterToKqlConverter
     @Override
     public ClpExpression visitCall(CallExpression node, Map<VariableReferenceExpression, ColumnHandle> context)
     {
-        FunctionHandle functionHandle = node.getFunctionHandle();
+        CallExpression newNode = (CallExpression) maybeReplaceClpUdfArgument(node, context);
+        FunctionHandle functionHandle = newNode.getFunctionHandle();
         if (standardFunctionResolution.isNotFunction(functionHandle)) {
-            return handleNot(node, context);
+            return handleNot(newNode, context);
         }
 
         if (standardFunctionResolution.isLikeFunction(functionHandle)) {
-            return handleLike(node, context);
+            return handleLike(newNode, context);
         }
 
-        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(node.getFunctionHandle());
+        FunctionMetadata functionMetadata = functionMetadataManager.getFunctionMetadata(newNode.getFunctionHandle());
         Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
         if (operatorTypeOptional.isPresent()) {
             OperatorType operatorType = operatorTypeOptional.get();
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
-                return handleLogicalBinary(operatorType, node, context);
+                return handleLogicalBinary(operatorType, newNode, context);
             }
             if (BETWEEN == operatorType) {
-                return handleBetween(node, context);
+                return handleBetween(newNode, context);
             }
         }
 
-        return new ClpExpression(node);
+        return new ClpExpression(newNode);
     }
 
     @Override
@@ -203,6 +206,71 @@ public class ClpFilterToKqlConverter
     private String getVariableName(VariableReferenceExpression variable, Map<VariableReferenceExpression, ColumnHandle> context)
     {
         return ((ClpColumnHandle) context.get(variable)).getOriginalColumnName();
+    }
+
+    /**
+     * Rewrites CLP UDFs (e.g., CLP_GET_*) in a RowExpression tree into VariableReferenceExpressions,
+     * enabling them to be used as pushdown filters.
+     * <p></p>
+     * Traverses the expression tree recursively, replacing supported CLP UDFs with uniquely named
+     * variables and tracking these variables in the assignments and context. If the CLP UDF takes
+     * a constant string argument, that string is used as the new variable name. Unsupported
+     * argument types (non-constants) or invalid expressions will throw an exception.
+     * <p></p>
+     * Examples:
+     * <ul>
+     *   <li><code>CLP_GET_STRING('field')</code> → <code>field</code> (as a VariableReferenceExpression)</li>
+     *   <li><code>CLP_GET_INT('field')</code> → <code>field</code> (not mapped to a KQL column)</li>
+     * </ul>
+     *
+     * @param rowExpression the input expression to analyze and possibly rewrite
+     * @param context a mapping from variable references to column handles used for pushdown. Newly created ones
+     * will be added here
+     * @return a possibly rewritten RowExpression with CLP UDFs replaced
+     */
+    private RowExpression maybeReplaceClpUdfArgument(RowExpression rowExpression, Map<VariableReferenceExpression, ColumnHandle> context)
+    {
+        requireNonNull(context);
+        if (!(rowExpression instanceof CallExpression)) {
+            return rowExpression;
+        }
+
+        CallExpression callExpression = (CallExpression) rowExpression;
+
+        // Recursively process the arguments of this CallExpression
+        List<RowExpression> newArgs = callExpression.getArguments().stream()
+                .map(childArg -> maybeReplaceClpUdfArgument(childArg, context))
+                .collect(ImmutableList.toImmutableList());
+
+        FunctionMetadata metadata = functionMetadataManager.getFunctionMetadata(callExpression.getFunctionHandle());
+        String functionName = metadata.getName().getObjectName().toUpperCase();
+
+        if (functionName.startsWith("CLP_GET")) {
+            // Replace CLP UDF with VariableReferenceExpression
+            int numArguments = callExpression.getArguments().size();
+            if (numArguments == 1) {
+                RowExpression argument = callExpression.getArguments().get(0);
+                if (!(argument instanceof ConstantExpression)) {
+                    throw new PrestoException(
+                            CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                            "The argument of " + functionName + " must be a ConstantExpression");
+                }
+                Optional<String> definition = argument.accept(this, context).getPushDownExpression();
+                if (definition.isPresent()) {
+                    VariableReferenceExpression newVar = new VariableReferenceExpression(
+                            Optional.empty(),
+                            definition.get(),
+                            callExpression.getType());
+                    context.put(newVar, new ClpColumnHandle(definition.get(), callExpression.getType(), true));
+                    return newVar;
+                }
+                else {
+                    throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unrecognized parameter in " + functionName);
+                }
+            }
+        }
+
+        return new CallExpression(callExpression.getDisplayName(), callExpression.getFunctionHandle(), callExpression.getType(), newArgs);
     }
 
     /**
