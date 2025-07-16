@@ -273,16 +273,14 @@ public class TestClpFilterToKql
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
     {
-        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of(), clpUdfVariables);
-        testFilter(clpExpression, expectedKql, expectedRemaining, clpUdfVariables, sessionHolder);
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
+        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
     }
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSqlQuery, Set<String> metadataFilterColumns)
     {
-        HashSet<VariableReferenceExpression> clpUdfVariables = new HashSet<>();
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, clpUdfVariables);
-        testFilter(clpExpression, expectedKql, null, clpUdfVariables, sessionHolder);
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
+        testFilter(clpExpression, expectedKql, null, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
             assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
             assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
@@ -295,8 +293,7 @@ public class TestClpFilterToKql
     private ClpExpression tryPushDown(
             String sqlExpression,
             SessionHolder sessionHolder,
-            Set<String> metadataFilterColumns,
-            Set<VariableReferenceExpression> clpUdfVariables)
+            Set<String> metadataFilterColumns,)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
@@ -312,7 +309,6 @@ public class TestClpFilterToKql
             ClpExpression clpExpression,
             String expectedKqlExpression,
             String expectedRemainingExpression,
-            Set<VariableReferenceExpression> clpUdfVariables,
             SessionHolder sessionHolder)
     {
         Optional<String> kqlExpression = clpExpression.getPushDownExpression();
