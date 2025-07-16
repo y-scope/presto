@@ -1,0 +1,22 @@
+# Configure object storage
+objectStore:
+  minio:
+    serviceName: "minio"
+    apiPort: 9000
+    consolePort: 9001
+  bucketCreation:
+    bucketName: "logs"
+    public: "true"
+
+# Configure Presto
+presto:
+  coordinator:
+    image: "ghcr.io/anlowee/presto/coordinator-with-clp-connector-runtime:centos9"
+    serviceName: "presto-coordinator"
+    httpPort: 8080
+  worker:
+    image: "ghcr.io/anlowee/presto/prestissimo-with-clp-connector-runtime:ubuntu-22.04"
+    serviceName: "presto-worker"
+    httpPort: 8080
+    replicaCount: 1
+

@@ -1,223 +1,139 @@
-# Setup
+# Setup local K8s cluster for presto + clp
 
-## Dependency Installation
-
-### Install docker
+## Install docker
 
 Follow the guide here: [docker]
 
-### Install kubectl
+## Install kubectl
 
 `kubectl` is the command-line tool for interacting with Kubernetes clusters. You will use it to
 manage and inspect your k3d cluster.
 
 Follow the guide here: [kubectl]
 
-### Install k3d
+## Install k3d
 
 k3d is a lightweight wrapper to run k3s (Rancher Lab's minimal Kubernetes distribution) in docker.
 
 Follow the guide here: [k3d]
 
-### Runbook
+## Install Helm
 
-Import the images and apply them to the cluster:
-```shell
-# Create a cluster called presto
-# There should be two directories under /path/to/host/configs/:
-#   - /path/to/host/configs/etc-coordinator:
-#     - /path/to/host/configs/etc-coordinator/catalog/clp.properties
-#     - /path/to/host/configs/etc-coordinator/config.properties
-#     - /path/to/host/configs/etc-coordinator/jvm.config
-#     - /path/to/host/configs/etc-coordinator/log.properties
-#     - /path/to/host/configs/etc-coordinator/metadata-filter.json
-#     - /path/to/host/configs/etc-coordinator/node.properties
-#
-#   - /path/to/host/configs/etc-worker:
-#     - /path/to/host/configs/etc-worker/catalog/clp.properties
-#     - /path/to/host/configs/etc-worker/config.properties
-#     - /path/to/host/configs/etc-worker/node.properties
-#     - /path/to/host/configs/etc-worker/velox.properties
-#
-# There will be examples of these config files in the following sections
-k3d cluster create presto --servers 1 --agents 1 -v /path/to/host/configs/:/configs
-# Load the coordinator image
-k3d image import ghcr.io/y-scope/yscope-presto-with-clp-connector-coordinator:latest -c presto
-# Load the worker image
-k3d image import ghcr.io/y-scope/yscope-presto-with-clp-connector-worker:latest -c presto 
-# Launch the container  
-kubectl apply -f coordinator.yaml worker.yaml
-```
+Helm is the package manager for Kubernetes.
 
-To do a sanity check:
-```shell
-kubectl port-forward svc/presto-coordinator 8080:8080
-# Check is coordinator alive
-curl -X GET http://coordinator:8080/v1/info
-# Check is worker connected to the coordinator
-curl -X GET http://coordinator:8080/v1/nodes
-```
+Follow the guide here: [helm]
 
-# Example Configs for Coordinator
+# Launch clp-package
+1. Find the clp-package for test on our official website [clp-json-v0.4.0]. We also put the dataset for demo here: `mongod-256MB-presto-clp.log.tar.gz`.
 
-Example of k8s image YAML:
+2. Untar it.
+
+3. Replace the content of `etc/clp-config.yml` with the following (also replace the IP address `${REPLACE_IP}` with the actual IP address of the host that you are running the clp-package):
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: coordinator
-  name: coordinator
-spec:
-  containers:
-    - name: coordinator
-      image: ghcr.io/y-scope/yscope-0.293-coordinator:latest
-      imagePullPolicy: Never
-      volumeMounts:
-        - name: "coordinator-config"
-          mountPath: "/opt/presto-server/etc"
-  volumes:
-    - name: "coordinator-config"
-      hostPath:
-        path: "/configs/etc-coordinator"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: coordinator
-  labels:
-    app: coordinator
-spec:
-  type: NodePort
-  ports:
-    - port: 8080
-      nodePort: 30000
-      name: "8080"
-  selector:
-    app: coordinator
+package:
+  storage_engine: "clp-s"
+database:
+  type: "mariadb"
+  host: "${REPLACE_IP}"
+  port: 6001
+  name: "clp-db"
+query_scheduler:
+  host: "${REPLACE_IP}"
+  port: 6002
+  jobs_poll_delay: 0.1
+  num_archives_to_search_per_sub_job: 16
+  logging_level: "INFO"
+queue:
+  host: "${REPLACE_IP}"
+  port: 6003
+redis:
+  host: "${REPLACE_IP}"
+  port: 6004
+  query_backend_database: 0
+  compression_backend_database: 1
+reducer:
+  host: "${REPLACE_IP}"
+  base_port: 6100
+  logging_level: "INFO"
+  upsert_interval: 100
+results_cache:
+  host: "${REPLACE_IP}"
+  port: 6005
+  db_name: "clp-query-results"
+  stream_collection_name: "stream-files"
+webui:
+  host: "localhost"
+  port: 6000
+  logging_level: "INFO"
+log_viewer_webui:
+  host: "localhost"
+  port: 6006
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/catalog/clp.properties` (need to update `clp.metadata-db-*` fields):
-```
-connector.name=clp
-clp.metadata-provider-type=mysql
-clp.metadata-db-url=jdbc:mysql://REPLACE_ME
-clp.metadata-db-name=REPLACE_ME
-clp.metadata-db-user=REPLACE_ME
-clp.metadata-db-password=REPLACE_ME
-clp.metadata-table-prefix=clp_
-clp.split-provider-type=mysql
-clp.metadata-filter-config=$(pwd)/etc-coordinator/metadata-filter.json
+4. Launch:
+```bash
+# You probably want to run in a 3.11 python environment
+sbin/start-clp.sh
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/config.properties`:
-```
-coordinator=true
-node-scheduler.include-coordinator=false
-http-server.http.port=8080
-query.max-memory=1GB
-query.max-memory-per-node=1GB
-discovery-server.enabled=true
-discovery.uri=http://localhost:8080
-optimizer.optimize-hash-generation=false
-regex-library=RE2J
-use-alternative-function-signatures=true
-inline-sql-functions=false
-nested-data-serialization-enabled=false
-native-execution-enabled=true
+5. Compress:
+```bash
+# You can also use your own dataset
+sbin/compress.sh --timestamp-key 't.dollar_sign_date' datasets/mongod-256MB-processed.log
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/jvm.config`:
-```
--server
--Xmx4G
--XX:+UseG1GC
--XX:G1HeapRegionSize=32M
--XX:+UseGCOverheadLimit
--XX:+ExplicitGCInvokesConcurrent
--XX:+HeapDumpOnOutOfMemoryError
--XX:+ExitOnOutOfMemoryError
--Djdk.attach.allowAttachSelf=true
+6. Use a JetBrain IDE to connect the database source. The database is `clp-db`, the user is `clp-user` and the password is in `etc/credential.yml`. Then modify the `archive_storage_directory` field in `clp_datasets` table to `/var/data/archives/default`, and submit the change.
+
+# Create k8s Cluster
+Create a local k8s cluster with port forwarding
+```bash
+# Replace the ~/clp-json-x86_64-v0.4.0/var/data/archives to the correct path
+k3d cluster create yscope --servers 1 --agents 1 -v $(readlink -f ~/clp-json-x86_64-v0.4.0/var/data/archives):/var/data/archives
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/log.properties`:
-```
-com.facebook.presto=DEBUG
+# Working with helm chart
+## Install
+In `yscope-k8s/templates/presto/presto-coordinator-config.yaml` replace the `${REPLACE_IP}` in `clp.metadata-db-url=jdbc:mysql://${REPLACE_IP}:6001` with the IP address of the host you are running the clp-package (basially match the IP address that you configured in the `etc/clp-config.yml` of the clp-package).
+
+```bash
+cd yscope-k8s
+
+helm template . 
+
+helm install demo .
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/metadata-filter.json`:
-```
-{
-  "clp.default": [
-    {
-      "filterName": "msg.timestamp",
-      "rangeMapping": {
-        "lowerBound": "begin_timestamp",
-        "upperBound": "end_timestamp"
-      },
-      "required": true
-    }
-  ]
-}
+## Use cli:
+After all containers are in "Running" states (check by `kubectl get pods`):
+```bash
+kubectl port-forward service/presto-coordinator 8080:8080
 ```
 
-Example of `/path/to/host/configs/etc-coordinator/node.properties`:
-```
-node.environment=production
-node.id=coordinator
+Then you can further forward the 8080 port to your local laptop, to access the Presto's WebUI by e.g., http://localhost:8080
+
+To use presto-cli:
+```bash
+./presto-cli-0.293-executable.jar --catalog clp --schema default --server localhost:8080
 ```
 
-# Example Configs for Worker
-
-Example of k8s image YAML:
-🚧This is still in progress.
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: worker
-  name: worker
-spec:
-  containers:
-    - name: worker
-      image: ubuntu:22.04
-      # imagePullPolicy: Never
-      command:
-        - /bin/bash
-        - -c
-      args:
-        - sleep infinity
+Example query:
+```
+SELECT * FROM default LIMIT 1;
 ```
 
-Example of `/path/to/host/configs/etc-worker/catalog/clp.properties`:
-```
-connector.name=clp
-```
-
-Example of `/path/to/host/configs/etc-worker/config.properties` (need to replace the `presto.version` to make it the same as coordinator`s):
-```
-discovery.uri=http://127.0.0.1:8080
-presto.version=REPLACE_ME
-http-server.http.port=7777
-shutdown-onset-sec=1
-register-test-functions=false
-runtime-metrics-collection-enabled=false
+## Uninstall
+```bash
+helm uninstall demo
 ```
 
-Example of `/path/to/host/configs/etc-worker/node.properties`:
-```
-node.environment=production
-node.internal-address=127.0.0.1
-node.location=testing-location
-node.id=worker-1
+# Delete k8s Cluster
+```bash
+k3d cluster delete yscope
 ```
 
-Example of `/path/to/host/configs/etc-worker/velox.properties`:
-```
-mutable-config=true
-```
 
+[clp-json-v0.4.0]: https://github.com/y-scope/clp/releases/tag/v0.4.0
 [docker]: https://docs.docker.com/engine/install
 [k3d]: https://k3d.io/stable/#installation
 [kubectl]: https://kubernetes.io/docs/tasks/tools/#kubectl
+[helm]: https://helm.sh/docs/intro/install/

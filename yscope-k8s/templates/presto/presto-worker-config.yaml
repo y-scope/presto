@@ -1,0 +1,24 @@
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: "presto-worker-config"
+data:
+  clp.properties: |
+    connector.name=clp
+
+  config.properties: |
+    discovery.uri=http://{{ .Values.presto.coordinator.serviceName }}.default.svc.cluster.local:{{ .Values.presto.coordinator.httpPort }}
+    presto.version=REPLACE_ME
+    http-server.http.port={{ .Values.presto.worker.httpPort }}
+    shutdown-onset-sec=1
+    register-test-functions=false
+    runtime-metrics-collection-enabled=false
+
+  node.properties: |
+    node.environment=production
+    node.internal-address=REPLACE_ME
+    node.location=testing-location
+    node.id=REPLACE_ME
+
+  velox.properties: |
+    mutable-config=true
