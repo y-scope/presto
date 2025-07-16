@@ -71,8 +71,6 @@ public class ClpSplit
     @Override
     public Map<String, String> getInfo()
     {
-        return ImmutableMap.of(
-                "path", path,
-                "kqlQuery", kqlQuery.orElse("<null>"));
+        return ImmutableMap.of("path", path, "kqlQuery", kqlQuery.orElse("<null>"));
     }
 }

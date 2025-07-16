@@ -1597,9 +1597,7 @@ ClpPrestoToVeloxConnector::toVeloxTableHandle(
       "Unexpected layout type {}",
       tableHandle.connectorTableLayout->_type);
   return std::make_unique<connector::clp::ClpTableHandle>(
-      tableHandle.connectorId,
-      clpLayout->table.schemaTableName.table,
-      clpLayout->kqlQuery);
+      tableHandle.connectorId, clpLayout->table.schemaTableName.table);
 }
 
 std::unique_ptr<protocol::ConnectorProtocol>
