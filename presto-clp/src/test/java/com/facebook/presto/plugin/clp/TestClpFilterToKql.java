@@ -20,7 +20,6 @@ import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -290,10 +289,7 @@ public class TestClpFilterToKql
         }
     }
 
-    private ClpExpression tryPushDown(
-            String sqlExpression,
-            SessionHolder sessionHolder,
-            Set<String> metadataFilterColumns,)
+    private ClpExpression tryPushDown(String sqlExpression, SessionHolder sessionHolder, Set<String> metadataFilterColumns)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
@@ -305,11 +301,7 @@ public class TestClpFilterToKql
                 assignments);
     }
 
-    private void testFilter(
-            ClpExpression clpExpression,
-            String expectedKqlExpression,
-            String expectedRemainingExpression,
-            SessionHolder sessionHolder)
+    private void testFilter(ClpExpression clpExpression, String expectedKqlExpression, String expectedRemainingExpression, SessionHolder sessionHolder)
     {
         Optional<String> kqlExpression = clpExpression.getPushDownExpression();
         Optional<RowExpression> remainingExpression = clpExpression.getRemainingExpression();
