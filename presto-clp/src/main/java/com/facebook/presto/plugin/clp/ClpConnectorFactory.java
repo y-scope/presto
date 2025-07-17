@@ -23,7 +23,6 @@ import com.facebook.presto.spi.connector.ConnectorContext;
 import com.facebook.presto.spi.connector.ConnectorFactory;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
-import com.facebook.presto.spi.relation.RowExpressionService;
 import com.google.inject.Injector;
 
 import java.util.Map;
@@ -33,10 +32,12 @@ import static java.util.Objects.requireNonNull;
 public class ClpConnectorFactory
         implements ConnectorFactory
 {
+    public static final String CONNECTOR_NAME = "clp";
+
     @Override
     public String getName()
     {
-        return "clp";
+        return CONNECTOR_NAME;
     }
 
     @Override
@@ -54,7 +55,6 @@ public class ClpConnectorFactory
             Bootstrap app = new Bootstrap(new JsonModule(), new ClpModule(), binder -> {
                 binder.bind(FunctionMetadataManager.class).toInstance(context.getFunctionMetadataManager());
                 binder.bind(NodeManager.class).toInstance(context.getNodeManager());
-                binder.bind(RowExpressionService.class).toInstance(context.getRowExpressionService());
                 binder.bind(StandardFunctionResolution.class).toInstance(context.getStandardFunctionResolution());
                 binder.bind(TypeManager.class).toInstance(context.getTypeManager());
             });
