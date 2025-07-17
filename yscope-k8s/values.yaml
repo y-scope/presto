@@ -1,13 +1,3 @@
-# Configure object storage
-objectStore:
-  minio:
-    serviceName: "minio"
-    apiPort: 9000
-    consolePort: 9001
-  bucketCreation:
-    bucketName: "logs"
-    public: "true"
-
 # Configure Presto
 presto:
   coordinator:

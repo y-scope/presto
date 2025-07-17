@@ -28,47 +28,7 @@ Follow the guide here: [helm]
 
 2. Untar it.
 
-3. Replace the content of `etc/clp-config.yml` with the following (also replace the IP address `${REPLACE_IP}` with the actual IP address of the host that you are running the clp-package):
-```yaml
-package:
-  storage_engine: "clp-s"
-database:
-  type: "mariadb"
-  host: "${REPLACE_IP}"
-  port: 6001
-  name: "clp-db"
-query_scheduler:
-  host: "${REPLACE_IP}"
-  port: 6002
-  jobs_poll_delay: 0.1
-  num_archives_to_search_per_sub_job: 16
-  logging_level: "INFO"
-queue:
-  host: "${REPLACE_IP}"
-  port: 6003
-redis:
-  host: "${REPLACE_IP}"
-  port: 6004
-  query_backend_database: 0
-  compression_backend_database: 1
-reducer:
-  host: "${REPLACE_IP}"
-  base_port: 6100
-  logging_level: "INFO"
-  upsert_interval: 100
-results_cache:
-  host: "${REPLACE_IP}"
-  port: 6005
-  db_name: "clp-query-results"
-  stream_collection_name: "stream-files"
-webui:
-  host: "localhost"
-  port: 6000
-  logging_level: "INFO"
-log_viewer_webui:
-  host: "localhost"
-  port: 6006
-```
+3. Replace the content of `/path/to/clp-json-package/etc/clp-config.yml` with the output of `demo-assets/init.sh <ip_addr>` where the `<ip_addr>` is the IP address of the host that you are running the clp-package.
 
 4. Launch:
 ```bash
@@ -82,13 +42,18 @@ sbin/start-clp.sh
 sbin/compress.sh --timestamp-key 't.dollar_sign_date' datasets/mongod-256MB-processed.log
 ```
 
-6. Use a JetBrain IDE to connect the database source. The database is `clp-db`, the user is `clp-user` and the password is in `etc/credential.yml`. Then modify the `archive_storage_directory` field in `clp_datasets` table to `/var/data/archives/default`, and submit the change.
+6. Use the following command to update the CLP metadata database so that the worker can find the archives in right place:
+```bash
+# Install mysql-client if necessary
+sudo apt update && sudo apt install -y mysql-client
+# Find the user and password in /path/to/clp-json-package/etc/credential.yml
+mysql -h ${REPLACE_IP} -P 6001 -u ${REPLACE_USER} -p'${REPLACE_PASSWORD}' clp-db -e "UPDATE clp_datasets SET archive_storage_directory = '/var/data/archives/default';"
+```
 
 # Create k8s Cluster
 Create a local k8s cluster with port forwarding
 ```bash
-# Replace the ~/clp-json-x86_64-v0.4.0/var/data/archives to the correct path
-k3d cluster create yscope --servers 1 --agents 1 -v $(readlink -f ~/clp-json-x86_64-v0.4.0/var/data/archives):/var/data/archives
+k3d cluster create yscope --servers 1 --agents 1 -v $(readlink -f /path/to/clp-json-package/var/data/archives):/var/data/archives
 ```
 
 # Working with helm chart

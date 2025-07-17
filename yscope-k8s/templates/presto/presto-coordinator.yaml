@@ -6,9 +6,6 @@ metadata:
   name: "{{ .Values.presto.coordinator.serviceName }}"
 spec:
   initContainers:
-          #    - name: "start-clp-package"
-          #image: "busybox"
-          #command: "/scripts/start-clp-package.sh"
     - name: "generate-configs"
       image: "busybox"
       command: ["/scripts/generate-configs.sh"]
@@ -37,7 +34,6 @@ spec:
     - name: "presto-coordinator-config-volume"
       configMap:
         name: "presto-coordinator-config"
-    # TODO: add CLP data directory volume host path
     - name: "clp-archives-volume"
       hostPath:
         path: "/var/data/archives"
