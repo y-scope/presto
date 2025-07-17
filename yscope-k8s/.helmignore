@@ -24,4 +24,4 @@
 .vscode/
 
 # Demo assets
-demo-assets/
+/demo-assets/
