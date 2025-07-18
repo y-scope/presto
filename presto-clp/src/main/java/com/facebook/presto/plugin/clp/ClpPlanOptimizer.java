@@ -30,12 +30,9 @@ import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.TableScanNode;
-import com.facebook.presto.spi.relation.CallExpression;
-import com.facebook.presto.spi.relation.ConstantExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
-import io.airlift.slice.Slice;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,6 +44,7 @@ import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
+import static com.facebook.presto.plugin.clp.ClpUdfRewriter.rewriteClpUdfsWithSet;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.util.Objects.requireNonNull;
 
@@ -90,34 +88,8 @@ public class ClpPlanOptimizer
                 VariableReferenceExpression oldKey = entry.getKey();
                 RowExpression oldValue = entry.getValue();
 
-                if (!(oldValue instanceof CallExpression)) {
-                    assignmentsBuilder.put(oldKey, oldValue);
-                    continue;
-                }
-
-                CallExpression callExpression = (CallExpression) oldValue;
-                String functionName = functionManager.getFunctionMetadata((callExpression).getFunctionHandle())
-                        .getName().getObjectName().toUpperCase();
-
-                if (!functionName.startsWith("CLP_GET")) {
-                    assignmentsBuilder.put(oldKey, oldValue);
-                    continue;
-                }
-
-                if (!callExpression.getArguments().isEmpty()) {
-                    RowExpression argument = callExpression.getArguments().get(0);
-                    if (!(argument instanceof ConstantExpression)) {
-                        throw new PrestoException(
-                                CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                                "The argument of " + functionName + " must be a ConstantExpression");
-                    }
-                    String jsonPath = ((Slice) ((ConstantExpression) argument).getValue()).toStringUtf8();
-
-                    VariableReferenceExpression newValue = new VariableReferenceExpression(
-                            oldValue.getSourceLocation(), jsonPath, oldValue.getType());
-                    assignmentsBuilder.put(oldKey, newValue);
-                    clpUdfVariablesInProjectNode.add(newValue);
-                }
+                RowExpression rewrittenExpr = rewriteClpUdfsWithSet(oldValue, clpUdfVariablesInProjectNode, functionManager);
+                assignmentsBuilder.put(oldKey, rewrittenExpr);
             }
 
             PlanNode childNode = node.getSource();

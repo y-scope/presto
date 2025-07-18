@@ -16,7 +16,6 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.transaction.TransactionId;
-import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.cost.PlanNodeStatsEstimate;
 import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
@@ -52,6 +51,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.Utils.checkState;
+import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
@@ -65,6 +65,8 @@ import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpS
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Float;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
+import static com.facebook.presto.sql.planner.assertions.MatchResult.NO_MATCH;
+import static com.facebook.presto.sql.planner.assertions.MatchResult.match;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.filter;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
@@ -130,92 +132,6 @@ public class TestClpPlanOptimizer
     }
 
     @Test
-    public void testScanProjectFilter()
-    {
-        TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
-        Session session = testSessionBuilder()
-                .setCatalog("clp")
-                .setSchema("default")
-                .setTransactionId(transactionId)
-                .build();
-
-        Plan plan = localQueryRunner.createPlan(
-                session,
-                "SELECT CLP_GET_STRING('user') from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
-                WarningCollector.NOOP);
-        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
-        PlanNode optimizedPlan = optimizer.optimize(
-                plan.getRoot(),
-                session.toConnectorSession(),
-                null,
-                new PlanNodeIdAllocator());
-        log.info(plan.toString());
-        PlanAssert.assertPlan(
-                session,
-                localQueryRunner.getMetadata(),
-                (node, sourceStats, lookup, s, types) -> PlanNodeStatsEstimate.unknown(),
-                new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
-                anyTree(
-                        project(
-                                ImmutableMap.of(
-                                        "clp_get_string",
-                                        PlanMatchPattern.expression("user")),
-                                filter(
-                                        expression("lower(city.Name) = 'BEIJING'"),
-                                        ClpTableScanMatcher.clpTableScanPattern(
-                                                new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
-                                                ImmutableSet.of(
-                                                        new ClpColumnHandle(
-                                                                "user",
-                                                                VarcharType.VARCHAR,
-                                                                true),
-                                                        city))))));
-    }
-
-    @Test
-    public void testScanProject()
-    {
-        TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
-        Session session = testSessionBuilder()
-                .setCatalog("clp")
-                .setSchema("default")
-                .setTransactionId(transactionId)
-                .build();
-
-        Plan plan = localQueryRunner.createPlan(
-                session,
-                "SELECT CLP_GET_STRING('user') FROM test",
-                WarningCollector.NOOP);
-        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
-        PlanNode optimizedPlan = optimizer.optimize(
-                plan.getRoot(),
-                session.toConnectorSession(),
-                null,
-                planNodeIdAllocator);
-
-        PlanAssert.assertPlan(
-                session,
-                localQueryRunner.getMetadata(),
-                (node, sourceStats, lookup, s, types) -> PlanNodeStatsEstimate.unknown(),
-                new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
-                anyTree(
-                        project(
-                                ImmutableMap.of(
-                                        "clp_get_string",
-                                        PlanMatchPattern.expression("user")),
-                                ClpTableScanMatcher.clpTableScanPattern(
-                                        new ClpTableLayoutHandle(
-                                                table,
-                                                Optional.empty(),
-                                                Optional.empty()),
-                                        ImmutableSet.of(
-                                                new ClpColumnHandle(
-                                                        "user",
-                                                        VarcharType.VARCHAR,
-                                                        true))))));
-    }
-
-    @Test
     public void testScanFilter()
     {
         TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
@@ -247,6 +163,97 @@ public class TestClpPlanOptimizer
                                 ClpTableScanMatcher.clpTableScanPattern(
                                         new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
                                         ImmutableSet.of(city, fare, isHoliday)))));
+    }
+
+    @Test
+    public void testScanProject()
+    {
+        TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
+        Session session = testSessionBuilder()
+                .setCatalog("clp")
+                .setSchema("default")
+                .setTransactionId(transactionId)
+                .build();
+
+        Plan plan = localQueryRunner.createPlan(
+                session,
+                "SELECT CLP_GET_STRING('user'), city.Name FROM test",
+                WarningCollector.NOOP);
+        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        PlanNode optimizedPlan = optimizer.optimize(
+                plan.getRoot(),
+                session.toConnectorSession(),
+                null,
+                planNodeIdAllocator);
+
+        PlanAssert.assertPlan(
+                session,
+                localQueryRunner.getMetadata(),
+                (node, sourceStats, lookup, s, types) -> PlanNodeStatsEstimate.unknown(),
+                new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
+                anyTree(
+                        project(
+                                ImmutableMap.of(
+                                        "clp_get_string",
+                                        PlanMatchPattern.expression("user"),
+                                        "expr",
+                                        PlanMatchPattern.expression("city.Name")),
+                                ClpTableScanMatcher.clpTableScanPattern(
+                                        new ClpTableLayoutHandle(
+                                                table,
+                                                Optional.empty(),
+                                                Optional.empty()),
+                                        ImmutableSet.of(
+                                                new ClpColumnHandle(
+                                                        "user",
+                                                        VARCHAR,
+                                                        true),
+                                                city)))));
+    }
+
+    @Test
+    public void testScanProjectFilter()
+    {
+        TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
+        Session session = testSessionBuilder()
+                .setCatalog("clp")
+                .setSchema("default")
+                .setTransactionId(transactionId)
+                .build();
+
+        Plan plan = localQueryRunner.createPlan(
+                session,
+                "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('user')) from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
+                WarningCollector.NOOP);
+        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        PlanNode optimizedPlan = optimizer.optimize(
+                plan.getRoot(),
+                session.toConnectorSession(),
+                null,
+                new PlanNodeIdAllocator());
+        log.info(plan.toString());
+        PlanAssert.assertPlan(
+                session,
+                localQueryRunner.getMetadata(),
+                (node, sourceStats, lookup, s, types) -> PlanNodeStatsEstimate.unknown(),
+                new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
+                anyTree(
+                        project(
+                                ImmutableMap.of(
+                                        "lower",
+                                        PlanMatchPattern.expression("lower(city.Name)"),
+                                        "lower_0",
+                                        PlanMatchPattern.expression("lower(user)")),
+                                filter(
+                                        expression("lower(city.Name) = 'BEIJING'"),
+                                        ClpTableScanMatcher.clpTableScanPattern(
+                                                new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
+                                                ImmutableSet.of(
+                                                        new ClpColumnHandle(
+                                                                "user",
+                                                                VARCHAR,
+                                                                true),
+                                                        city))))));
     }
 
     private static final class ClpTableScanMatcher
@@ -286,7 +293,7 @@ public class TestClpPlanOptimizer
 
             // Check layout handle
             if (!expectedLayoutHandle.equals(actualLayoutHandle)) {
-                return MatchResult.NO_MATCH;
+                return NO_MATCH;
             }
 
             // Check assignments contain expected columns
@@ -294,7 +301,7 @@ public class TestClpPlanOptimizer
             Set<ColumnHandle> actualColumns = new HashSet<>(actualAssignments.values());
 
             if (!expectedColumns.equals(actualColumns)) {
-                return MatchResult.NO_MATCH;
+                return NO_MATCH;
             }
 
             SymbolAliases.Builder aliasesBuilder = SymbolAliases.builder();
@@ -302,7 +309,7 @@ public class TestClpPlanOptimizer
                 aliasesBuilder.put(variable.getName(), new SymbolReference(variable.getName()));
             }
 
-            return MatchResult.match(aliasesBuilder.build());
+            return match(aliasesBuilder.build());
         }
     }
 }

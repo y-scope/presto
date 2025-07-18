@@ -24,14 +24,14 @@ public class ClpPlugin
         implements Plugin
 {
     @Override
-    public Set<Class<?>> getFunctions()
-    {
-        return ImmutableSet.of(ClpFunctions.class);
-    }
-
-    @Override
     public Iterable<ConnectorFactory> getConnectorFactories()
     {
         return ImmutableList.of(new ClpConnectorFactory());
+    }
+
+    @Override
+    public Set<Class<?>> getFunctions()
+    {
+        return ImmutableSet.of(ClpFunctions.class);
     }
 }
