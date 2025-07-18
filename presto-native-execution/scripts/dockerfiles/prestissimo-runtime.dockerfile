@@ -39,8 +39,8 @@ FROM ${BASE_IMAGE}
 ENV BUILD_BASE_DIR=_build
 ENV BUILD_DIR=""
 
-# TODO: This is a temporary fix for issue: https://github.com/prestodb/presto/issues/25531
-# When there is a proper fix, update this piece of code.
+# Temporary fix for https://github.com/prestodb/presto/issues/25531
+# TODO: Update this code when there's a proper fix
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata && \
     ln -snf /usr/share/zoneinfo/America/Toronto /etc/localtime && \
