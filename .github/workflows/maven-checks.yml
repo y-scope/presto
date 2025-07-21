@@ -68,7 +68,6 @@ jobs:
     name: presto-coordinator-image
     needs: maven-checks
     runs-on: ubuntu-22.04
-    if: ${{ always() && success() }}
     steps:
       - uses: "actions/checkout@v4"
         with:
