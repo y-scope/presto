@@ -44,7 +44,8 @@ import static java.lang.String.format;
  *   </li>
  * </ul>
  */
-public class ClpMySqlMetadataFilterProvider extends ClpMetadataFilterProvider
+public class ClpMySqlMetadataFilterProvider
+        extends ClpMetadataFilterProvider
 {
     @Inject
     public ClpMySqlMetadataFilterProvider(ClpConfig config)
@@ -108,7 +109,8 @@ public class ClpMySqlMetadataFilterProvider extends ClpMetadataFilterProvider
     }
 
     @Override
-    protected Class<? extends MetadataDatabaseSpecific> getMetadataDatabaseSpecificClass() {
+    protected Class<? extends MetadataDatabaseSpecific> getMetadataDatabaseSpecificClass()
+    {
         return ClpMySqlMetadataDatabaseSpecific.class;
     }
 
@@ -125,7 +127,9 @@ public class ClpMySqlMetadataFilterProvider extends ClpMetadataFilterProvider
                 : ImmutableMap.of();
     }
 
-    protected static class ClpMySqlMetadataDatabaseSpecific implements MetadataDatabaseSpecific {
+    protected static class ClpMySqlMetadataDatabaseSpecific
+            implements MetadataDatabaseSpecific
+    {
         @JsonProperty("rangeMapping")
         public RangeMapping rangeMapping;
 

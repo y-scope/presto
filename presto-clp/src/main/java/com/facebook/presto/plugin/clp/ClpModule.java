@@ -16,7 +16,6 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.configuration.AbstractConfigurationAwareModule;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
-import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataDatabaseSpecificDeserializer;
 import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
 import com.facebook.presto.plugin.clp.metadata.filter.ClpMySqlMetadataFilterProvider;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;

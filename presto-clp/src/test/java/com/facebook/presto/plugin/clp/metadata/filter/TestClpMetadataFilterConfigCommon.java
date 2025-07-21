@@ -28,10 +28,13 @@ import java.nio.file.Paths;
 import java.util.Set;
 
 import static java.util.UUID.randomUUID;
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
+import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
-public class TestClpMetadataFilterConfigCommon {
+public class TestClpMetadataFilterConfigCommon
+{
     private String filterConfigPath;
 
     @BeforeMethod

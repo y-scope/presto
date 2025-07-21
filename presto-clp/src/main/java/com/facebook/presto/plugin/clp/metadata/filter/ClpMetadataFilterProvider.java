@@ -16,17 +16,9 @@ package com.facebook.presto.plugin.clp.metadata.filter;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -39,11 +31,9 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
-import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType;
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMySqlMetadataFilterProvider.ClpMySqlMetadataDatabaseSpecific;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -73,8 +63,8 @@ import static java.util.Objects.requireNonNull;
  *   is missing or cannot be pushed down, the query will be rejected.</li>
  * </ul>
  */
-public abstract class ClpMetadataFilterProvider {
-
+public abstract class ClpMetadataFilterProvider
+{
     protected final Map<String, List<ClpMetadataFilter>> filterMap;
 
     public ClpMetadataFilterProvider(ClpConfig config)
@@ -89,8 +79,7 @@ public abstract class ClpMetadataFilterProvider {
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
                 MetadataDatabaseSpecific.class,
-                new ClpMetadataDatabaseSpecificDeserializer(getMetadataDatabaseSpecificClass())
-        );
+                new ClpMetadataDatabaseSpecificDeserializer(getMetadataDatabaseSpecificClass()));
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
