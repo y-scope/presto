@@ -31,14 +31,16 @@ import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORT
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /**
- * Utility methods for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression} trees.
+ * Utility methods for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression}
+ * trees.
  * <p>
- * These UDFs are rewritten into {@link VariableReferenceExpression}s with meaningful names. This enables
- * quering fields not present in the original table schema, but available in CLP.
+ * These UDFs are rewritten into {@link VariableReferenceExpression}s with meaningful names. This
+ * enables quering fields not present in the original table schema, but available in CLP.
  * <p>
- * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is used to construct
- * the name of the variable reference (e.g., <code>CLP_GET_STRING('foo')</code> becomes a variable named
- * <code>foo</code>). Invalid usages (e.g., non-constant arguments) will throw a {@link PrestoException}.
+ * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is used to
+ * construct the name of the variable reference (e.g. <code>CLP_GET_STRING('foo')</code> becomes a
+ * variable name <code>foo</code>). Invalid usages (e.g., non-constant arguments) will throw a
+ * {@link PrestoException}.
  * <p>
  * Depending on usage context:
  * <ul>
@@ -53,8 +55,8 @@ public final class ClpUdfRewriter
     private ClpUdfRewriter() {}
 
     /**
-     * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting variable
-     * into the given set.
+     * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting
+     * variable into the given set.
      * <p>
      * Used for tracking projected variables in <code>ProjectNode</code>.
      *
@@ -63,7 +65,6 @@ public final class ClpUdfRewriter
      * @param functionManager function manager used to resolve function metadata
      * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
      */
-
     public static RowExpression rewriteClpUdfsWithSet(
             RowExpression expression,
             Set<VariableReferenceExpression> clpUdfVariables,
@@ -102,14 +103,14 @@ public final class ClpUdfRewriter
     }
 
     /**
-     * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting variable
-     * into the given map along with its associated {@link ColumnHandle}.
+     * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting
+     * variable into the given map along with its associated {@link ColumnHandle}.
      * <p>
      * Used for processing filter predicates in <code>TableScanNode</code>.
      *
      * @param expression the input expression to analyze and possibly rewrite
-     * @param context a mapping from variable references to column handles. New entries will be added
-     *                for any rewritten CLP UDFs
+     * @param context a mapping from variable references to column handles. New entries will be
+     * added for any rewritten CLP UDFs
      * @param functionManager function manager used to resolve function metadata
      * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
      */
