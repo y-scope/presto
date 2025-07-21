@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 
@@ -106,7 +107,7 @@ public class ClpMySqlMetadataFilterProvider extends ClpMetadataFilterProvider
         return remappedSql;
     }
 
-    private Map<String, ClpMySqlMetadataDatabaseSpecific.RangeMapping> getAllMappingsFromFilters(List<Filter> filters)
+    private Map<String, ClpMySqlMetadataDatabaseSpecific.RangeMapping> getAllMappingsFromFilters(List<ClpMetadataFilter> filters)
     {
         return null != filters
                 ? filters.stream()

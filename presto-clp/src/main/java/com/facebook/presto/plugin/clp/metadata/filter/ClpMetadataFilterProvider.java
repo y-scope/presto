@@ -19,8 +19,14 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -33,8 +39,10 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
+import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
 import static com.facebook.presto.plugin.clp.metadata.filter.ClpMySqlMetadataFilterProvider.ClpMySqlMetadataDatabaseSpecific;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.String.format;
@@ -67,7 +75,7 @@ import static java.util.Objects.requireNonNull;
  */
 public abstract class ClpMetadataFilterProvider {
 
-    protected final Map<String, List<Filter>> filterMap;
+    protected final Map<String, List<ClpMetadataFilter>> filterMap;
 
     public ClpMetadataFilterProvider(ClpConfig config)
     {
@@ -78,10 +86,16 @@ public abstract class ClpMetadataFilterProvider {
             return;
         }
         ObjectMapper mapper = new ObjectMapper();
+        SimpleModule module = new SimpleModule();
+        module.addDeserializer(
+                MetadataDatabaseSpecific.class,
+                new ClpMetadataDatabaseSpecificDeserializer(config)
+        );
+        mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
                     new File(config.getMetadataFilterConfig()),
-                    new TypeReference<Map<String, List<Filter>>>() {});
+                    new TypeReference<Map<String, List<ClpMetadataFilter>>>() {});
         }
         catch (IOException e) {
             throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to metadata filter config file open.");
@@ -117,7 +131,7 @@ public abstract class ClpMetadataFilterProvider {
         return collectColumnNamesFromScopes(scope, this::getRequiredColumnNamesFromFilters);
     }
 
-    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<Filter>, Set<String>> extractor)
+    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<ClpMetadataFilter>, Set<String>> extractor)
     {
         String[] splitScope = scope.split("\\.");
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
@@ -135,40 +149,18 @@ public abstract class ClpMetadataFilterProvider {
         return builder.build();
     }
 
-    private Set<String> getAllColumnNamesFromFilters(List<Filter> filters)
+    private Set<String> getAllColumnNamesFromFilters(List<ClpMetadataFilter> filters)
     {
         return null != filters ? filters.stream()
                 .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
 
-    private Set<String> getRequiredColumnNamesFromFilters(List<Filter> filters)
+    private Set<String> getRequiredColumnNamesFromFilters(List<ClpMetadataFilter> filters)
     {
         return null != filters ? filters.stream()
                 .filter(filter -> filter.required)
                 .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
-
-    protected static class Filter {
-        @JsonProperty("columnName")
-        public String columnName;
-
-        @JsonProperty("metadataDatabaseSpecific")
-        public MetadataDatabaseSpecific metadataDatabaseSpecific;
-
-        @JsonProperty("required")
-        public boolean required;
-    }
-
-    @JsonTypeInfo(
-            use = JsonTypeInfo.Id.NAME,
-            include = JsonTypeInfo.As.PROPERTY,
-            property = "database"
-    )
-    @JsonSubTypes({
-            @JsonSubTypes.Type(value = ClpMySqlMetadataDatabaseSpecific.class, name = "mysql")
-    })
-    protected interface MetadataDatabaseSpecific
-    {}
 }
