@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
@@ -94,7 +95,7 @@ public class ClpPlanOptimizer
             // isn't present, we'll return early, skipping subsequent checks).
             metadataFilterProvider.checkContainsRequiredFilters(clpTableHandle.getSchemaTableName(), metadataSqlQuery.orElse(""));
             if (metadataSqlQuery.isPresent()) {
-                metadataSqlQuery = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSqlQuery.get()));
+                metadataSqlQuery = Optional.of(metadataFilterProvider.remapMetadataFilterPushDown(scope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery);
             }
 

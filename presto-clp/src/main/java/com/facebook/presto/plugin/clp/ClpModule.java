@@ -16,6 +16,8 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.configuration.AbstractConfigurationAwareModule;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
+import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
+import com.facebook.presto.plugin.clp.metadata.filter.ClpMySqlMetadataFilterProvider;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.PrestoException;
@@ -37,13 +39,13 @@ public class ClpModule
         binder.bind(ClpConnector.class).in(Scopes.SINGLETON);
         binder.bind(ClpMetadata.class).in(Scopes.SINGLETON);
         binder.bind(ClpRecordSetProvider.class).in(Scopes.SINGLETON);
-        binder.bind(ClpMetadataFilterProvider.class).in(Scopes.SINGLETON);
         binder.bind(ClpSplitManager.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(ClpConfig.class);
 
         ClpConfig config = buildConfigObject(ClpConfig.class);
         if (config.getMetadataProviderType() == MetadataProviderType.MYSQL) {
             binder.bind(ClpMetadataProvider.class).to(ClpMySqlMetadataProvider.class).in(Scopes.SINGLETON);
+            binder.bind(ClpMetadataFilterProvider.class).to(ClpMySqlMetadataFilterProvider.class).in(Scopes.SINGLETON);
         }
         else {
             throw new PrestoException(CLP_UNSUPPORTED_METADATA_SOURCE, "Unsupported metadata provider type: " + config.getMetadataProviderType());

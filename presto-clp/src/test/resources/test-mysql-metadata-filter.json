@@ -12,9 +12,12 @@
   "clp.default.table_1": [
       {
         "columnName": "msg.timestamp",
-        "rangeMapping": {
-          "lowerBound": "begin_timestamp",
-          "upperBound": "end_timestamp"
+        "metadataDatabaseSpecific": {
+          "database": "mysql",
+          "rangeMapping": {
+            "lowerBound": "begin_timestamp",
+            "upperBound": "end_timestamp"
+          }
         },
         "required": true
       },
