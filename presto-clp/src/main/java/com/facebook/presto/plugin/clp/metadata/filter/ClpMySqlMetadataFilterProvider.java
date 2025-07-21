@@ -30,19 +30,6 @@ import static java.lang.String.format;
 /**
  * Loads and manages metadata filter configurations of MySQL metadata database for the CLP
  * connector.
- * <p></p>
- * The metadata database specific field in the filter contains:
- * <ul>
- *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object only for numeric type filter
- *   with the following properties:
- *      <ul>
- *          <li>{@code lowerBound}: The metadata column that represents the lower bound of values
- *          in a split for the data column.</li>
- *          <li>{@code upperBound}: The metadata column that represents the upper bound of values
- *          in a split for the data column.</li>
- *      </ul>
- *   </li>
- * </ul>
  */
 public class ClpMySqlMetadataFilterProvider
         extends ClpMetadataFilterProvider
@@ -54,17 +41,9 @@ public class ClpMySqlMetadataFilterProvider
     }
 
     /**
-     * Rewrites the given SQL string to remap filter conditions based on the configured range
-     * mappings for the given scope.
-     *
-     * <p>The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
-     * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
-     * override or supplement those from broader scopes (e.g., catalog-level). For each scope
-     * (catalog, schema, table), this method collects all range mappings defined in the metadata
-     * filter configuration.
-     *
-     * <p>This method performs regex-based replacements to convert numeric filter expressions such
-     * as:
+     * This method performs regex-based replacements according to the {@code "rangeMapping"} field
+     * in {@link ClpMySqlMetadataDatabaseSpecific} to convert numeric filter expressions. For
+     * example:
      * <ul>
      *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
      *   <li>{@code "msg.timestamp" <= 5678} → {@code begin_timestamp <= 5678}</li>
@@ -127,6 +106,20 @@ public class ClpMySqlMetadataFilterProvider
                 : ImmutableMap.of();
     }
 
+    /**
+     * The MySql-specific fields in the filter contains:
+     * <ul>
+     *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object only for numeric type filter
+     *   with the following properties:
+     *      <ul>
+     *          <li>{@code lowerBound}: The metadata column that represents the lower bound of values
+     *          in a split for the data column.</li>
+     *          <li>{@code upperBound}: The metadata column that represents the upper bound of values
+     *          in a split for the data column.</li>
+     *      </ul>
+     *   </li>
+     * </ul>
+     */
     protected static class ClpMySqlMetadataDatabaseSpecific
             implements MetadataDatabaseSpecific
     {

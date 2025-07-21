@@ -15,6 +15,20 @@ package com.facebook.presto.plugin.clp.metadata.filter;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Defines the basic filter JSON structure.
+ * <p></p>
+ * Here are the explanations for each field:
+ * <ul>
+ *   <li><b>{@code columnName}</b>: the data column's name.</li>
+ *
+ *   <li><b>{@code metadataDatabaseSpecific}</b>: the metadata database specific sub-object.</li>
+ *
+ *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
+ *   filter must be present in the pushed-down expression for metadata filtering. If a required
+ *   filter is missing or cannot be pushed down, the query will be rejected.</li>
+ * </ul>
+ */
 public class ClpMetadataFilter
 {
     @JsonProperty("columnName")

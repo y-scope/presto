@@ -23,6 +23,11 @@ import java.io.IOException;
 
 import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
 
+/**
+ * Uses the given implementation of {@link MetadataDatabaseSpecific} to deserialize the
+ * {@code "metadataDatabaseSpecific"} field in the filter. The implementation is originally chosen
+ * by the {@code clp.metadata-provider-type} config option.
+ */
 public class ClpMetadataDatabaseSpecificDeserializer
         extends JsonDeserializer<MetadataDatabaseSpecific>
 {

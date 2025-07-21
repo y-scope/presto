@@ -44,24 +44,12 @@ import static java.util.Objects.requireNonNull;
  * The configuration file is specified by the {@code clp.metadata-filter-config} property
  * and defines metadata filters used to optimize query execution through split pruning.
  * <p></p>
- * Each filter config indicates how a data column--a column in the Presto table--should be mapped
- * to a metadata column--a column in CLP’s metadata database.
- * <p></p>
  * Filter configs can be declared at either a catalog, schema, or table scope. Filter configs under
  * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
  * to all tables within that schema).
  * <p></p>
  * For different type of metadata database, each filter config could include different following
- * fields. Here are some common fields:
- * <ul>
- *   <li><b>{@code columnName}</b>: the data column's name.</li>
- *
- *   <li><b>{@code metadataDatabaseSpecific}</b>: the metadata database specific sub-object.</li>
- *
- *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
- *   filter must be present in the translated metadata filter SQL query. If a required filter
- *   is missing or cannot be pushed down, the query will be rejected.</li>
- * </ul>
+ * fields. See {@link ClpMetadataFilter} for the structure definition.
  */
 public abstract class ClpMetadataFilterProvider
 {
@@ -91,14 +79,37 @@ public abstract class ClpMetadataFilterProvider
         }
     }
 
+    /**
+     * Rewrites the given pushed-down expression for metadata filtering to remap filter conditions
+     * based on the configured range mappings for the given scope.
+     * <p></p>
+     * The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
+     * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
+     * override or supplement those from broader scopes (e.g., catalog-level). For each scope
+     * (catalog, schema, table), this method collects all range mappings defined in the metadata
+     * filter configuration.
+     *
+     * @param scope the scope of the filter
+     * @param pushDownExpression the pushed-down expression for metadata filtering that needs to
+     *                           be rewritten
+     * @return the rewritten pushed-down expression for metadata filtering
+     */
     public abstract String remapMetadataFilterPushDown(String scope, String pushDownExpression);
 
-    public void checkContainsRequiredFilters(SchemaTableName schemaTableName, String metadataFilterSql)
+    /**
+     * Checks for the given table, if the given pushed-down expression for metadata filtering
+     * contains all required fields.
+     *
+     * @param schemaTableName the table that is being queried
+     * @param metadataFilterPushDownExpression the pushed-down expression for metadata filtering
+     *                                         to be checked
+     */
+    public void checkContainsRequiredFilters(SchemaTableName schemaTableName, String metadataFilterPushDownExpression)
     {
         boolean hasRequiredMetadataFilterColumns = true;
         ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
         for (String columnName : getRequiredColumnNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
-            if (!metadataFilterSql.contains(columnName)) {
+            if (!metadataFilterPushDownExpression.contains(columnName)) {
                 hasRequiredMetadataFilterColumns = false;
                 notFoundListBuilder.add(columnName);
             }
@@ -115,6 +126,13 @@ public abstract class ClpMetadataFilterProvider
         return collectColumnNamesFromScopes(scope, this::getAllColumnNamesFromFilters);
     }
 
+    /**
+     * Returns the {@link MetadataDatabaseSpecific} class implemented by the user. To respect to
+     * our code style, we would recommend to implement a {@code protected static class} as an
+     * inner class in the user-implemented {@link ClpMetadataFilterProvider} class.
+     *
+     * @return the user-implemented {@link MetadataDatabaseSpecific} class.
+     */
     protected abstract Class<? extends MetadataDatabaseSpecific> getMetadataDatabaseSpecificClass();
 
     private Set<String> getRequiredColumnNames(String scope)
