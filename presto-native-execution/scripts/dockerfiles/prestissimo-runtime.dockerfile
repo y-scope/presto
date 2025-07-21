@@ -43,8 +43,6 @@ ENV BUILD_DIR=""
 # TODO: Update this code when there's a proper fix
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata && \
-    ln -snf /usr/share/zoneinfo/America/Toronto /etc/localtime && \
-    echo "America/New_York" > /etc/timezone && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
