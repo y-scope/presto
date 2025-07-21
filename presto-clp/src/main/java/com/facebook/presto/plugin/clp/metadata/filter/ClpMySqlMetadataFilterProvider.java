@@ -107,6 +107,11 @@ public class ClpMySqlMetadataFilterProvider extends ClpMetadataFilterProvider
         return remappedSql;
     }
 
+    @Override
+    protected Class<? extends MetadataDatabaseSpecific> getMetadataDatabaseSpecificClass() {
+        return ClpMySqlMetadataDatabaseSpecific.class;
+    }
+
     private Map<String, ClpMySqlMetadataDatabaseSpecific.RangeMapping> getAllMappingsFromFilters(List<ClpMetadataFilter> filters)
     {
         return null != filters

@@ -89,7 +89,7 @@ public abstract class ClpMetadataFilterProvider {
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
                 MetadataDatabaseSpecific.class,
-                new ClpMetadataDatabaseSpecificDeserializer(config)
+                new ClpMetadataDatabaseSpecificDeserializer(getMetadataDatabaseSpecificClass())
         );
         mapper.registerModule(module);
         try {
@@ -125,6 +125,8 @@ public abstract class ClpMetadataFilterProvider {
     {
         return collectColumnNamesFromScopes(scope, this::getAllColumnNamesFromFilters);
     }
+
+    protected abstract Class<? extends MetadataDatabaseSpecific> getMetadataDatabaseSpecificClass();
 
     private Set<String> getRequiredColumnNames(String scope)
     {
