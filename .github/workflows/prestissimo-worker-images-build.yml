@@ -1,7 +1,6 @@
 name: prestissimo-worker-images-build
 
 on:
-  # TODO: specifiy the branch to the release-0.293 when finalize the PR
   pull_request:
   push:
 
