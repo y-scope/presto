@@ -58,7 +58,10 @@ k3d cluster create yscope --servers 1 --agents 1 -v $(readlink -f /path/to/clp-j
 
 # Working with helm chart
 ## Install
-In `yscope-k8s/templates/presto/presto-coordinator-config.yaml` replace the `${REPLACE_IP}` in `clp.metadata-db-url=jdbc:mysql://${REPLACE_IP}:6001` with the IP address of the host you are running the clp-package (basially match the IP address that you configured in the `etc/clp-config.yml` of the clp-package).
+In `yscope-k8s/templates/presto/presto-coordinator-config.yaml`:
+1. replace the `${REPLACE_ME}` in `clp.metadata-db-url=jdbc:mysql://${REPLACE_ME}:6001` with the IP address of the host you are running the clp-package (basially match the IP address that you configured in the `etc/clp-config.yml` of the clp-package).
+2. replace the `${REPLACE_ME}` in `clp.metadata-db-user=${REPLACE_ME}` with the user stored in `/path/to/clp-json-package/etc/credential.yml`.
+3. replace the `${REPLACE_ME}` in `clp.metadata-db-password=${REPLACE_ME}` with the password stored in `/path/to/clp-json-package/etc/credential.yml`.
 
 ```bash
 cd yscope-k8s

@@ -1,11 +1,11 @@
 # Configure Presto
 presto:
   coordinator:
-    image: "ghcr.io/anlowee/presto/coordinator-with-clp-connector-runtime:centos9"
+    image: "ghcr.io/y-scope/presto/coordinator:dev"
     serviceName: "presto-coordinator"
     httpPort: 8080
   worker:
-    image: "ghcr.io/anlowee/presto/prestissimo-with-clp-connector-runtime:ubuntu-22.04"
+    image: "ghcr.io/y-scope/presto/prestissimo-worker:dev"
     serviceName: "presto-worker"
     httpPort: 8080
     replicaCount: 1
