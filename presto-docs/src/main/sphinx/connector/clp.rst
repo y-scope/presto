@@ -131,18 +131,29 @@ will apply to all tables within that schema.
 Filter Configs
 ^^^^^^^^^^^^^^
 
-Each `filter config` indicates how a *data column*---a column in the Presto table---should be mapped to a *metadata
-column*---a column in CLP's metadata database. In most cases, the data column and the metadata column will have the same
-name; but in some cases, the data column may be remapped.
+Each `filter config` indicates how a *data column*---a column in the Presto table, will be used as a filter to query in
+the metadata database. The basic structure of a filter contains the following three fields:
+
+- ``columnName``: indicates the data column's name.
+
+- ``metadataDatabaseSpecific`` *(optional)*: stores the metadata-database-specific fields which can be used for metadata
+  filtering. We will provide an example of the MySQL-specific
+  :ref:`here<example-of-metadata-filters-for-mysql-metadata-database>`. This field provides the ability to generate the
+  metadata filter query for different types of metadata database from the pushed-down expression for metadata filtering.
+
+- ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the pushed-down
+  expression for metadata filtering. If a required filter is missing or cannot be pushed down, the query will be
+  rejected.
 
 For example, an integer data column (e.g., ``timestamp``), may be remapped to a pair of metadata columns that represent
 the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) of the data column within a split.
 
-Each *filter config* has the following properties:
+.. _example-of-metadata-filters-for-mysql-metadata-database:
 
-- ``columnName``: The data column's name.
+Example of Metadata Filters for MySQL Metadata Database
+^^^^^^^
 
-  .. note:: Currently, only numeric-type columns can be used as metadata filters.
+For the filed ``metadataDatabaseSpecific``, it has the following field:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
 
@@ -151,13 +162,6 @@ Each *filter config* has the following properties:
   - ``lowerBound``: The metadata column that represents the lower bound of values in a split for the data column.
   - ``upperBound``: The metadata column that represents the upper bound of values in a split for the data column.
 
-
-- ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the translated
-  metadata filter SQL query. If a required filter is missing or cannot be pushed down, the query will be rejected.
-
-
-Example
-^^^^^^^
 
 The code block shows an example metadata filter config file:
 
@@ -177,9 +181,11 @@ The code block shows an example metadata filter config file:
       "clp.default.table_1": [
         {
           "columnName": "msg.timestamp",
-          "rangeMapping": {
-            "lowerBound": "begin_timestamp",
-            "upperBound": "end_timestamp"
+          "metadataDatabaseSpecific": {
+            "rangeMapping": {
+              "lowerBound": "begin_timestamp",
+              "upperBound": "end_timestamp"
+            }
           },
           "required": true
         },

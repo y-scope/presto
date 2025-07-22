@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
 import com.facebook.presto.spi.function.FunctionMetadataManager;

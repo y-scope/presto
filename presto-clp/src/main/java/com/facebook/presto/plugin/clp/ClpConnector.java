@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.bootstrap.LifeCycleManager;
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
 import com.facebook.presto.spi.connector.Connector;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
