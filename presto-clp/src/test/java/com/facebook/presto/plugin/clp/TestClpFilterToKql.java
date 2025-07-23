@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
@@ -280,7 +281,7 @@ public class TestClpFilterToKql
         testPushDown(sessionHolder, "CLP_GET_FLOAT('fare') > 0", "fare > 0", null);
         testPushDown(sessionHolder, "CLP_GET_BOOL('isHoliday') = true", "isHoliday: true", null);
 
-        testPushDown(sessionHolder, "cardinality(CLP_GET_STRING_ARRAY('clp_array')) = 2", null, "cardinality(clp_array) = 2");
+        testPushDown(sessionHolder, "cardinality(CLP_GET_STRING_ARRAY('clp_array')) = 2", null, "cardinality(clp_und_array) = 2");
         testPushDown(
                 sessionHolder,
                 "CLP_GET_STRING('city.Name') = 'Beijing' AND CLP_GET_INT('id') = 1 AND city.Region.Id = 1",
@@ -290,7 +291,7 @@ public class TestClpFilterToKql
                 sessionHolder,
                 "lower(CLP_GET_STRING('user.Name')) = 'John' AND CLP_GET_INT('id') = 1 AND city.Region.Id = 1",
                 "((id: 1) AND city.Region.Id: 1)",
-                "lower(\"user.Name\") = 'John'");
+                "lower(\"user_dot__uxname\") = 'John'");
     }
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
@@ -325,7 +326,8 @@ public class TestClpFilterToKql
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
-                        metadataFilterColumns),
+                        metadataFilterColumns,
+                        new VariableAllocator()),
                 assignments);
     }
 

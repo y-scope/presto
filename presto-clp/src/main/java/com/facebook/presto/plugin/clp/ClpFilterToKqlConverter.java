@@ -20,6 +20,7 @@ import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -57,7 +58,7 @@ import static com.facebook.presto.common.type.RealType.REAL;
 import static com.facebook.presto.common.type.SmallintType.SMALLINT;
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
-import static com.facebook.presto.plugin.clp.ClpUdfRewriter.rewriteClpUdfsWithMap;
+import static com.facebook.presto.plugin.clp.ClpUdfRewriter.rewriteClpUdfs;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
@@ -105,21 +106,24 @@ public class ClpFilterToKqlConverter
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final Set<String> metadataFilterColumns;
+    private final VariableAllocator variableAllocator;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
-            Set<String> metadataFilterColumns)
+            Set<String> metadataFilterColumns,
+            VariableAllocator variableAllocator)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.metadataFilterColumns = requireNonNull(metadataFilterColumns, "metadataFilterColumns is null");
+        this.variableAllocator = requireNonNull(variableAllocator, "variableAllocator is null");
     }
 
     @Override
     public ClpExpression visitCall(CallExpression node, Map<VariableReferenceExpression, ColumnHandle> context)
     {
-        CallExpression newNode = (CallExpression) rewriteClpUdfsWithMap(node, context, functionMetadataManager);
+        CallExpression newNode = (CallExpression) rewriteClpUdfs(node, context, functionMetadataManager, variableAllocator);
         FunctionHandle functionHandle = newNode.getFunctionHandle();
         if (standardFunctionResolution.isNotFunction(functionHandle)) {
             return handleNot(newNode, context);

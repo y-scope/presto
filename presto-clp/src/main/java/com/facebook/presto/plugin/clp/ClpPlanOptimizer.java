@@ -19,7 +19,6 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
-import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -31,7 +30,6 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
-import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 
 import java.util.ArrayList;
@@ -41,11 +39,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
-import static com.facebook.presto.plugin.clp.ClpUdfRewriter.rewriteClpUdfsWithSet;
+import static com.facebook.presto.plugin.clp.ClpUdfRewriter.rewriteClpUdfs;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public class ClpPlanOptimizer
@@ -66,67 +65,50 @@ public class ClpPlanOptimizer
     @Override
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
-        return rewriteWith(new Rewriter(idAllocator), maxSubplan);
+        return rewriteWith(new Rewriter(idAllocator, variableAllocator), maxSubplan);
     }
 
     private class Rewriter
             extends ConnectorPlanRewriter<Void>
     {
         private final PlanNodeIdAllocator idAllocator;
+        private final VariableAllocator variableAllocator;
 
-        public Rewriter(PlanNodeIdAllocator idAllocator)
+        public Rewriter(PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator)
         {
             this.idAllocator = idAllocator;
+            this.variableAllocator = variableAllocator;
         }
 
         @Override
         public PlanNode visitProject(ProjectNode node, RewriteContext<Void> context)
         {
             Assignments.Builder assignmentsBuilder = new Assignments.Builder();
-            Set<VariableReferenceExpression> clpUdfVariablesInProjectNode = new HashSet<>();
+            Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments = new HashMap<>();
             for (Map.Entry<VariableReferenceExpression, RowExpression> entry : node.getAssignments().getMap().entrySet()) {
                 VariableReferenceExpression oldKey = entry.getKey();
                 RowExpression oldValue = entry.getValue();
 
-                RowExpression rewrittenExpr = rewriteClpUdfsWithSet(oldValue, clpUdfVariablesInProjectNode, functionManager);
+                RowExpression rewrittenExpr = rewriteClpUdfs(
+                        oldValue,
+                        clpUdfAssignments,
+                        functionManager,
+                        variableAllocator);
                 assignmentsBuilder.put(oldKey, rewrittenExpr);
             }
 
-            PlanNode childNode = node.getSource();
-
-            // Handle Project -> TableScan
-            if (childNode instanceof TableScanNode) {
-                TableScanNode newTableScanNode = buildNewTableScanNode((TableScanNode) childNode, clpUdfVariablesInProjectNode);
-                return new ProjectNode(
-                        newTableScanNode.getSourceLocation(),
-                        idAllocator.getNextId(),
-                        newTableScanNode,
-                        assignmentsBuilder.build(),
-                        node.getLocality());
+            if (clpUdfAssignments.isEmpty()) {
+                // No CLP UDFs in projection: return as-is
+                return context.defaultRewrite(node);
             }
 
-            // Handle Project -> Filter -> TableScan
-            if (childNode instanceof FilterNode && ((FilterNode) childNode).getSource() instanceof TableScanNode) {
-                FilterNode filterNode = (FilterNode) childNode;
-                TableScanNode tableScanNode = (TableScanNode) filterNode.getSource();
-
-                // Build new TableScanNode with CLP_GET projection pushes (even if empty)
-                TableScanNode newTableScanNode = buildNewTableScanNode(tableScanNode, clpUdfVariablesInProjectNode);
-
-                // Apply KQL pushdown for the FilterNode
-                PlanNode newSourceNode = processFilter(filterNode, newTableScanNode);
-                return new ProjectNode(
-                        newSourceNode.getSourceLocation(),
-                        idAllocator.getNextId(),
-                        newSourceNode,
-                        assignmentsBuilder.build(),
-                        node.getLocality());
-            }
-            if (clpUdfVariablesInProjectNode.isEmpty()) {
-                return node;
-            }
-            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "Unsupported plan shape for CLP pushdown: " + childNode.getClass().getSimpleName());
+            PlanNode newSource = rewriteClpSubtree(node.getSource(), clpUdfAssignments);
+            return new ProjectNode(
+                    node.getSourceLocation(),
+                    idAllocator.getNextId(),
+                    newSource,
+                    assignmentsBuilder.build(),
+                    node.getLocality());
         }
 
         @Override
@@ -139,15 +121,43 @@ public class ClpPlanOptimizer
             return processFilter(node, (TableScanNode) node.getSource());
         }
 
+        private PlanNode rewriteClpSubtree(PlanNode node, Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments)
+        {
+            // Base case: TableScanNode
+            if (node instanceof TableScanNode) {
+                return buildNewTableScanNode((TableScanNode) node, clpUdfAssignments);
+            }
+
+            // Base case: FilterNode -> TableScanNode
+            if (node instanceof FilterNode && ((FilterNode) node).getSource() instanceof TableScanNode) {
+                FilterNode filterNode = (FilterNode) node;
+                TableScanNode tableScanNode = (TableScanNode) filterNode.getSource();
+                TableScanNode newTableScanNode = buildNewTableScanNode(tableScanNode, clpUdfAssignments);
+                return processFilter(filterNode, newTableScanNode);
+            }
+
+            // Recursively rewrite all child sources
+            List<PlanNode> rewrittenSources = node.getSources().stream()
+                    .map(source -> rewriteClpSubtree(source, clpUdfAssignments))
+                    .collect(toImmutableList());
+
+            for (int i = 0; i < node.getSources().size(); i++) {
+                if (rewrittenSources.get(i) != node.getSources().get(i)) {
+                    return node.replaceChildren(rewrittenSources);
+                }
+            }
+            return node;
+        }
+
         private TableScanNode buildNewTableScanNode(
                 TableScanNode tableScanNode,
-                Set<VariableReferenceExpression> clpUdfVariables)
+                Map<VariableReferenceExpression, ColumnHandle> assignments)
         {
             List<VariableReferenceExpression> newOutputVariables = new ArrayList<>(tableScanNode.getOutputVariables());
             Map<VariableReferenceExpression, ColumnHandle> newAssignments = new HashMap<>(tableScanNode.getAssignments());
-            for (VariableReferenceExpression var : clpUdfVariables) {
-                newOutputVariables.add(var);
-                newAssignments.put(var, new ClpColumnHandle(var.getName(), var.getType(), true));
+            for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : assignments.entrySet()) {
+                newOutputVariables.add(entry.getKey());
+                newAssignments.put(entry.getKey(), entry.getValue());
             }
 
             return new TableScanNode(
@@ -168,15 +178,16 @@ public class ClpPlanOptimizer
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
 
             String scope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
-            Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(tableScanNode.getAssignments());
+            Map<VariableReferenceExpression, ColumnHandle> originalAssignments = tableScanNode.getAssignments();
+            Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(originalAssignments);
+
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
-                            metadataFilterProvider.getColumnNames(scope)),
+                            metadataFilterProvider.getColumnNames(scope),
+                            variableAllocator),
                     assignments);
-            Set<VariableReferenceExpression> clpUdfVariablesInFilterNode = new HashSet<>(assignments.keySet());
-            clpUdfVariablesInFilterNode.removeAll(tableScanNode.getAssignments().keySet());
 
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
@@ -186,21 +197,23 @@ public class ClpPlanOptimizer
                 // Collect all variables actually present in the remainingPredicate
                 Set<VariableReferenceExpression> variablesInPredicate = new HashSet<>();
 
-                RowExpressionVisitor<Void, Void> visitor = new DefaultRowExpressionTraversalVisitor<Void>()
-                {
+                remainingPredicate.get().accept(new DefaultRowExpressionTraversalVisitor<Void>() {
                     @Override
                     public Void visitVariableReference(VariableReferenceExpression variable, Void context)
                     {
                         variablesInPredicate.add(variable);
                         return null;
                     }
-                };
+                }, null);
 
-                remainingPredicate.get().accept(visitor, null);
-                // Retain only the variables that also exist in the remainingPredicate
-                clpUdfVariablesInFilterNode.retainAll(variablesInPredicate);
-                if (!clpUdfVariablesInFilterNode.isEmpty()) {
-                    tableScanNode = buildNewTableScanNode(tableScanNode, clpUdfVariablesInFilterNode);
+                // Select only new entries added to assignments and used in the remaining predicate
+                Map<VariableReferenceExpression, ColumnHandle> filteredNewAssignments = assignments.entrySet().stream()
+                        .filter(entry -> !originalAssignments.containsKey(entry.getKey())
+                                && variablesInPredicate.contains(entry.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+                if (!filteredNewAssignments.isEmpty()) {
+                    tableScanNode = buildNewTableScanNode(tableScanNode, filteredNewAssignments);
                 }
             }
 

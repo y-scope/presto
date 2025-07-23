@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.ConstantExpression;
@@ -22,33 +23,17 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import io.airlift.slice.Slice;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /**
- * Utility methods for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression}
- * trees.
+ * Utility for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression trees.
  * <p>
  * These UDFs are rewritten into {@link VariableReferenceExpression}s with meaningful names. This
  * enables quering fields not present in the original table schema, but available in CLP.
- * <p>
- * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is used to
- * construct the name of the variable reference (e.g. <code>CLP_GET_STRING('foo')</code> becomes a
- * variable name <code>foo</code>). Invalid usages (e.g., non-constant arguments) will throw a
- * {@link PrestoException}.
- * <p>
- * Depending on usage context:
- * <ul>
- *   <li><code>rewriteClpUdfsWithMap(...)</code> collects rewritten variables and associates them
- *       with {@link ColumnHandle}s — used for <code>TableScanNode</code> predicate pushdown.</li>
- *   <li><code>rewriteClpUdfsWithSet(...)</code> collects rewritten variables into a set —
- *       used for tracking projections in <code>ProjectNode</code>.</li>
- * </ul>
  */
 public final class ClpUdfRewriter
 {
@@ -56,19 +41,25 @@ public final class ClpUdfRewriter
 
     /**
      * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting
-     * variable into the given set.
+     * variable into the given map along with its associated {@link ColumnHandle}.
      * <p>
-     * Used for tracking projected variables in <code>ProjectNode</code>.
+     * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is used to
+     * construct the name of the variable reference (e.g. <code>CLP_GET_STRING('foo')</code> becomes
+     * a variable name <code>foo</code>). Invalid usages (e.g., non-constant arguments) will throw a
+     * {@link PrestoException}.
      *
      * @param expression the input expression to analyze and possibly rewrite
-     * @param clpUdfVariables a set to collect variable references corresponding to CLP UDFs
+     * @param context a mapping from variable references to column handles. New entries will be
+     * added for any rewritten CLP UDFs
      * @param functionManager function manager used to resolve function metadata
+     * @param variableAllocator variable allocator used to create new variable references
      * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
      */
-    public static RowExpression rewriteClpUdfsWithSet(
+    public static RowExpression rewriteClpUdfs(
             RowExpression expression,
-            Set<VariableReferenceExpression> clpUdfVariables,
-            FunctionMetadataManager functionManager)
+            Map<VariableReferenceExpression, ColumnHandle> context,
+            FunctionMetadataManager functionManager,
+            VariableAllocator variableAllocator)
     {
         if (!(expression instanceof CallExpression)) {
             return expression;
@@ -86,46 +77,48 @@ public final class ClpUdfRewriter
             ConstantExpression constant = (ConstantExpression) call.getArguments().get(0);
             String jsonPath = ((Slice) constant.getValue()).toStringUtf8();
 
-            VariableReferenceExpression variable = new VariableReferenceExpression(
+            VariableReferenceExpression variable = variableAllocator.newVariable(
                     expression.getSourceLocation(),
-                    jsonPath,
+                    encodeJsonPath(jsonPath),
                     call.getType());
-
-            clpUdfVariables.add(variable);
+            context.put(variable, new ClpColumnHandle(jsonPath, call.getType(), true));
             return variable;
         }
 
         List<RowExpression> rewrittenArgs = call.getArguments().stream()
-                .map(arg -> rewriteClpUdfsWithSet(arg, clpUdfVariables, functionManager))
+                .map(arg -> rewriteClpUdfs(arg, context, functionManager, variableAllocator))
                 .collect(toImmutableList());
 
         return new CallExpression(call.getDisplayName(), call.getFunctionHandle(), call.getType(), rewrittenArgs);
     }
 
     /**
-     * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting
-     * variable into the given map along with its associated {@link ColumnHandle}.
+     * Encodes a JSON path into a valid variable name by replacing uppercase letters with
+     * "_u<lowercase letter>", dots with "_dot_", and underscores with "_und_".
      * <p>
-     * Used for processing filter predicates in <code>TableScanNode</code>.
+     * This is only used internally to ensure that the variable names generated from JSON paths
+     * are valid and do not conflict with other variable names in the expression.
      *
-     * @param expression the input expression to analyze and possibly rewrite
-     * @param context a mapping from variable references to column handles. New entries will be
-     * added for any rewritten CLP UDFs
-     * @param functionManager function manager used to resolve function metadata
-     * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
+     * @param jsonPath the JSON path to encode
+     * @return the encoded variable name
      */
-    public static RowExpression rewriteClpUdfsWithMap(
-            RowExpression expression,
-            Map<VariableReferenceExpression, ColumnHandle> context,
-            FunctionMetadataManager functionManager)
+    private static String encodeJsonPath(String jsonPath)
     {
-        Set<VariableReferenceExpression> collected = new HashSet<>();
-        RowExpression rewritten = rewriteClpUdfsWithSet(expression, collected, functionManager);
-
-        for (VariableReferenceExpression var : collected) {
-            context.putIfAbsent(var, new ClpColumnHandle(var.getName(), var.getType(), true));
+        StringBuilder sb = new StringBuilder();
+        for (char c : jsonPath.toCharArray()) {
+            if (Character.isUpperCase(c)) {
+                sb.append("_ux").append(Character.toLowerCase(c));
+            }
+            else if (c == '.') {
+                sb.append("_dot_");
+            }
+            else if (c == '_') {
+                sb.append("_und_");
+            }
+            else {
+                sb.append(c);
+            }
         }
-
-        return rewritten;
+        return sb.toString();
     }
 }

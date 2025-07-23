@@ -23,6 +23,7 @@ import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
@@ -92,6 +93,7 @@ public class TestClpPlanOptimizer
     private FunctionResolution functionResolution;
     private ClpMetadataFilterProvider metadataFilterProvider;
     private PlanNodeIdAllocator planNodeIdAllocator;
+    private VariableAllocator variableAllocator;
 
     @BeforeMethod
     public void setUp()
@@ -122,6 +124,7 @@ public class TestClpPlanOptimizer
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
         metadataFilterProvider = new ClpMetadataFilterProvider(new ClpConfig());
         planNodeIdAllocator = new PlanNodeIdAllocator();
+        variableAllocator = new VariableAllocator();
     }
 
     @AfterMethod
@@ -149,7 +152,7 @@ public class TestClpPlanOptimizer
         PlanNode optimizedPlan = optimizer.optimize(
                 plan.getRoot(),
                 session.toConnectorSession(),
-                null,
+                variableAllocator,
                 planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -183,7 +186,7 @@ public class TestClpPlanOptimizer
         PlanNode optimizedPlan = optimizer.optimize(
                 plan.getRoot(),
                 session.toConnectorSession(),
-                null,
+                variableAllocator,
                 planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -229,7 +232,7 @@ public class TestClpPlanOptimizer
         PlanNode optimizedPlan = optimizer.optimize(
                 plan.getRoot(),
                 session.toConnectorSession(),
-                null,
+                variableAllocator,
                 new PlanNodeIdAllocator());
         log.info(plan.toString());
         PlanAssert.assertPlan(
