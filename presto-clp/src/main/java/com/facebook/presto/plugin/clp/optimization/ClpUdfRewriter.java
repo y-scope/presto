@@ -36,8 +36,10 @@ import io.airlift.slice.Slice;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
@@ -142,12 +144,20 @@ public final class ClpUdfRewriter
 
                     ConstantExpression constant = (ConstantExpression) call.getArguments().get(0);
                     String jsonPath = ((Slice) constant.getValue()).toStringUtf8();
+                    ClpColumnHandle targetHandle = new ClpColumnHandle(jsonPath, call.getType(), true);
+
+                    // Check if a variable with the same ClpColumnHandle already exists
+                    for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : context.entrySet()) {
+                        if (entry.getValue().equals(targetHandle)) {
+                            return entry.getKey();  // Reuse existing variable
+                        }
+                    }
 
                     VariableReferenceExpression variable = variableAllocator.newVariable(
                             expression.getSourceLocation(),
                             encodeJsonPath(jsonPath),
                             call.getType());
-                    context.putIfAbsent(variable, new ClpColumnHandle(jsonPath, call.getType(), true));
+                    context.putIfAbsent(variable, targetHandle);
                     return variable;
                 }
 
@@ -236,19 +246,20 @@ public final class ClpUdfRewriter
          */
         private TableScanNode buildNewTableScanNode(TableScanNode node, Map<VariableReferenceExpression, ColumnHandle> assignments)
         {
-            List<VariableReferenceExpression> outputVars = new ArrayList<>(node.getOutputVariables());
+            Set<VariableReferenceExpression> outputVars = new LinkedHashSet<>(node.getOutputVariables());
             Map<VariableReferenceExpression, ColumnHandle> newAssignments = new HashMap<>(node.getAssignments());
 
+            // Add new variables and assignments
             assignments.forEach((var, handle) -> {
                 outputVars.add(var);
-                newAssignments.put(var, handle);
+                newAssignments.putIfAbsent(var, handle);
             });
 
             return new TableScanNode(
                     node.getSourceLocation(),
                     idAllocator.getNextId(),
                     node.getTable(),
-                    outputVars,
+                    new ArrayList<>(outputVars),
                     newAssignments,
                     node.getTableConstraints(),
                     node.getCurrentConstraint(),

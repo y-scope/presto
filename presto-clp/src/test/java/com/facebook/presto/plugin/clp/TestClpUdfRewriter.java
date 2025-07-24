@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.plugin.clp;
 
-import com.facebook.airlift.log.Logger;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.transaction.TransactionId;
 import com.facebook.presto.cost.PlanNodeStatsEstimate;
