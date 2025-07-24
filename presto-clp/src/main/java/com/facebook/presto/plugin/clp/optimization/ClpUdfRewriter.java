@@ -45,10 +45,13 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Utility for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression trees.
+ * Utility for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression} trees.
  * <p>
- * These UDFs are rewritten into {@link VariableReferenceExpression}s with meaningful names. This
- * enables quering fields not present in the original table schema, but available in CLP.
+ * This optimizer traverses a query plan and rewrites calls to <code>CLP_GET_*</code> UDFs into
+ * {@link VariableReferenceExpression}s with meaningful names derived from their arguments.
+ * <p>
+ * This enables querying fields that are not part of the original table schema but are available
+ * in CLP.
  */
 public final class ClpUdfRewriter
         implements ConnectorPlanOptimizer
@@ -169,6 +172,14 @@ public final class ClpUdfRewriter
             return expression;
         }
 
+        /**
+         * Recursively rewrites the subtree of a plan node to include any new variables produced by
+         * CLP UDF rewrites.
+         *
+         * @param node the plan node to rewrite
+         * @param clpUdfAssignments variable-to-column assignments for CLP UDFs
+         * @return the rewritten plan node
+         */
         private PlanNode rewritePlanSubtree(PlanNode node, Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments)
         {
             if (node instanceof TableScanNode) {
@@ -215,6 +226,14 @@ public final class ClpUdfRewriter
             return sb.toString();
         }
 
+        /**
+         * Builds a new {@link TableScanNode} that includes additional variables and column handles
+         * for rewritten CLP UDFs.
+         *
+         * @param node the original table scan node
+         * @param assignments variable-to-column assignments for CLP UDFs
+         * @return the updated table scan node
+         */
         private TableScanNode buildNewTableScanNode(TableScanNode node, Map<VariableReferenceExpression, ColumnHandle> assignments)
         {
             List<VariableReferenceExpression> outputVars = new ArrayList<>(node.getOutputVariables());
@@ -237,6 +256,13 @@ public final class ClpUdfRewriter
                     node.getCteMaterializationInfo());
         }
 
+        /**
+         * Builds a new {@link FilterNode} with its predicate rewritten to replace CLP UDF calls.
+         *
+         * @param node the original filter node
+         * @param assignments variable-to-column assignments for CLP UDFs
+         * @return the updated filter node
+         */
         private FilterNode buildNewFilterNode(FilterNode node, Map<VariableReferenceExpression, ColumnHandle> assignments)
         {
             RowExpression newPredicate = rewriteClpUdfs(node.getPredicate(), assignments, functionManager, variableAllocator);
