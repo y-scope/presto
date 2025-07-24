@@ -11,9 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp;
+package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.plugin.clp.ClpExpression;
+import com.facebook.presto.plugin.clp.ClpMetadataFilterProvider;
+import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
@@ -29,7 +33,6 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,15 +40,15 @@ import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.util.Objects.requireNonNull;
 
-public class ClpPlanOptimizer
+public class ClpComputePushDown
         implements ConnectorPlanOptimizer
 {
-    private static final Logger log = Logger.get(ClpPlanOptimizer.class);
+    private static final Logger log = Logger.get(ClpComputePushDown.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
     private final ClpMetadataFilterProvider metadataFilterProvider;
 
-    public ClpPlanOptimizer(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpMetadataFilterProvider metadataFilterProvider)
+    public ClpComputePushDown(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpMetadataFilterProvider metadataFilterProvider)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
@@ -75,57 +78,72 @@ public class ClpPlanOptimizer
                 return node;
             }
 
-            TableScanNode tableScanNode = (TableScanNode) node.getSource();
-            Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(tableScanNode.getAssignments());
+            return processFilter(node, (TableScanNode) node.getSource());
+        }
+
+        private PlanNode processFilter(FilterNode filterNode, TableScanNode tableScanNode)
+        {
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+
             String scope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
-            ClpExpression clpExpression = node.getPredicate().accept(
+            Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
+
+            ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
+                            assignments,
                             metadataFilterProvider.getColumnNames(scope)),
-                    assignments);
+                    null);
+
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
-            // Perform required metadata filter checks before handling the KQL query (if kqlQuery
-            // isn't present, we'll return early, skipping subsequent checks).
+            // Perform required metadata filter checks
             metadataFilterProvider.checkContainsRequiredFilters(clpTableHandle.getSchemaTableName(), metadataSqlQuery.orElse(""));
-            if (metadataSqlQuery.isPresent()) {
+            boolean hasMetadataFilter = metadataSqlQuery.isPresent() && !metadataSqlQuery.get().isEmpty();
+            if (hasMetadataFilter) {
                 metadataSqlQuery = Optional.of(metadataFilterProvider.remapFilterSql(scope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery);
             }
 
-            if (!kqlQuery.isPresent()) {
-                return node;
-            }
-            log.debug("KQL query: %s", kqlQuery);
+            if (kqlQuery.isPresent() || hasMetadataFilter) {
+                if (kqlQuery.isPresent()) {
+                    log.debug("KQL query: %s", kqlQuery);
+                }
 
-            ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSqlQuery);
-            TableScanNode newTableScanNode = new TableScanNode(
-                    tableScanNode.getSourceLocation(),
-                    idAllocator.getNextId(),
-                    new TableHandle(
-                            tableHandle.getConnectorId(),
-                            clpTableHandle,
-                            tableHandle.getTransaction(),
-                            Optional.of(clpTableLayoutHandle)),
-                    tableScanNode.getOutputVariables(),
-                    tableScanNode.getAssignments(),
-                    tableScanNode.getTableConstraints(),
-                    tableScanNode.getCurrentConstraint(),
-                    tableScanNode.getEnforcedConstraint(),
-                    tableScanNode.getCteMaterializationInfo());
-            if (!remainingPredicate.isPresent()) {
-                return newTableScanNode;
+                ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSqlQuery);
+                TableHandle newTableHandle = new TableHandle(
+                        tableHandle.getConnectorId(),
+                        clpTableHandle,
+                        tableHandle.getTransaction(),
+                        Optional.of(layoutHandle));
+
+                tableScanNode = new TableScanNode(
+                        tableScanNode.getSourceLocation(),
+                        idAllocator.getNextId(),
+                        newTableHandle,
+                        tableScanNode.getOutputVariables(),
+                        tableScanNode.getAssignments(),
+                        tableScanNode.getTableConstraints(),
+                        tableScanNode.getCurrentConstraint(),
+                        tableScanNode.getEnforcedConstraint(),
+                        tableScanNode.getCteMaterializationInfo());
             }
 
-            return new FilterNode(node.getSourceLocation(),
-                    idAllocator.getNextId(),
-                    newTableScanNode,
-                    remainingPredicate.get());
+            if (remainingPredicate.isPresent()) {
+                // Not all predicate pushed down, need new FilterNode
+                return new FilterNode(
+                        filterNode.getSourceLocation(),
+                        idAllocator.getNextId(),
+                        tableScanNode,
+                        remainingPredicate.get());
+            }
+            else {
+                return tableScanNode;
+            }
         }
     }
 }
