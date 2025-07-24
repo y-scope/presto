@@ -94,7 +94,7 @@ public final class ClpUdfRewriter
 
     /**
      * Encodes a JSON path into a valid variable name by replacing uppercase letters with
-     * "_u<lowercase letter>", dots with "_dot_", and underscores with "_und_".
+     * "_ux<lowercase letter>", dots with "_dot_", and underscores with "_und_".
      * <p>
      * This is only used internally to ensure that the variable names generated from JSON paths
      * are valid and do not conflict with other variable names in the expression.
