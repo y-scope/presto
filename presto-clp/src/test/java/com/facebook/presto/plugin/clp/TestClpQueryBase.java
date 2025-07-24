@@ -121,11 +121,6 @@ public class TestClpQueryBase
         return toRowExpression(expression(sqlExpression), typeProvider, sessionHolder.getSession());
     }
 
-    protected RowExpression getRowExpression(String sqlExpression, TypeProvider typeProvider, SessionHolder sessionHolder)
-    {
-        return toRowExpression(expression(sqlExpression), typeProvider, sessionHolder.getSession());
-    }
-
     protected static class SessionHolder
     {
         private final ConnectorSession connectorSession;

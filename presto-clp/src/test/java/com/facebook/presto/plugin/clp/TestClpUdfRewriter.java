@@ -21,6 +21,8 @@ import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
+import com.facebook.presto.plugin.clp.optimization.ClpUdfRewriter;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
@@ -52,6 +54,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.Utils.checkState;
+import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
@@ -76,10 +79,9 @@ import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
 
 @Test(singleThreaded = true)
-public class TestClpPlanOptimizer
+public class TestClpUdfRewriter
         extends TestClpQueryBase
 {
-    private static final Logger log = Logger.get(TestClpPlanOptimizer.class);
     private final Session defaultSession = testSessionBuilder()
             .setCatalog("clp")
             .setSchema(ClpMetadata.DEFAULT_SCHEMA_NAME)
@@ -138,22 +140,16 @@ public class TestClpPlanOptimizer
     public void testScanFilter()
     {
         TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
-        Session session = testSessionBuilder()
-                .setCatalog("clp")
-                .setSchema("default")
-                .setTransactionId(transactionId)
-                .build();
+        Session session = testSessionBuilder().setCatalog("clp").setSchema("default").setTransactionId(transactionId).build();
 
         Plan plan = localQueryRunner.createPlan(
                 session,
                 "SELECT * FROM test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
                 WarningCollector.NOOP);
-        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
-        PlanNode optimizedPlan = optimizer.optimize(
-                plan.getRoot(),
-                session.toConnectorSession(),
-                variableAllocator,
-                planNodeIdAllocator);
+        ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
+        PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
                 session,
@@ -165,29 +161,23 @@ public class TestClpPlanOptimizer
                                 expression("lower(city.Name) = 'BEIJING'"),
                                 ClpTableScanMatcher.clpTableScanPattern(
                                         new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
-                                        ImmutableSet.of(city, fare, isHoliday)))));
+                                        ImmutableSet.of(city, fare, isHoliday, new ClpColumnHandle("user_id", BIGINT, true))))));
     }
 
     @Test
     public void testScanProject()
     {
         TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
-        Session session = testSessionBuilder()
-                .setCatalog("clp")
-                .setSchema("default")
-                .setTransactionId(transactionId)
-                .build();
+        Session session = testSessionBuilder().setCatalog("clp").setSchema("default").setTransactionId(transactionId).build();
 
         Plan plan = localQueryRunner.createPlan(
                 session,
                 "SELECT CLP_GET_STRING('user'), city.Name FROM test",
                 WarningCollector.NOOP);
-        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
-        PlanNode optimizedPlan = optimizer.optimize(
-                plan.getRoot(),
-                session.toConnectorSession(),
-                variableAllocator,
-                planNodeIdAllocator);
+        ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
+        PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
                 session,
@@ -218,23 +208,17 @@ public class TestClpPlanOptimizer
     public void testScanProjectFilter()
     {
         TransactionId transactionId = localQueryRunner.getTransactionManager().beginTransaction(false);
-        Session session = testSessionBuilder()
-                .setCatalog("clp")
-                .setSchema("default")
-                .setTransactionId(transactionId)
-                .build();
+        Session session = testSessionBuilder().setCatalog("clp").setSchema("default").setTransactionId(transactionId).build();
 
         Plan plan = localQueryRunner.createPlan(
                 session,
                 "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('user')) from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
                 WarningCollector.NOOP);
-        ClpPlanOptimizer optimizer = new ClpPlanOptimizer(functionAndTypeManager, functionResolution, metadataFilterProvider);
-        PlanNode optimizedPlan = optimizer.optimize(
-                plan.getRoot(),
-                session.toConnectorSession(),
-                variableAllocator,
-                new PlanNodeIdAllocator());
-        log.info(plan.toString());
+        ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
+        PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
+
         PlanAssert.assertPlan(
                 session,
                 localQueryRunner.getMetadata(),
@@ -255,6 +239,10 @@ public class TestClpPlanOptimizer
                                                         new ClpColumnHandle(
                                                                 "user",
                                                                 VARCHAR,
+                                                                true),
+                                                        new ClpColumnHandle(
+                                                                "user_id",
+                                                                BIGINT,
                                                                 true),
                                                         city))))));
     }
