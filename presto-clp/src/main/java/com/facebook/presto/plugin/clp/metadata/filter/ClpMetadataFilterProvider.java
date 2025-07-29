@@ -75,7 +75,7 @@ public abstract class ClpMetadataFilterProvider
                     new TypeReference<Map<String, List<ClpMetadataFilter>>>() {});
         }
         catch (IOException e) {
-            throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to metadata filter config file open.");
+            throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to open metadata filter config file", e);
         }
     }
 

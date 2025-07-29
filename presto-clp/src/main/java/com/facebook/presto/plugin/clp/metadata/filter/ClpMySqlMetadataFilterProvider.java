@@ -75,13 +75,13 @@ public class ClpMySqlMetadataFilterProvider
             String key = entry.getKey();
             ClpMySqlMetadataDatabaseSpecific.RangeMapping value = entry.getValue();
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(>=?)\\s([0-9]*)", key),
+                    format("\"(%s)\"\\s(>=?)\\s(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)", key),
                     format("%s $2 $3", value.upperBound));
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(<=?)\\s([0-9]*)", key),
+                    format("\"(%s)\"\\s(<=?)\\s(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)", key),
                     format("%s $2 $3", value.lowerBound));
             remappedSql = remappedSql.replaceAll(
-                    format("\"(%s)\"\\s(=)\\s([0-9]*)", key),
+                    format("\"(%s)\"\\s(=)\\s(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)", key),
                     format("(%s <= $3 AND %s >= $3)", value.lowerBound, value.upperBound));
         }
         return remappedSql;
