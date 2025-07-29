@@ -128,7 +128,7 @@ public abstract class ClpMetadataFilterProvider
 
     /**
      * Returns the {@link MetadataDatabaseSpecific} class implemented by the user. To respect our
-     * code style, we recommend to implementing a {@code protected static class} as an inner class
+     * code style, we recommend implementing a {@code protected static class} as an inner class
      * in the user-implemented {@link ClpMetadataFilterProvider} class.
      *
      * @return the user-implemented {@link MetadataDatabaseSpecific} class.
