@@ -136,10 +136,10 @@ the metadata database. The basic structure of a filter contains the following th
 
 - ``columnName``: indicates the data column's name.
 
-- ``metadataDatabaseSpecific`` *(optional)*: stores the metadata-database-specific fields which can be used for metadata
-  filtering. We will provide an example of the MySQL-specific
-  :ref:`here<example-of-metadata-filters-for-mysql-metadata-database>`. This field provides the ability to generate the
-  metadata filter query for different types of metadata database from the pushed-down expression for metadata filtering.
+- ``metadataDatabaseSpecific`` *(optional)*: stores fields specific to some metadata database that can be used for metadata filtering.
+ An example for MySQL-specific fields can be seen
+  :ref:`here<example-of-metadata-filters-for-mysql-metadata-database>`. This provides the ability to generate
+metadata filter queries for different types of metadata databases by modifying the pushed-down expression for metadata filtering according to the contents of this field.
 
 - ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the pushed-down
   expression for metadata filtering. If a required filter is missing or cannot be pushed down, the query will be
@@ -153,7 +153,7 @@ the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) o
 Example of Metadata Filters for MySQL Metadata Database
 ^^^^^^^
 
-For the filed ``metadataDatabaseSpecific``, it has the following field:
+The field ``metadataDatabaseSpecific`` has the following properties:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
 
