@@ -48,8 +48,8 @@ import static java.util.Objects.requireNonNull;
  * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
  * to all tables within that schema).
  * <p></p>
- * For different metadata databases filter configs can include different fields.
- * See {@link ClpMetadataFilter} for the structure definition.
+ * Different metadata databases can customize filter configurations through the
+ * {@code metadataDatabaseSpecific} field within each {@link ClpMetadataFilter}.
  */
 public abstract class ClpMetadataFilterProvider
 {
