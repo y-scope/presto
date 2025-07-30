@@ -84,9 +84,11 @@ public class ClpPlanOptimizer
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
         {
-            TableHandle tableHandle = node.getTable();
-            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            schemaTableName = clpTableHandle.getSchemaTableName();
+            if (!node.getAssignments().isEmpty()) {
+                TableHandle tableHandle = node.getTable();
+                ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+                schemaTableName = clpTableHandle.getSchemaTableName();
+            }
             return super.visitTableScan(node, context);
         }
 
