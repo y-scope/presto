@@ -19,6 +19,7 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -56,17 +57,37 @@ public class ClpPlanOptimizer
     @Override
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
-        return rewriteWith(new Rewriter(idAllocator), maxSubplan);
+        Rewriter rewriter = new Rewriter(idAllocator);
+        PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
+
+        // Throw exception if there are any required metadata filters
+        if (null != rewriter.schemaTableName && !rewriter.hasVisitedFilter) {
+            metadataFilterProvider.checkContainsRequiredFilters(rewriter.schemaTableName, "");
+        }
+        return optimizedPlanNode;
     }
 
     private class Rewriter
             extends ConnectorPlanRewriter<Void>
     {
         private final PlanNodeIdAllocator idAllocator;
+        private boolean hasVisitedFilter;
+        private SchemaTableName schemaTableName;
 
         public Rewriter(PlanNodeIdAllocator idAllocator)
         {
             this.idAllocator = idAllocator;
+            hasVisitedFilter = false;
+            schemaTableName = null;
+        }
+
+        @Override
+        public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
+        {
+            TableHandle tableHandle = node.getTable();
+            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            schemaTableName = clpTableHandle.getSchemaTableName();
+            return super.visitTableScan(node, context);
         }
 
         @Override
@@ -75,6 +96,7 @@ public class ClpPlanOptimizer
             if (!(node.getSource() instanceof TableScanNode)) {
                 return node;
             }
+            hasVisitedFilter = true;
 
             TableScanNode tableScanNode = (TableScanNode) node.getSource();
             Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(tableScanNode.getAssignments());
