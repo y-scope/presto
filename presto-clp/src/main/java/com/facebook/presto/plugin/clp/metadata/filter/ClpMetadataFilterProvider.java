@@ -15,7 +15,6 @@ package com.facebook.presto.plugin.clp.metadata.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -30,12 +29,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
-import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
 import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -100,15 +97,15 @@ public abstract class ClpMetadataFilterProvider
      * Checks for the given table, if the given pushed-down expression for metadata filtering
      * contains all required fields.
      *
-     * @param schemaTableName the table that is being queried
+     * @param tableScope the scope of the table that is being queried
      * @param metadataFilterPushDownExpression the pushed-down expression for metadata filtering
      *                                         to be checked
      */
-    public void checkContainsRequiredFilters(SchemaTableName schemaTableName, String metadataFilterPushDownExpression)
+    public void checkContainsRequiredFilters(String tableScope, String metadataFilterPushDownExpression)
     {
         boolean hasRequiredMetadataFilterColumns = true;
         ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
-        for (String columnName : getRequiredColumnNames(format("%s.%s", CONNECTOR_NAME, schemaTableName))) {
+        for (String columnName : getRequiredColumnNames(tableScope)) {
             if (!metadataFilterPushDownExpression.contains(columnName)) {
                 hasRequiredMetadataFilterColumns = false;
                 notFoundListBuilder.add(columnName);

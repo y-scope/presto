@@ -27,6 +27,8 @@ import java.net.URL;
 import java.nio.file.Paths;
 import java.util.Set;
 
+import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
+import static java.lang.String.format;
 import static java.util.UUID.randomUUID;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertThrows;
@@ -54,12 +56,12 @@ public class TestClpMetadataFilterConfigCommon
         ClpConfig config = new ClpConfig();
         config.setMetadataFilterConfig(filterConfigPath);
         ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
-        SchemaTableName testTableSchemaTableName = new SchemaTableName("default", "table_1");
+        String testTableScope = format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1"));
         assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
-                testTableSchemaTableName,
+                testTableScope,
                 "(\"level\" >= 1 AND \"level\" <= 3)"));
         filterProvider.checkContainsRequiredFilters(
-                testTableSchemaTableName,
+                testTableScope,
                 "(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)");
     }
 

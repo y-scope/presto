@@ -19,7 +19,6 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
-import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -37,6 +36,7 @@ import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class ClpPlanOptimizer
@@ -61,8 +61,8 @@ public class ClpPlanOptimizer
         PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
 
         // Throw exception if there are any required metadata filters
-        if (null != rewriter.schemaTableName && !rewriter.hasVisitedFilter) {
-            metadataFilterProvider.checkContainsRequiredFilters(rewriter.schemaTableName, "");
+        if (null != rewriter.tableScope && !rewriter.hasVisitedFilter) {
+            metadataFilterProvider.checkContainsRequiredFilters(rewriter.tableScope, "");
         }
         return optimizedPlanNode;
     }
@@ -72,23 +72,21 @@ public class ClpPlanOptimizer
     {
         private final PlanNodeIdAllocator idAllocator;
         private boolean hasVisitedFilter;
-        private SchemaTableName schemaTableName;
+        private String tableScope;
 
         public Rewriter(PlanNodeIdAllocator idAllocator)
         {
             this.idAllocator = idAllocator;
             hasVisitedFilter = false;
-            schemaTableName = null;
+            tableScope = null;
         }
 
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
         {
-            if (!node.getAssignments().isEmpty()) {
-                TableHandle tableHandle = node.getTable();
-                ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-                schemaTableName = clpTableHandle.getSchemaTableName();
-            }
+            TableHandle tableHandle = node.getTable();
+            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            tableScope = format("%s.%s", CONNECTOR_NAME, clpTableHandle.getSchemaTableName());
             return super.visitTableScan(node, context);
         }
 
@@ -104,12 +102,12 @@ public class ClpPlanOptimizer
             Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(tableScanNode.getAssignments());
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            String scope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
+            String tableScope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
             ClpExpression clpExpression = node.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
-                            metadataFilterProvider.getColumnNames(scope)),
+                            metadataFilterProvider.getColumnNames(tableScope)),
                     assignments);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
@@ -117,9 +115,9 @@ public class ClpPlanOptimizer
 
             // Perform required metadata filter checks before handling the KQL query (if kqlQuery
             // isn't present, we'll return early, skipping subsequent checks).
-            metadataFilterProvider.checkContainsRequiredFilters(clpTableHandle.getSchemaTableName(), metadataSqlQuery.orElse(""));
+            metadataFilterProvider.checkContainsRequiredFilters(tableScope, metadataSqlQuery.orElse(""));
             if (metadataSqlQuery.isPresent()) {
-                metadataSqlQuery = Optional.of(metadataFilterProvider.remapMetadataFilterPushDown(scope, metadataSqlQuery.get()));
+                metadataSqlQuery = Optional.of(metadataFilterProvider.remapMetadataFilterPushDown(tableScope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery);
             }
 
