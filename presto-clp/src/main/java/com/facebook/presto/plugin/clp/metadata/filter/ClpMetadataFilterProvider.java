@@ -97,18 +97,20 @@ public abstract class ClpMetadataFilterProvider
      * Checks for the given table, if the given pushed-down expression for metadata filtering
      * contains all required fields.
      *
-     * @param tableScope the scope of the table that is being queried
+     * @param tableScopeSet the set of scopes of the tables that are being queried
      * @param metadataFilterPushDownExpression the pushed-down expression for metadata filtering
      *                                         to be checked
      */
-    public void checkContainsRequiredFilters(String tableScope, String metadataFilterPushDownExpression)
+    public void checkContainsRequiredFilters(Set<String> tableScopeSet, String metadataFilterPushDownExpression)
     {
         boolean hasRequiredMetadataFilterColumns = true;
         ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
-        for (String columnName : getRequiredColumnNames(tableScope)) {
-            if (!metadataFilterPushDownExpression.contains(columnName)) {
-                hasRequiredMetadataFilterColumns = false;
-                notFoundListBuilder.add(columnName);
+        for (String tableScope : tableScopeSet) {
+            for (String columnName : getRequiredColumnNames(tableScope)) {
+                if (!metadataFilterPushDownExpression.contains(columnName)) {
+                    hasRequiredMetadataFilterColumns = false;
+                    notFoundListBuilder.add(columnName);
+                }
             }
         }
         if (!hasRequiredMetadataFilterColumns) {

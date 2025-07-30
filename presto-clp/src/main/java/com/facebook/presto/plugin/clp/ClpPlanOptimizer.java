@@ -29,10 +29,13 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
@@ -61,8 +64,8 @@ public class ClpPlanOptimizer
         PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
 
         // Throw exception if there are any required metadata filters
-        if (null != rewriter.tableScope && !rewriter.hasVisitedFilter) {
-            metadataFilterProvider.checkContainsRequiredFilters(rewriter.tableScope, "");
+        if (!rewriter.tableScopeSet.isEmpty() && !rewriter.hasVisitedFilter) {
+            metadataFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, "");
         }
         return optimizedPlanNode;
     }
@@ -71,14 +74,14 @@ public class ClpPlanOptimizer
             extends ConnectorPlanRewriter<Void>
     {
         private final PlanNodeIdAllocator idAllocator;
+        private final Set<String> tableScopeSet;
         private boolean hasVisitedFilter;
-        private String tableScope;
 
         public Rewriter(PlanNodeIdAllocator idAllocator)
         {
             this.idAllocator = idAllocator;
             hasVisitedFilter = false;
-            tableScope = null;
+            tableScopeSet = new HashSet<>();
         }
 
         @Override
@@ -86,7 +89,7 @@ public class ClpPlanOptimizer
         {
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            tableScope = format("%s.%s", CONNECTOR_NAME, clpTableHandle.getSchemaTableName());
+            tableScopeSet.add(format("%s.%s", CONNECTOR_NAME, clpTableHandle.getSchemaTableName()));
             return super.visitTableScan(node, context);
         }
 
@@ -115,7 +118,7 @@ public class ClpPlanOptimizer
 
             // Perform required metadata filter checks before handling the KQL query (if kqlQuery
             // isn't present, we'll return early, skipping subsequent checks).
-            metadataFilterProvider.checkContainsRequiredFilters(tableScope, metadataSqlQuery.orElse(""));
+            metadataFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), metadataSqlQuery.orElse(""));
             if (metadataSqlQuery.isPresent()) {
                 metadataSqlQuery = Optional.of(metadataFilterProvider.remapMetadataFilterPushDown(tableScope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery);

@@ -56,12 +56,12 @@ public class TestClpMetadataFilterConfigCommon
         ClpConfig config = new ClpConfig();
         config.setMetadataFilterConfig(filterConfigPath);
         ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
-        String testTableScope = format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1"));
+        Set<String> testTableScopeSet = ImmutableSet.of(format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1")));
         assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
-                testTableScope,
+                testTableScopeSet,
                 "(\"level\" >= 1 AND \"level\" <= 3)"));
         filterProvider.checkContainsRequiredFilters(
-                testTableScope,
+                testTableScopeSet,
                 "(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)");
     }
 
