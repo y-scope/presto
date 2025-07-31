@@ -21,25 +21,25 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataDatabaseSpecific;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataProviderSpecific;
 
 /**
- * Uses the given implementation of {@link MetadataDatabaseSpecific} to deserialize the
- * {@code "metadataDatabaseSpecific"} field in the filter. The implementation is originally chosen
+ * Uses the given implementation of {@link MetadataProviderSpecific} to deserialize the
+ * {@code "metadataProviderSpecific"} field in the filter. The implementation is originally chosen
  * by the {@code clp.metadata-provider-type} config option.
  */
-public class ClpMetadataDatabaseSpecificDeserializer
-        extends JsonDeserializer<MetadataDatabaseSpecific>
+public class ClpMetadataProviderSpecificDeserializer
+        extends JsonDeserializer<MetadataProviderSpecific>
 {
-    private final Class<? extends MetadataDatabaseSpecific> actualMetadataDatabaseSpecificClass;
+    private final Class<? extends MetadataProviderSpecific> actualMetadataDatabaseSpecificClass;
 
-    public ClpMetadataDatabaseSpecificDeserializer(Class<? extends MetadataDatabaseSpecific> actualMetadataDatabaseSpecificClass)
+    public ClpMetadataProviderSpecificDeserializer(Class<? extends MetadataProviderSpecific> actualMetadataDatabaseSpecificClass)
     {
         this.actualMetadataDatabaseSpecificClass = actualMetadataDatabaseSpecificClass;
     }
 
     @Override
-    public MetadataDatabaseSpecific deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
+    public MetadataProviderSpecific deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
     {
         ObjectNode node = p.getCodec().readTree(p);
         ObjectMapper mapper = (ObjectMapper) p.getCodec();

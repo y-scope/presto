@@ -22,7 +22,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <ul>
  *   <li><b>{@code columnName}</b>: the data column's name.</li>
  *
- *   <li><b>{@code metadataDatabaseSpecific}</b>: the metadata database specific sub-object.</li>
+ *   <li><b>{@code metadataProviderSpecific}</b>: the metadata provider specific sub-object.</li>
  *
  *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
  *   filter must be present in the pushed-down expression for metadata filtering. If a required
@@ -34,12 +34,12 @@ public class ClpMetadataFilter
     @JsonProperty("columnName")
     public String columnName;
 
-    @JsonProperty("metadataDatabaseSpecific")
-    public MetadataDatabaseSpecific metadataDatabaseSpecific;
+    @JsonProperty("metadataProviderSpecific")
+    public MetadataProviderSpecific metadataProviderSpecific;
 
     @JsonProperty("required")
     public boolean required;
 
-    public interface MetadataDatabaseSpecific
+    public interface MetadataProviderSpecific
     {}
 }

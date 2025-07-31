@@ -136,11 +136,11 @@ the metadata database. The basic structure of a filter contains the following th
 
 - ``columnName``: indicates the data column's name.
 
-- ``metadataDatabaseSpecific`` *(optional)*: stores fields specific to some metadata database that can be used for
+- ``metadataProviderSpecific`` *(optional)*: stores fields specific to some metadata provider that can be used for
   metadata filtering. See an example of MySQL-specific fields
   :ref:`here<example-of-metadata-filters-for-mysql-metadata-database>`. This provides the ability to generate metadata
-  filter queries for different types of metadata databases by modifying the pushed-down expression for metadata
-  filtering according to the contents of this field.
+  filter queries for different metadata providers by modifying the pushed-down expression for metadata filtering
+  according to the contents of this field.
 
 - ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the pushed-down
   expression for metadata filtering. If a required filter is missing or cannot be pushed down, the query will be
@@ -154,7 +154,7 @@ the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) o
 Example of Metadata Filters for MySQL Metadata Database
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The field ``metadataDatabaseSpecific`` contains the following properties:
+The field ``metadataProviderSpecific`` contains the following properties:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
 
@@ -182,7 +182,7 @@ The code block shows an example metadata filter config file:
       "clp.default.table_1": [
         {
           "columnName": "msg.timestamp",
-          "metadataDatabaseSpecific": {
+          "metadataProviderSpecific": {
             "rangeMapping": {
               "lowerBound": "begin_timestamp",
               "upperBound": "end_timestamp"

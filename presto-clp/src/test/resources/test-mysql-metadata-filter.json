@@ -12,7 +12,7 @@
   "clp.default.table_1": [
       {
         "columnName": "msg.timestamp",
-        "metadataDatabaseSpecific": {
+        "metadataProviderSpecific": {
           "rangeMapping": {
             "lowerBound": "begin_timestamp",
             "upperBound": "end_timestamp"
