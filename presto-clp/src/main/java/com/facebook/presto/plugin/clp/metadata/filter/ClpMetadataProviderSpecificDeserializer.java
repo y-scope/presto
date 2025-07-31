@@ -31,11 +31,11 @@ import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.M
 public class ClpMetadataProviderSpecificDeserializer
         extends JsonDeserializer<MetadataProviderSpecific>
 {
-    private final Class<? extends MetadataProviderSpecific> actualMetadataDatabaseSpecificClass;
+    private final Class<? extends MetadataProviderSpecific> actualMetadataProviderSpecificClass;
 
-    public ClpMetadataProviderSpecificDeserializer(Class<? extends MetadataProviderSpecific> actualMetadataDatabaseSpecificClass)
+    public ClpMetadataProviderSpecificDeserializer(Class<? extends MetadataProviderSpecific> actualMetadataProviderSpecificClass)
     {
-        this.actualMetadataDatabaseSpecificClass = actualMetadataDatabaseSpecificClass;
+        this.actualMetadataProviderSpecificClass = actualMetadataProviderSpecificClass;
     }
 
     @Override
@@ -44,6 +44,6 @@ public class ClpMetadataProviderSpecificDeserializer
         ObjectNode node = p.getCodec().readTree(p);
         ObjectMapper mapper = (ObjectMapper) p.getCodec();
 
-        return mapper.treeToValue(node, actualMetadataDatabaseSpecificClass);
+        return mapper.treeToValue(node, actualMetadataProviderSpecificClass);
     }
 }
