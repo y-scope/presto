@@ -70,7 +70,7 @@ void from_json(const json& j, ClpColumnHandle& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-// Loosly copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
+// Loosely copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
 
 // NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
 static const std::pair<SplitType, json> SplitType_enum_table[] =
