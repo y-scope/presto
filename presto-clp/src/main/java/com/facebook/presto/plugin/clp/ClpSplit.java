@@ -80,7 +80,7 @@ public class ClpSplit
     @Override
     public Map<String, String> getInfo()
     {
-        return ImmutableMap.of("path", path, "kqlQuery", kqlQuery.orElse("<null>"), "type", type.toString());
+        return ImmutableMap.of("path", path, "type", type.toString(), "kqlQuery", kqlQuery.orElse("<null>"));
     }
 
     public enum SplitType
