@@ -30,6 +30,7 @@ import java.sql.SQLException;
 import java.util.List;
 
 import static java.lang.String.format;
+import static com.facebook.presto.plugin.clp.ClpSplit.Type.ARCHIVE;
 
 public class ClpMySqlSplitProvider
         implements ClpSplitProvider
@@ -81,7 +82,7 @@ public class ClpMySqlSplitProvider
                 while (resultSet.next()) {
                     final String archiveId = resultSet.getString(ARCHIVES_TABLE_COLUMN_ID);
                     final String archivePath = tablePath + "/" + archiveId;
-                    splits.add(new ClpSplit(archivePath, clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(archivePath, clpTableLayoutHandle.getKqlQuery(), ARCHIVE));
                 }
             }
         }
