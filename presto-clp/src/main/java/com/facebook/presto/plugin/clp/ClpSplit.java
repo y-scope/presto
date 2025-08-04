@@ -33,18 +33,18 @@ public class ClpSplit
         implements ConnectorSplit
 {
     private final String path;
-    private final Optional<String> kqlQuery;
     private final SplitType type;
+    private final Optional<String> kqlQuery;
 
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
-            @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("type") SplitType type)
+            @JsonProperty("type") SplitType type,
+            @JsonProperty("kqlQuery") Optional<String> kqlQuery)
     {
         this.path = requireNonNull(path, "Split path is null");
-        this.kqlQuery = kqlQuery;
         this.type = requireNonNull(type, "Split type is null");
+        this.kqlQuery = kqlQuery;
     }
 
     @JsonProperty
@@ -54,15 +54,15 @@ public class ClpSplit
     }
 
     @JsonProperty
-    public Optional<String> getKqlQuery()
-    {
-        return kqlQuery;
-    }
-
-    @JsonProperty
     public SplitType getType()
     {
         return type;
+    }
+
+    @JsonProperty
+    public Optional<String> getKqlQuery()
+    {
+        return kqlQuery;
     }
 
     @Override
