@@ -30,11 +30,6 @@ void to_json(json& j, const ClpTransactionHandle& p);
 
 void from_json(const json& j, ClpTransactionHandle& p);
 } // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
-enum class Type { ARCHIVE, IR };
-extern void to_json(json& j, const Type& e);
-extern void from_json(const json& j, Type& e);
-} // namespace facebook::presto::protocol::clp
 // ClpColumnHandle is special since it needs an implementation of
 // operator<().
 
@@ -54,10 +49,15 @@ void to_json(json& j, const ClpColumnHandle& p);
 void from_json(const json& j, ClpColumnHandle& p);
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
+enum class SplitType { ARCHIVE, IR };
+extern void to_json(json& j, const SplitType& e);
+extern void from_json(const json& j, SplitType& e);
+} // namespace facebook::presto::protocol::clp
+namespace facebook::presto::protocol::clp {
 struct ClpSplit : public ConnectorSplit {
   String path = {};
   std::shared_ptr<String> kqlQuery = {};
-  Type type = {};
+  SplitType type = {};
 
   ClpSplit() noexcept;
 };

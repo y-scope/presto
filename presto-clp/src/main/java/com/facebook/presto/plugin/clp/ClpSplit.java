@@ -34,13 +34,13 @@ public class ClpSplit
 {
     private final String path;
     private final Optional<String> kqlQuery;
-    private final Type type;
+    private final SplitType type;
 
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("type") Type type)
+            @JsonProperty("type") SplitType type)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.kqlQuery = kqlQuery;
@@ -60,7 +60,7 @@ public class ClpSplit
     }
 
     @JsonProperty
-    public Type getType()
+    public SplitType getType()
     {
         return type;
     }
@@ -83,7 +83,8 @@ public class ClpSplit
         return ImmutableMap.of("path", path, "kqlQuery", kqlQuery.orElse("<null>"));
     }
 
-    public enum Type {
+    public enum SplitType
+    {
         ARCHIVE,
         IR,
     }

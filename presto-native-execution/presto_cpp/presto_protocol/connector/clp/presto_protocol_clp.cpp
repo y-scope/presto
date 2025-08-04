@@ -34,37 +34,6 @@ void from_json(const json& j, ClpTransactionHandle& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-// Loosly copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
-
-// NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
-static const std::pair<Type, json> Type_enum_table[] =
-    { // NOLINT: cert-err58-cpp
-        {Type::ARCHIVE, "ARCHIVE"},
-        {Type::IR, "IR"}};
-void to_json(json& j, const Type& e) {
-  static_assert(std::is_enum<Type>::value, "Type must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(Type_enum_table),
-      std::end(Type_enum_table),
-      [e](const std::pair<Type, json>& ej_pair) -> bool {
-        return ej_pair.first == e;
-      });
-  j = ((it != std::end(Type_enum_table)) ? it : std::begin(Type_enum_table))
-          ->second;
-}
-void from_json(const json& j, Type& e) {
-  static_assert(std::is_enum<Type>::value, "Type must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(Type_enum_table),
-      std::end(Type_enum_table),
-      [&j](const std::pair<Type, json>& ej_pair) -> bool {
-        return ej_pair.second == j;
-      });
-  e = ((it != std::end(Type_enum_table)) ? it : std::begin(Type_enum_table))
-          ->first;
-}
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
 ClpColumnHandle::ClpColumnHandle() noexcept {
   _type = "clp";
 }
@@ -101,6 +70,41 @@ void from_json(const json& j, ClpColumnHandle& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
+// Loosly copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
+
+// NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
+static const std::pair<SplitType, json> SplitType_enum_table[] =
+    { // NOLINT: cert-err58-cpp
+        {SplitType::ARCHIVE, "ARCHIVE"},
+        {SplitType::IR, "IR"}};
+void to_json(json& j, const SplitType& e) {
+  static_assert(std::is_enum<SplitType>::value, "SplitType must be an enum!");
+  const auto* it = std::find_if(
+      std::begin(SplitType_enum_table),
+      std::end(SplitType_enum_table),
+      [e](const std::pair<SplitType, json>& ej_pair) -> bool {
+        return ej_pair.first == e;
+      });
+  j = ((it != std::end(SplitType_enum_table))
+           ? it
+           : std::begin(SplitType_enum_table))
+          ->second;
+}
+void from_json(const json& j, SplitType& e) {
+  static_assert(std::is_enum<SplitType>::value, "SplitType must be an enum!");
+  const auto* it = std::find_if(
+      std::begin(SplitType_enum_table),
+      std::end(SplitType_enum_table),
+      [&j](const std::pair<SplitType, json>& ej_pair) -> bool {
+        return ej_pair.second == j;
+      });
+  e = ((it != std::end(SplitType_enum_table))
+           ? it
+           : std::begin(SplitType_enum_table))
+          ->first;
+}
+} // namespace facebook::presto::protocol::clp
+namespace facebook::presto::protocol::clp {
 ClpSplit::ClpSplit() noexcept {
   _type = "clp";
 }
@@ -110,14 +114,14 @@ void to_json(json& j, const ClpSplit& p) {
   j["@type"] = "clp";
   to_json_key(j, "path", p.path, "ClpSplit", "String", "path");
   to_json_key(j, "kqlQuery", p.kqlQuery, "ClpSplit", "String", "kqlQuery");
-  to_json_key(j, "type", p.type, "ClpSplit", "Type", "type");
+  to_json_key(j, "type", p.type, "ClpSplit", "SplitType", "type");
 }
 
 void from_json(const json& j, ClpSplit& p) {
   p._type = j["@type"];
   from_json_key(j, "path", p.path, "ClpSplit", "String", "path");
   from_json_key(j, "kqlQuery", p.kqlQuery, "ClpSplit", "String", "kqlQuery");
-  from_json_key(j, "type", p.type, "ClpSplit", "Type", "type");
+  from_json_key(j, "type", p.type, "ClpSplit", "SplitType", "type");
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {

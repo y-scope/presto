@@ -29,8 +29,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
+import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static java.lang.String.format;
-import static com.facebook.presto.plugin.clp.ClpSplit.Type.ARCHIVE;
 
 public class ClpMySqlSplitProvider
         implements ClpSplitProvider
