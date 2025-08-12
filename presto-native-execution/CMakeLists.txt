@@ -38,19 +38,21 @@ set(DISABLED_WARNINGS
      -Wno-deprecated-declarations \
      -Wno-restrict")
 
-# Disable -Wstringop-overflow to avoid a false positive in the following compiler versions. See
-# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=117983
+# Disable -Wstringop-overflow to avoid a false positive in the following
+# compiler versions. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=117983
 #
-# NOTE: Typically, this is disabled using a VELOX_SUPPRESS_STRINGOP guard within the code; but that
-# doesn't apply to 3rd-party libraries, so we need to disable it globally for now.
+# NOTE: Typically, this is disabled using a VELOX_SUPPRESS_STRINGOP guard within
+# the code; but that doesn't apply to 3rd-party libraries, so we need to disable
+# it globally for now.
 if("GNU" STREQUAL "${CMAKE_CXX_COMPILER_ID}"
-    AND ((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12
+   AND ((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12
          AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12.5)
-         OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13
-             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
-         OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14
-             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.3)))
-    set(DISABLED_WARNINGS "${DISABLED_WARNINGS} -Wno-stringop-overflow")
+        OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
+        OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.3)
+       ))
+  set(DISABLED_WARNINGS "${DISABLED_WARNINGS} -Wno-stringop-overflow")
 endif()
 
 # Important warnings that must be explicitly enabled.
