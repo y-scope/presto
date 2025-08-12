@@ -29,6 +29,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 message("Appending CMAKE_CXX_FLAGS with ${SCRIPT_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
 
+# Known warnings that are benign can be disabled:
+#
+# * `restrict` since it triggers a bug in gcc 12. See
+#   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105651
+set(DISABLED_WARNINGS
+    "-Wno-nullability-completeness \
+     -Wno-deprecated-declarations \
+     -Wno-restrict")
+
 # Disable -Wstringop-overflow to avoid a false positive in the following compiler versions. See
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=117983
 #
@@ -41,17 +50,8 @@ if("GNU" STREQUAL "${CMAKE_CXX_COMPILER_ID}"
              AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
          OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14
              AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.3)))
-    target_compile_options(log_surgeon PRIVATE "-Wno-stringop-overflow")
+    set(DISABLED_WARNINGS "${DISABLED_WARNINGS} -Wno-stringop-overflow")
 endif()
-
-# Known warnings that are benign can be disabled:
-#
-# * `restrict` since it triggers a bug in gcc 12. See
-#   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105651
-set(DISABLED_WARNINGS
-    "-Wno-nullability-completeness \
-     -Wno-deprecated-declarations \
-     -Wno-restrict")
 
 # Important warnings that must be explicitly enabled.
 set(ENABLE_WARNINGS "-Wreorder")
