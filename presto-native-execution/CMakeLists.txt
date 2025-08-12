@@ -29,6 +29,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 message("Appending CMAKE_CXX_FLAGS with ${SCRIPT_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
 
+# Disable -Wstringop-overflow to avoid a false positive in the following compiler versions. See
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=117983
+#
+# NOTE: Typically, this is disabled using a VELOX_SUPPRESS_STRINGOP guard within the code; but that
+# doesn't apply to 3rd-party libraries, so we need to disable it globally for now.
+if("GNU" STREQUAL "${CMAKE_CXX_COMPILER_ID}"
+    AND ((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12
+         AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12.5)
+         OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13
+             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
+         OR (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14
+             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.3)))
+    target_compile_options(log_surgeon PRIVATE "-Wno-stringop-overflow")
+endif()
+
 # Known warnings that are benign can be disabled:
 #
 # * `restrict` since it triggers a bug in gcc 12. See
