@@ -160,7 +160,7 @@ public class TestClpUdfRewriter
                                 expression("lower(city.Name) = 'BEIJING'"),
                                 ClpTableScanMatcher.clpTableScanPattern(
                                         new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
-                                        ImmutableSet.of(city, fare, isHoliday, new ClpColumnHandle("user_id", BIGINT, true))))));
+                                        ImmutableSet.of(city, fare, isHoliday, new ClpColumnHandle("user_id", BIGINT))))));
     }
 
     @Test
@@ -196,10 +196,7 @@ public class TestClpUdfRewriter
                                                 Optional.empty(),
                                                 Optional.empty()),
                                         ImmutableSet.of(
-                                                new ClpColumnHandle(
-                                                        "user",
-                                                        VARCHAR,
-                                                        true),
+                                                new ClpColumnHandle("user", VARCHAR),
                                                 city)))));
     }
 
@@ -235,14 +232,8 @@ public class TestClpUdfRewriter
                                         ClpTableScanMatcher.clpTableScanPattern(
                                                 new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
                                                 ImmutableSet.of(
-                                                        new ClpColumnHandle(
-                                                                "user",
-                                                                VARCHAR,
-                                                                true),
-                                                        new ClpColumnHandle(
-                                                                "user_id",
-                                                                BIGINT,
-                                                                true),
+                                                        new ClpColumnHandle("user", VARCHAR),
+                                                        new ClpColumnHandle("user_id", BIGINT),
                                                         city))))));
     }
 
