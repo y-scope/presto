@@ -167,7 +167,7 @@ public final class ClpUdfRewriter
 
                     ConstantExpression constant = (ConstantExpression) call.getArguments().get(0);
                     String jsonPath = ((Slice) constant.getValue()).toStringUtf8();
-                    ClpColumnHandle targetHandle = new ClpColumnHandle(jsonPath, call.getType(), true);
+                    ClpColumnHandle targetHandle = new ClpColumnHandle(jsonPath, call.getType());
 
                     // Check if a variable with the same ClpColumnHandle already exists
                     VariableReferenceExpression existingVar = globalColumnVarMap.get(targetHandle);

@@ -1564,7 +1564,10 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
   return std::make_unique<connector::clp::ClpConnectorSplit>(
-      catalogId, clpSplit->path, clpSplit->kqlQuery);
+      catalogId,
+      clpSplit->path,
+      static_cast<int>(clpSplit->type),
+      clpSplit->kqlQuery);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>
@@ -1577,8 +1580,7 @@ ClpPrestoToVeloxConnector::toVeloxColumnHandle(
   return std::make_unique<connector::clp::ClpColumnHandle>(
       clpColumn->columnName,
       clpColumn->originalColumnName,
-      typeParser.parse(clpColumn->columnType),
-      clpColumn->nullable);
+      typeParser.parse(clpColumn->columnType));
 }
 
 std::unique_ptr<velox::connector::ConnectorTableHandle>
