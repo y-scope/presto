@@ -68,7 +68,35 @@ public final class ClpUdfRewriter
     @Override
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator allocator, PlanNodeIdAllocator idAllocator)
     {
-        return rewriteWith(new Rewriter(idAllocator, allocator), maxSubplan);
+        return rewriteWith(new Rewriter(idAllocator, allocator, collectExistingScanAssignments(maxSubplan)), maxSubplan);
+    }
+
+    /**
+     * Collects all existing variable assignments from {@link TableScanNode} instances that map
+     * column handles to {@link VariableReferenceExpression}s.
+     * <p>
+     * This method traverses the given plan subtree, visiting the {@link TableScanNode} and
+     * extracting its assignments. The resulting map allows tracking which scan-level variables
+     * already exist for specific columns, so that subsequent optimizer passes (e.g., CLP UDF
+     * rewriting) can reuse them instead of creating duplicates.
+     * <p>
+     * The returned map is keyed by the column handle, and the value is the
+     * {@link VariableReferenceExpression} assigned to it in the scan node.
+     *
+     * @param root the root {@link PlanNode} of the plan subtree
+     * @return a map from column handle to its correh hsponding scan-level variable
+     */
+    private Map<ColumnHandle, VariableReferenceExpression> collectExistingScanAssignments(PlanNode root)
+    {
+        Map<ColumnHandle, VariableReferenceExpression> map = new HashMap<>();
+        root.getSources().forEach(source -> map.putAll(collectExistingScanAssignments(source)));
+        if (root instanceof TableScanNode) {
+            TableScanNode scan = (TableScanNode) root;
+            scan.getAssignments().forEach((var, handle) -> {
+                map.putIfAbsent(handle, var);
+            });
+        }
+        return map;
     }
 
     private class Rewriter
@@ -76,38 +104,36 @@ public final class ClpUdfRewriter
     {
         private final PlanNodeIdAllocator idAllocator;
         private final VariableAllocator variableAllocator;
+        private final Map<ColumnHandle, VariableReferenceExpression> globalColumnVarMap;
 
-        public Rewriter(PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator)
+        public Rewriter(
+                PlanNodeIdAllocator idAllocator,
+                VariableAllocator variableAllocator,
+                Map<ColumnHandle, VariableReferenceExpression> globalColumnVarMap)
         {
             this.idAllocator = idAllocator;
             this.variableAllocator = variableAllocator;
+            this.globalColumnVarMap = globalColumnVarMap;
         }
 
         @Override
         public PlanNode visitProject(ProjectNode node, RewriteContext<Void> context)
         {
             Assignments.Builder newAssignments = Assignments.builder();
-            Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments = new HashMap<>();
-
             for (Map.Entry<VariableReferenceExpression, RowExpression> entry : node.getAssignments().getMap().entrySet()) {
                 newAssignments.put(
                         entry.getKey(),
-                        rewriteClpUdfs(entry.getValue(), clpUdfAssignments, functionManager, variableAllocator));
+                        rewriteClpUdfs(entry.getValue(), functionManager, variableAllocator));
             }
 
-            if (clpUdfAssignments.isEmpty()) {
-                return context.defaultRewrite(node);
-            }
-
-            PlanNode newSource = rewritePlanSubtree(node.getSource(), clpUdfAssignments);
+            PlanNode newSource = rewritePlanSubtree(node.getSource());
             return new ProjectNode(node.getSourceLocation(), idAllocator.getNextId(), newSource, newAssignments.build(), node.getLocality());
         }
 
         @Override
         public PlanNode visitFilter(FilterNode node, RewriteContext<Void> context)
         {
-            Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments = new HashMap<>();
-            return buildNewFilterNode(node, clpUdfAssignments);
+            return buildNewFilterNode(node);
         }
 
         /**
@@ -120,15 +146,12 @@ public final class ClpUdfRewriter
          * {@link PrestoException}.
          *
          * @param expression the input expression to analyze and possibly rewrite
-         * @param context a mapping from variable references to column handles. New entries will be
-         * added for any rewritten CLP UDFs
          * @param functionManager function manager used to resolve function metadata
          * @param variableAllocator variable allocator used to create new variable references
          * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
          */
         private RowExpression rewriteClpUdfs(
                 RowExpression expression,
-                Map<VariableReferenceExpression, ColumnHandle> context,
                 FunctionMetadataManager functionManager,
                 VariableAllocator variableAllocator)
         {
@@ -147,23 +170,22 @@ public final class ClpUdfRewriter
                     ClpColumnHandle targetHandle = new ClpColumnHandle(jsonPath, call.getType(), true);
 
                     // Check if a variable with the same ClpColumnHandle already exists
-                    for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : context.entrySet()) {
-                        if (entry.getValue().equals(targetHandle)) {
-                            return entry.getKey();  // Reuse existing variable
-                        }
+                    VariableReferenceExpression existingVar = globalColumnVarMap.get(targetHandle);
+                    if (existingVar != null) {
+                        return existingVar;
                     }
 
-                    VariableReferenceExpression variable = variableAllocator.newVariable(
+                    VariableReferenceExpression newVar = variableAllocator.newVariable(
                             expression.getSourceLocation(),
                             encodeJsonPath(jsonPath),
                             call.getType());
-                    context.putIfAbsent(variable, targetHandle);
-                    return variable;
+                    globalColumnVarMap.put(targetHandle, newVar);
+                    return newVar;
                 }
 
                 // Recurse into arguments
                 List<RowExpression> rewrittenArgs = call.getArguments().stream()
-                        .map(arg -> rewriteClpUdfs(arg, context, functionManager, variableAllocator))
+                        .map(arg -> rewriteClpUdfs(arg, functionManager, variableAllocator))
                         .collect(toImmutableList());
 
                 return new CallExpression(call.getDisplayName(), call.getFunctionHandle(), call.getType(), rewrittenArgs);
@@ -173,7 +195,7 @@ public final class ClpUdfRewriter
                 SpecialFormExpression special = (SpecialFormExpression) expression;
 
                 List<RowExpression> rewrittenArgs = special.getArguments().stream()
-                        .map(arg -> rewriteClpUdfs(arg, context, functionManager, variableAllocator))
+                        .map(arg -> rewriteClpUdfs(arg, functionManager, variableAllocator))
                         .collect(toImmutableList());
 
                 return new SpecialFormExpression(special.getSourceLocation(), special.getForm(), special.getType(), rewrittenArgs);
@@ -187,20 +209,19 @@ public final class ClpUdfRewriter
          * CLP UDF rewrites.
          *
          * @param node the plan node to rewrite
-         * @param clpUdfAssignments variable-to-column assignments for CLP UDFs
          * @return the rewritten plan node
          */
-        private PlanNode rewritePlanSubtree(PlanNode node, Map<VariableReferenceExpression, ColumnHandle> clpUdfAssignments)
+        private PlanNode rewritePlanSubtree(PlanNode node)
         {
             if (node instanceof TableScanNode) {
-                return buildNewTableScanNode((TableScanNode) node, clpUdfAssignments);
+                return buildNewTableScanNode((TableScanNode) node);
             }
             else if (node instanceof FilterNode) {
-                return buildNewFilterNode((FilterNode) node, clpUdfAssignments);
+                return buildNewFilterNode((FilterNode) node);
             }
 
             List<PlanNode> rewrittenChildren = node.getSources().stream()
-                    .map(source -> rewritePlanSubtree(source, clpUdfAssignments))
+                    .map(source -> rewritePlanSubtree(source))
                     .collect(toImmutableList());
 
             return node.replaceChildren(rewrittenChildren);
@@ -241,18 +262,17 @@ public final class ClpUdfRewriter
          * for rewritten CLP UDFs.
          *
          * @param node the original table scan node
-         * @param assignments variable-to-column assignments for CLP UDFs
          * @return the updated table scan node
          */
-        private TableScanNode buildNewTableScanNode(TableScanNode node, Map<VariableReferenceExpression, ColumnHandle> assignments)
+        private TableScanNode buildNewTableScanNode(TableScanNode node)
         {
             Set<VariableReferenceExpression> outputVars = new LinkedHashSet<>(node.getOutputVariables());
             Map<VariableReferenceExpression, ColumnHandle> newAssignments = new HashMap<>(node.getAssignments());
 
-            // Add new variables and assignments
-            assignments.forEach((var, handle) -> {
+            // Add any missing variables for known handles
+            globalColumnVarMap.forEach((handle, var) -> {
                 outputVars.add(var);
-                newAssignments.putIfAbsent(var, handle);
+                newAssignments.put(var, handle);
             });
 
             return new TableScanNode(
@@ -271,13 +291,12 @@ public final class ClpUdfRewriter
          * Builds a new {@link FilterNode} with its predicate rewritten to replace CLP UDF calls.
          *
          * @param node the original filter node
-         * @param assignments variable-to-column assignments for CLP UDFs
          * @return the updated filter node
          */
-        private FilterNode buildNewFilterNode(FilterNode node, Map<VariableReferenceExpression, ColumnHandle> assignments)
+        private FilterNode buildNewFilterNode(FilterNode node)
         {
-            RowExpression newPredicate = rewriteClpUdfs(node.getPredicate(), assignments, functionManager, variableAllocator);
-            PlanNode newSource = rewritePlanSubtree(node.getSource(), assignments);
+            RowExpression newPredicate = rewriteClpUdfs(node.getPredicate(), functionManager, variableAllocator);
+            PlanNode newSource = rewritePlanSubtree(node.getSource());
             return new FilterNode(node.getSourceLocation(), idAllocator.getNextId(), newSource, newPredicate);
         }
     }
