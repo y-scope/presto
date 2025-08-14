@@ -16,8 +16,8 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.configuration.AbstractConfigurationAwareModule;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
-import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
-import com.facebook.presto.plugin.clp.metadata.filter.ClpMySqlMetadataFilterProvider;
+import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.filter.ClpMySqlSplitFilterProvider;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.PrestoException;
@@ -25,7 +25,7 @@ import com.google.inject.Binder;
 import com.google.inject.Scopes;
 
 import static com.facebook.airlift.configuration.ConfigBinder.configBinder;
-import static com.facebook.presto.plugin.clp.ClpConfig.MetadataFilterProviderType;
+import static com.facebook.presto.plugin.clp.ClpConfig.SplitFilterProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.SplitProviderType;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE;
@@ -45,8 +45,8 @@ public class ClpModule
 
         ClpConfig config = buildConfigObject(ClpConfig.class);
 
-        if (MetadataFilterProviderType.MYSQL == config.getMetadataFilterProviderType()) {
-            binder.bind(ClpMetadataFilterProvider.class).to(ClpMySqlMetadataFilterProvider.class).in(Scopes.SINGLETON);
+        if (SplitFilterProviderType.MYSQL == config.getSplitFilterProviderType()) {
+            binder.bind(ClpSplitFilterProvider.class).to(ClpMySqlSplitFilterProvider.class).in(Scopes.SINGLETON);
         }
 
         if (config.getMetadataProviderType() == MetadataProviderType.MYSQL) {

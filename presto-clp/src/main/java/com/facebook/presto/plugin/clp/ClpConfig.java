@@ -24,17 +24,17 @@ public class ClpConfig
 
     private boolean polymorphicTypeEnabled = true;
 
-    private MetadataFilterProviderType metadataFilterProviderType = MetadataFilterProviderType.MYSQL;
     private MetadataProviderType metadataProviderType = MetadataProviderType.MYSQL;
     private String metadataDbUrl;
     private String metadataDbName;
     private String metadataDbUser;
     private String metadataDbPassword;
-    private String metadataFilterConfig;
     private String metadataTablePrefix;
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
 
+    private String splitFilterConfig;
+    private SplitFilterProviderType splitFilterProviderType = SplitFilterProviderType.MYSQL;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public boolean isPolymorphicTypeEnabled()
@@ -46,18 +46,6 @@ public class ClpConfig
     public ClpConfig setPolymorphicTypeEnabled(boolean polymorphicTypeEnabled)
     {
         this.polymorphicTypeEnabled = polymorphicTypeEnabled;
-        return this;
-    }
-
-    public MetadataFilterProviderType getMetadataFilterProviderType()
-    {
-        return metadataFilterProviderType;
-    }
-
-    @Config("clp.metadata-filter-provider-type")
-    public ClpConfig setMetadataFilterProviderType(MetadataFilterProviderType metadataFilterProviderType)
-    {
-        this.metadataFilterProviderType = metadataFilterProviderType;
         return this;
     }
 
@@ -121,18 +109,6 @@ public class ClpConfig
         return this;
     }
 
-    public String getMetadataFilterConfig()
-    {
-        return metadataFilterConfig;
-    }
-
-    @Config("clp.metadata-filter-config")
-    public ClpConfig setMetadataFilterConfig(String metadataFilterConfig)
-    {
-        this.metadataFilterConfig = metadataFilterConfig;
-        return this;
-    }
-
     public String getMetadataTablePrefix()
     {
         return metadataTablePrefix;
@@ -175,6 +151,30 @@ public class ClpConfig
         return this;
     }
 
+    public String getSplitFilterConfig()
+    {
+        return splitFilterConfig;
+    }
+
+    @Config("clp.split-filter-config")
+    public ClpConfig setSplitFilterConfig(String splitFilterConfig)
+    {
+        this.splitFilterConfig = splitFilterConfig;
+        return this;
+    }
+
+    public SplitFilterProviderType getSplitFilterProviderType()
+    {
+        return splitFilterProviderType;
+    }
+
+    @Config("clp.split-filter-provider-type")
+    public ClpConfig setSplitFilterProviderType(SplitFilterProviderType splitFilterProviderType)
+    {
+        this.splitFilterProviderType = splitFilterProviderType;
+        return this;
+    }
+
     public SplitProviderType getSplitProviderType()
     {
         return splitProviderType;
@@ -187,12 +187,12 @@ public class ClpConfig
         return this;
     }
 
-    public enum MetadataFilterProviderType
+    public enum MetadataProviderType
     {
         MYSQL
     }
 
-    public enum MetadataProviderType
+    public enum SplitFilterProviderType
     {
         MYSQL
     }

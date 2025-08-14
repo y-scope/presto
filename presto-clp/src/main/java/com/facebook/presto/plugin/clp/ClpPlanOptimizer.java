@@ -14,7 +14,7 @@
 package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterProvider;
+import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
@@ -48,13 +48,13 @@ public class ClpPlanOptimizer
     private static final Logger log = Logger.get(ClpPlanOptimizer.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpMetadataFilterProvider metadataFilterProvider;
+    private final ClpSplitFilterProvider splitFilterProvider;
 
-    public ClpPlanOptimizer(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpMetadataFilterProvider metadataFilterProvider)
+    public ClpPlanOptimizer(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitFilterProvider splitFilterProvider)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.metadataFilterProvider = requireNonNull(metadataFilterProvider, "metadataFilterProvider is null");
+        this.splitFilterProvider = requireNonNull(splitFilterProvider, "splitFilterProvider is null");
     }
 
     @Override
@@ -63,9 +63,9 @@ public class ClpPlanOptimizer
         Rewriter rewriter = new Rewriter(idAllocator);
         PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
 
-        // Throw exception if any required metadata filters are missing
+        // Throw exception if any required split filters are missing
         if (!rewriter.tableScopeSet.isEmpty() && !rewriter.hasVisitedFilter) {
-            metadataFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, "");
+            splitFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, "");
         }
         return optimizedPlanNode;
     }
@@ -110,7 +110,7 @@ public class ClpPlanOptimizer
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
-                            metadataFilterProvider.getColumnNames(tableScope)),
+                            splitFilterProvider.getColumnNames(tableScope)),
                     assignments);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
@@ -118,9 +118,9 @@ public class ClpPlanOptimizer
 
             // Perform required metadata filter checks before handling the KQL query (if kqlQuery
             // isn't present, we'll return early, skipping subsequent checks).
-            metadataFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), metadataSqlQuery.orElse(""));
+            splitFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), metadataSqlQuery.orElse(""));
             if (metadataSqlQuery.isPresent()) {
-                metadataSqlQuery = Optional.of(metadataFilterProvider.remapMetadataFilterPushDown(tableScope, metadataSqlQuery.get()));
+                metadataSqlQuery = Optional.of(splitFilterProvider.remapSplitFilterPushDownExpression(tableScope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery);
             }
 

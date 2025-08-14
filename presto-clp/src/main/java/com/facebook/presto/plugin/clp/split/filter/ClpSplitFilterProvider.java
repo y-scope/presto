@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.spi.PrestoException;
@@ -29,94 +29,95 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_SPLIT_FILTER_NOT_VALID;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_FILTER_CONFIG_NOT_FOUND;
+import static com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterConfig.CustomSplitFilterOptions;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Loads and manages metadata filter configurations for the CLP connector.
+ * Loads and manages split filter configurations for the CLP connector.
  * <p></p>
- * The configuration file is specified by the {@code clp.metadata-filter-config} property
- * and defines metadata filters used to optimize query execution through split pruning.
+ * The configuration file is specified by the {@code clp.split-filter-config} property and defines
+ * split filters used to optimize query execution through split filtering.
  * <p></p>
  * Filter configs can be declared at either a catalog, schema, or table scope. Filter configs under
  * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
  * to all tables within that schema).
  * <p></p>
- * Different metadata providers can customize filter configurations through the
- * {@code "customOptions"} field within each {@link ClpMetadataFilterConfig}.
+ * Different split filter providers can customize filter configurations through the
+ * {@code "customOptions"} field within each {@link ClpSplitFilterConfig}.
  */
-public abstract class ClpMetadataFilterProvider
+public abstract class ClpSplitFilterProvider
 {
-    protected final Map<String, List<ClpMetadataFilterConfig>> filterMap;
+    protected final Map<String, List<ClpSplitFilterConfig>> filterMap;
 
-    public ClpMetadataFilterProvider(ClpConfig config)
+    public ClpSplitFilterProvider(ClpConfig config)
     {
         requireNonNull(config, "config is null");
 
-        if (null == config.getMetadataFilterConfig()) {
+        if (null == config.getSplitFilterConfig()) {
             filterMap = ImmutableMap.of();
             return;
         }
         ObjectMapper mapper = new ObjectMapper();
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
-                CustomMetadataFilterOptions.class,
-                new ClpCustomMetadataFilterOptionsDeserializer(getMetadataProviderSpecificOptionsClass()));
+                CustomSplitFilterOptions.class,
+                new ClpCustomSplitFilterOptionsDeserializer(getCustomSplitFilterOptionsClass()));
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
-                    new File(config.getMetadataFilterConfig()),
-                    new TypeReference<Map<String, List<ClpMetadataFilterConfig>>>() {});
+                    new File(config.getSplitFilterConfig()),
+                    new TypeReference<Map<String, List<ClpSplitFilterConfig>>>() {});
         }
         catch (IOException e) {
-            throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to open metadata filter config file", e);
+            throw new PrestoException(CLP_SPLIT_FILTER_CONFIG_NOT_FOUND, "Failed to open split filter config file", e);
         }
     }
 
     /**
-     * Rewrites the given {@code pushDownExpression} for metadata filtering to remap filter
-     * conditions based on the configured range mappings for the given scope.
+     * Rewrites the given {@code pushDownExpression} for split filtering to remap filter conditions
+     * based on the custom configuration options stored defined in {@code "customOptions"} fields
+     * of the given scope.
      * <p></p>
      * The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
      * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
      * override or supplement those from broader scopes (e.g., catalog-level). For each scope
-     * (catalog, schema, table), this method collects all range mappings defined in the metadata
+     * (catalog, schema, table), this method collects all range mappings defined in the split
      * filter configuration.
      *
      * @param scope the scope of the filter
-     * @param pushDownExpression the {@code pushDownExpression} for metadata filtering that needs
-     *                           to be rewritten
-     * @return the rewritten {@code pushDownExpression} for metadata filtering
+     * @param pushDownExpression the {@code pushDownExpression} for split filtering that needs to
+     *                           be rewritten
+     * @return the rewritten {@code pushDownExpression} for split filtering
      */
-    public abstract String remapMetadataFilterPushDown(String scope, String pushDownExpression);
+    public abstract String remapSplitFilterPushDownExpression(String scope, String pushDownExpression);
 
     /**
-     * Checks for the given table, if the given {@code pushDownExpression} for metadata filtering
+     * Checks for the given table, if the given {@code pushDownExpression} for split filtering
      * contains all required fields.
      *
      * @param tableScopeSet the set of scopes of the tables that are being queried
-     * @param metadataFilterPushDownExpression the {@code pushDownExpression} for metadata
-     *                                         filtering to be checked
+     * @param splitFilterPushDownExpression the remapped {@code pushDownExpression} for split
+     *                                      filtering to be checked
      */
-    public void checkContainsRequiredFilters(Set<String> tableScopeSet, String metadataFilterPushDownExpression)
+    public void checkContainsRequiredFilters(Set<String> tableScopeSet, String splitFilterPushDownExpression)
     {
-        boolean hasRequiredMetadataFilterColumns = true;
+        boolean hasRequiredSplitFilterColumns = true;
         ImmutableList.Builder<String> notFoundListBuilder = ImmutableList.builder();
         for (String tableScope : tableScopeSet) {
             for (String columnName : getRequiredColumnNames(tableScope)) {
-                if (!metadataFilterPushDownExpression.contains(columnName)) {
-                    hasRequiredMetadataFilterColumns = false;
+                if (!splitFilterPushDownExpression.contains(columnName)) {
+                    hasRequiredSplitFilterColumns = false;
                     notFoundListBuilder.add(columnName);
                 }
             }
         }
-        if (!hasRequiredMetadataFilterColumns) {
+        if (!hasRequiredSplitFilterColumns) {
             throw new PrestoException(
-                    CLP_MANDATORY_METADATA_FILTER_NOT_VALID,
-                    notFoundListBuilder.build() + " is a mandatory metadata filter column but not valid");
+                    CLP_MANDATORY_SPLIT_FILTER_NOT_VALID,
+                    notFoundListBuilder.build() + " is a mandatory split filter column but not valid");
         }
     }
 
@@ -126,20 +127,20 @@ public abstract class ClpMetadataFilterProvider
     }
 
     /**
-     * Returns the {@link CustomMetadataFilterOptions} class implemented by the user. To respect our
+     * Returns the {@link CustomSplitFilterOptions} class implemented by the user. To respect our
      * code style, we recommend implementing a {@code protected static class} as an inner class
-     * in the user-implemented {@link ClpMetadataFilterProvider} class.
+     * in the user-implemented {@link ClpSplitFilterProvider} class.
      *
-     * @return the user-implemented {@link CustomMetadataFilterOptions} class.
+     * @return the user-implemented {@link CustomSplitFilterOptions} class.
      */
-    protected abstract Class<? extends CustomMetadataFilterOptions> getMetadataProviderSpecificOptionsClass();
+    protected abstract Class<? extends CustomSplitFilterOptions> getCustomSplitFilterOptionsClass();
 
     private Set<String> getRequiredColumnNames(String scope)
     {
         return collectColumnNamesFromScopes(scope, this::getRequiredColumnNamesFromFilters);
     }
 
-    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<ClpMetadataFilterConfig>, Set<String>> extractor)
+    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<ClpSplitFilterConfig>, Set<String>> extractor)
     {
         String[] splitScope = scope.split("\\.");
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
@@ -157,14 +158,14 @@ public abstract class ClpMetadataFilterProvider
         return builder.build();
     }
 
-    private Set<String> getAllColumnNamesFromFilters(List<ClpMetadataFilterConfig> filters)
+    private Set<String> getAllColumnNamesFromFilters(List<ClpSplitFilterConfig> filters)
     {
         return null != filters ? filters.stream()
                 .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
 
-    private Set<String> getRequiredColumnNamesFromFilters(List<ClpMetadataFilterConfig> filters)
+    private Set<String> getRequiredColumnNamesFromFilters(List<ClpSplitFilterConfig> filters)
     {
         return null != filters ? filters.stream()
                 .filter(filter -> filter.required)

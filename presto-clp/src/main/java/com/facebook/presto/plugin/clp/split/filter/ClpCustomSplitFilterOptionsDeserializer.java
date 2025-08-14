@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -21,29 +21,29 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
+import static com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterConfig.CustomSplitFilterOptions;
 
 /**
- * Uses the given implementation of {@link CustomMetadataFilterOptions} to deserialize the
+ * Uses the given implementation of {@link CustomSplitFilterOptions} to deserialize the
  * {@code "customOptions"} field in the filter. The implementation is originally chosen
- * by the {@code clp.metadata-provider-type} config option.
+ * by the {@code clp.split-filter-provider-type} config option.
  */
-public class ClpCustomMetadataFilterOptionsDeserializer
-        extends JsonDeserializer<CustomMetadataFilterOptions>
+public class ClpCustomSplitFilterOptionsDeserializer
+        extends JsonDeserializer<CustomSplitFilterOptions>
 {
-    private final Class<? extends CustomMetadataFilterOptions> actualCustomMetadataFilterOptionsClass;
+    private final Class<? extends CustomSplitFilterOptions> actualCustomSplitFilterOptionsClass;
 
-    public ClpCustomMetadataFilterOptionsDeserializer(Class<? extends CustomMetadataFilterOptions> actualCustomMetadataFilterOptionsClass)
+    public ClpCustomSplitFilterOptionsDeserializer(Class<? extends CustomSplitFilterOptions> actualCustomSplitFilterOptionsClass)
     {
-        this.actualCustomMetadataFilterOptionsClass = actualCustomMetadataFilterOptionsClass;
+        this.actualCustomSplitFilterOptionsClass = actualCustomSplitFilterOptionsClass;
     }
 
     @Override
-    public CustomMetadataFilterOptions deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
+    public CustomSplitFilterOptions deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
     {
         ObjectNode node = p.getCodec().readTree(p);
         ObjectMapper mapper = (ObjectMapper) p.getCodec();
 
-        return mapper.treeToValue(node, actualCustomMetadataFilterOptionsClass);
+        return mapper.treeToValue(node, actualCustomSplitFilterOptionsClass);
     }
 }

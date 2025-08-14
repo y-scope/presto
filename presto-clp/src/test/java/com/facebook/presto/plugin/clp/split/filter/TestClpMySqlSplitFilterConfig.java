@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import org.testng.annotations.BeforeMethod;
@@ -27,27 +27,27 @@ import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
-public class TestClpMySqlMetadataFilterConfig
+public class TestClpMySqlSplitFilterConfig
 {
     private String filterConfigPath;
 
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
     {
-        URL resource = getClass().getClassLoader().getResource("test-mysql-metadata-filter.json");
+        URL resource = getClass().getClassLoader().getResource("test-mysql-split-filter.json");
         if (resource == null) {
-            throw new FileNotFoundException("test-mysql-metadata-filter.json not found in resources");
+            throw new FileNotFoundException("test-mysql-split-filter.json not found in resources");
         }
 
         filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
     }
 
     @Test
-    public void remapMetadataFilterPushDown()
+    public void remapSplitFilterPushDownExpression()
     {
         ClpConfig config = new ClpConfig();
-        config.setMetadataFilterConfig(filterConfigPath);
-        ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
+        config.setSplitFilterConfig(filterConfigPath);
+        ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
 
         // Integer
         testRange(1234, 5678, filterProvider);
@@ -62,26 +62,26 @@ public class TestClpMySqlMetadataFilterConfig
         testRange("-1.234e-3", "-5.678E-3", filterProvider);
     }
 
-    private <T> void testRange(T lowerBound, T upperBound, ClpMySqlMetadataFilterProvider filterProvider)
+    private <T> void testRange(T lowerBound, T upperBound, ClpMySqlSplitFilterProvider filterProvider)
     {
-        String metadataFilterSql1 = format("(\"msg.timestamp\" > %s AND \"msg.timestamp\" < %s)", lowerBound, upperBound);
-        String remappedSql1 = filterProvider.remapMetadataFilterPushDown("clp.default.table_1", metadataFilterSql1);
+        String splitFilterSql1 = format("(\"msg.timestamp\" > %s AND \"msg.timestamp\" < %s)", lowerBound, upperBound);
+        String remappedSql1 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", splitFilterSql1);
         assertEquals(remappedSql1, format("(end_timestamp > %s AND begin_timestamp < %s)", lowerBound, upperBound));
 
-        String metadataFilterSql2 = format("(\"msg.timestamp\" >= %s AND \"msg.timestamp\" <= %s)", lowerBound, upperBound);
-        String remappedSql2 = filterProvider.remapMetadataFilterPushDown("clp.default.table_1", metadataFilterSql2);
+        String splitFilterSql2 = format("(\"msg.timestamp\" >= %s AND \"msg.timestamp\" <= %s)", lowerBound, upperBound);
+        String remappedSql2 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", splitFilterSql2);
         assertEquals(remappedSql2, format("(end_timestamp >= %s AND begin_timestamp <= %s)", lowerBound, upperBound));
 
-        String metadataFilterSql3 = format("(\"msg.timestamp\" > %s AND \"msg.timestamp\" <= %s)", lowerBound, upperBound);
-        String remappedSql3 = filterProvider.remapMetadataFilterPushDown("clp.default.table_1", metadataFilterSql3);
+        String splitFilterSql3 = format("(\"msg.timestamp\" > %s AND \"msg.timestamp\" <= %s)", lowerBound, upperBound);
+        String remappedSql3 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", splitFilterSql3);
         assertEquals(remappedSql3, format("(end_timestamp > %s AND begin_timestamp <= %s)", lowerBound, upperBound));
 
-        String metadataFilterSql4 = format("(\"msg.timestamp\" >= %s AND \"msg.timestamp\" < %s)", lowerBound, upperBound);
-        String remappedSql4 = filterProvider.remapMetadataFilterPushDown("clp.default.table_1", metadataFilterSql4);
+        String splitFilterSql4 = format("(\"msg.timestamp\" >= %s AND \"msg.timestamp\" < %s)", lowerBound, upperBound);
+        String remappedSql4 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", splitFilterSql4);
         assertEquals(remappedSql4, format("(end_timestamp >= %s AND begin_timestamp < %s)", lowerBound, upperBound));
 
-        String metadataFilterSql5 = format("(\"msg.timestamp\" = %s)", lowerBound);
-        String remappedSql5 = filterProvider.remapMetadataFilterPushDown("clp.default.table_1", metadataFilterSql5);
+        String splitFilterSql5 = format("(\"msg.timestamp\" = %s)", lowerBound);
+        String remappedSql5 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", splitFilterSql5);
         assertEquals(remappedSql5, format("((begin_timestamp <= %s AND end_timestamp >= %s))", lowerBound, lowerBound));
     }
 }

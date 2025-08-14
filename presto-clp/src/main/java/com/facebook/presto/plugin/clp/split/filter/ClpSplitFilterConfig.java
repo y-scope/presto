@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -22,24 +22,24 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <ul>
  *   <li><b>{@code columnName}</b>: the data column's name.</li>
  *
- *   <li><b>{@code customOptions}</b>: the metadata provider specific sub-object.</li>
+ *   <li><b>{@code customOptions}</b>: the split filter provider specific sub-object.</li>
  *
  *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
- *   filter must be present in the pushed-down expression for metadata filtering. If a required
+ *   filter must be present in the pushed-down expression for split filtering. If a required
  *   filter is missing or cannot be pushed down, the query will be rejected.</li>
  * </ul>
  */
-public class ClpMetadataFilterConfig
+public class ClpSplitFilterConfig
 {
     @JsonProperty("columnName")
     public String columnName;
 
     @JsonProperty("customOptions")
-    public CustomMetadataFilterOptions customOptions;
+    public CustomSplitFilterOptions customOptions;
 
     @JsonProperty("required")
     public boolean required;
 
-    public interface CustomMetadataFilterOptions
+    public interface CustomSplitFilterOptions
     {}
 }

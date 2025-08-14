@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -23,26 +23,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
+import static com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterConfig.CustomSplitFilterOptions;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 
 /**
- * Loads and manages metadata filter configurations of MySQL metadata database for the CLP
+ * Loads and manages split filter configurations of MySQL metadata database for the CLP
  * connector.
  */
-public class ClpMySqlMetadataFilterProvider
-        extends ClpMetadataFilterProvider
+public class ClpMySqlSplitFilterProvider
+        extends ClpSplitFilterProvider
 {
     @Inject
-    public ClpMySqlMetadataFilterProvider(ClpConfig config)
+    public ClpMySqlSplitFilterProvider(ClpConfig config)
     {
         super(config);
     }
 
     /**
      * This method performs regex-based replacements according to the {@code "rangeMapping"} field
-     * in {@link ClpMySqlCustomMetadataFilterOptions} to convert numeric filter expressions. For
+     * in {@link ClpMySqlCustomSplitFilterOptions} to convert numeric filter expressions. For
      * example:
      * <ul>
      *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
@@ -56,11 +56,11 @@ public class ClpMySqlMetadataFilterProvider
      * @return the rewritten SQL string
      */
     @Override
-    public String remapMetadataFilterPushDown(String scope, String pushDownExpression)
+    public String remapSplitFilterPushDownExpression(String scope, String pushDownExpression)
     {
         String[] splitScope = scope.split("\\.");
 
-        Map<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> mappings = new HashMap<>(getAllMappingsFromFilters(filterMap.get(splitScope[0])));
+        Map<String, ClpMySqlCustomSplitFilterOptions.RangeMapping> mappings = new HashMap<>(getAllMappingsFromFilters(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
             mappings.putAll(getAllMappingsFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
@@ -71,9 +71,9 @@ public class ClpMySqlMetadataFilterProvider
         }
 
         String remappedSql = pushDownExpression;
-        for (Map.Entry<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> entry : mappings.entrySet()) {
+        for (Map.Entry<String, ClpMySqlCustomSplitFilterOptions.RangeMapping> entry : mappings.entrySet()) {
             String key = entry.getKey();
-            ClpMySqlCustomMetadataFilterOptions.RangeMapping value = entry.getValue();
+            ClpMySqlCustomSplitFilterOptions.RangeMapping value = entry.getValue();
             remappedSql = remappedSql.replaceAll(
                     format("\"(%s)\"\\s(>=?)\\s(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)", key),
                     format("%s $2 $3", value.upperBound));
@@ -88,21 +88,21 @@ public class ClpMySqlMetadataFilterProvider
     }
 
     @Override
-    protected Class<? extends CustomMetadataFilterOptions> getMetadataProviderSpecificOptionsClass()
+    protected Class<? extends CustomSplitFilterOptions> getCustomSplitFilterOptionsClass()
     {
-        return ClpMySqlCustomMetadataFilterOptions.class;
+        return ClpMySqlCustomSplitFilterOptions.class;
     }
 
-    private Map<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> getAllMappingsFromFilters(List<ClpMetadataFilterConfig> filters)
+    private Map<String, ClpMySqlCustomSplitFilterOptions.RangeMapping> getAllMappingsFromFilters(List<ClpSplitFilterConfig> filters)
     {
         return null != filters
                 ? filters.stream()
                 .filter(filter ->
-                        filter.customOptions instanceof ClpMySqlCustomMetadataFilterOptions &&
-                                ((ClpMySqlCustomMetadataFilterOptions) filter.customOptions).rangeMapping != null)
+                        filter.customOptions instanceof ClpMySqlCustomSplitFilterOptions &&
+                                ((ClpMySqlCustomSplitFilterOptions) filter.customOptions).rangeMapping != null)
                 .collect(toImmutableMap(
                         filter -> filter.columnName,
-                        filter -> ((ClpMySqlCustomMetadataFilterOptions) filter.customOptions).rangeMapping))
+                        filter -> ((ClpMySqlCustomSplitFilterOptions) filter.customOptions).rangeMapping))
                 : ImmutableMap.of();
     }
 
@@ -120,8 +120,8 @@ public class ClpMySqlMetadataFilterProvider
      *   </li>
      * </ul>
      */
-    protected static class ClpMySqlCustomMetadataFilterOptions
-            implements CustomMetadataFilterOptions
+    protected static class ClpMySqlCustomSplitFilterOptions
+            implements CustomSplitFilterOptions
     {
         @JsonProperty("rangeMapping")
         public RangeMapping rangeMapping;

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.metadata.filter;
+package com.facebook.presto.plugin.clp.split.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.spi.PrestoException;
@@ -35,16 +35,16 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
-public class TestClpMetadataFilterConfigCommon
+public class TestClpSplitFilterConfigCommon
 {
     private String filterConfigPath;
 
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
     {
-        URL resource = getClass().getClassLoader().getResource("test-mysql-metadata-filter.json");
+        URL resource = getClass().getClassLoader().getResource("test-mysql-split-filter.json");
         if (resource == null) {
-            throw new FileNotFoundException("test-mysql-metadata-filter.json not found in resources");
+            throw new FileNotFoundException("test-mysql-split-filter.json not found in resources");
         }
 
         filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
@@ -54,8 +54,8 @@ public class TestClpMetadataFilterConfigCommon
     public void checkRequiredFilters()
     {
         ClpConfig config = new ClpConfig();
-        config.setMetadataFilterConfig(filterConfigPath);
-        ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
+        config.setSplitFilterConfig(filterConfigPath);
+        ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         Set<String> testTableScopeSet = ImmutableSet.of(format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1")));
         assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
                 testTableScopeSet,
@@ -69,8 +69,8 @@ public class TestClpMetadataFilterConfigCommon
     public void getFilterNames()
     {
         ClpConfig config = new ClpConfig();
-        config.setMetadataFilterConfig(filterConfigPath);
-        ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
+        config.setSplitFilterConfig(filterConfigPath);
+        ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         Set<String> catalogFilterNames = filterProvider.getColumnNames("clp");
         assertEquals(ImmutableSet.of("level"), catalogFilterNames);
         Set<String> schemaFilterNames = filterProvider.getColumnNames("clp.default");
@@ -80,18 +80,18 @@ public class TestClpMetadataFilterConfigCommon
     }
 
     @Test
-    public void handleEmptyAndInvalidMetadataFilterConfig()
+    public void handleEmptyAndInvalidSplitFilterConfig()
     {
         ClpConfig config = new ClpConfig();
 
         // Empty config
-        ClpMySqlMetadataFilterProvider filterProvider = new ClpMySqlMetadataFilterProvider(config);
+        ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         assertTrue(filterProvider.getColumnNames("clp").isEmpty());
         assertTrue(filterProvider.getColumnNames("abc.xyz").isEmpty());
         assertTrue(filterProvider.getColumnNames("abc.opq.xyz").isEmpty());
 
         // Invalid config
-        config.setMetadataFilterConfig(randomUUID().toString());
-        assertThrows(PrestoException.class, () -> new ClpMySqlMetadataFilterProvider(config));
+        config.setSplitFilterConfig(randomUUID().toString());
+        assertThrows(PrestoException.class, () -> new ClpMySqlSplitFilterProvider(config));
     }
 }
