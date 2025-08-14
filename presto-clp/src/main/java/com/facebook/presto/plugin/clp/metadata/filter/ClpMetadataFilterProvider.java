@@ -31,7 +31,7 @@ import java.util.function.Function;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.MetadataProviderSpecificOptions;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
@@ -46,7 +46,7 @@ import static java.util.Objects.requireNonNull;
  * to all tables within that schema).
  * <p></p>
  * Different metadata providers can customize filter configurations through the
- * {@code metadataProviderSpecific} field within each {@link ClpMetadataFilterConfig}.
+ * {@code "customOptions"} field within each {@link ClpMetadataFilterConfig}.
  */
 public abstract class ClpMetadataFilterProvider
 {
@@ -63,8 +63,8 @@ public abstract class ClpMetadataFilterProvider
         ObjectMapper mapper = new ObjectMapper();
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
-                MetadataProviderSpecificOptions.class,
-                new ClpMetadataProviderSpecificOptionsDeserializer(getMetadataProviderSpecificOptionsClass()));
+                CustomMetadataFilterOptions.class,
+                new ClpCustomMetadataFilterOptionsDeserializer(getMetadataProviderSpecificOptionsClass()));
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
@@ -126,13 +126,13 @@ public abstract class ClpMetadataFilterProvider
     }
 
     /**
-     * Returns the {@link MetadataProviderSpecificOptions} class implemented by the user. To respect our
+     * Returns the {@link CustomMetadataFilterOptions} class implemented by the user. To respect our
      * code style, we recommend implementing a {@code protected static class} as an inner class
      * in the user-implemented {@link ClpMetadataFilterProvider} class.
      *
-     * @return the user-implemented {@link MetadataProviderSpecificOptions} class.
+     * @return the user-implemented {@link CustomMetadataFilterOptions} class.
      */
-    protected abstract Class<? extends MetadataProviderSpecificOptions> getMetadataProviderSpecificOptionsClass();
+    protected abstract Class<? extends CustomMetadataFilterOptions> getMetadataProviderSpecificOptionsClass();
 
     private Set<String> getRequiredColumnNames(String scope)
     {

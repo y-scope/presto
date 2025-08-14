@@ -39,53 +39,56 @@ Configuration Properties
 
 The following configuration properties are available:
 
-================================== ======================================================================== =========
-Property Name                      Description                                                              Default
-================================== ======================================================================== =========
-``clp.polymorphic-type-enabled``   Enables or disables support for polymorphic types in CLP, allowing the   ``false``
-                                   same field to have different types. This is useful for schema-less,
-                                   semi-structured data where the same field may appear with different
-                                   types.
+======================================= ======================================================================== =========
+Property Name                           Description                                                              Default
+======================================= ======================================================================== =========
+``clp.polymorphic-type-enabled``        Enables or disables support for polymorphic types in CLP, allowing the   ``false``
+                                        same field to have different types. This is useful for schema-less,
+                                        semi-structured data where the same field may appear with different
+                                        types.
 
-                                   When enabled, type annotations are added to conflicting field names to
-                                   distinguish between types. For example, if an ``id`` column appears with
-                                   both an ``int`` and ``string`` types, the connector will create two
-                                   columns named ``id_bigint`` and ``id_varchar``.
+                                        When enabled, type annotations are added to conflicting field names to
+                                        distinguish between types. For example, if an ``id`` column appears with
+                                        both an ``int`` and ``string`` types, the connector will create two
+                                        columns named ``id_bigint`` and ``id_varchar``.
 
-                                   Supported type annotations include ``bigint``, ``varchar``, ``double``,
-                                   ``boolean``, and ``array(varchar)`` (See `Data Types`_ for details). For
-                                   columns with only one type, the original column name is used.
-``clp.metadata-provider-type``     Specifies the metadata provider type. Currently, the only supported      ``mysql``
-                                   type is a MySQL database, which is also used by the CLP package to store
-                                   metadata. Additional providers can be supported by implementing the
-                                   ``ClpMetadataProvider`` interface. You may also need to implement the
-                                   ``ClpMetadataFilterProvider`` interface.
-``clp.metadata-db-url``            The JDBC URL used to connect to the metadata database. This property is
-                                   required if ``clp.metadata-provider-type`` is set to ``mysql``.
-``clp.metadata-db-name``           The name of the metadata database. This option is required if
-                                   ``clp.metadata-provider-type`` is set to ``mysql`` and the database name
-                                   is not specified in the URL.
-``clp.metadata-db-user``           The database user with access to the metadata database. This option is
-                                   required if ``clp.metadata-provider-type`` is set to ``mysql`` and the
-                                   database name is not specified in the URL.
-``clp.metadata-db-password``       The password for the metadata database user. This option is required if
-                                   ``clp.metadata-provider-type`` is set to ``mysql``.
-``clp.metadata-filter-config``     The absolute path to an optional metadata filter config file. See the
-                                   :ref:`Metadata Filter Config File<metadata-filter-config-file>` section
-                                   for details.
-``clp.metadata-table-prefix``      A string prefix prepended to all metadata table names when querying the
-                                   database. Useful for namespacing or avoiding collisions. This option is
-                                   required if ``clp.metadata-provider-type`` is set to ``mysql``.
-``clp.metadata-expire-interval``   Defines how long, in seconds, metadata entries remain valid before they  600
-                                   need to be refreshed.
-``clp.metadata-refresh-interval``  Specifies how frequently metadata is refreshed from the source, in       60
-                                   seconds. Set this to a lower value for frequently changing datasets or
-                                   to a higher value to reduce load.
-``clp.split-provider-type``        Specifies the split provider type. By default, it uses the same type as  ``mysql``
-                                   the metadata provider with the same connection parameters. Additional
-                                   types can be supported by implementing the ``ClpSplitProvider``
-                                   interface.
-================================== ======================================================================== =========
+                                        Supported type annotations include ``bigint``, ``varchar``, ``double``,
+                                        ``boolean``, and ``array(varchar)`` (See `Data Types`_ for details). For
+                                        columns with only one type, the original column name is used.
+``clp.metadata-filter-provider-type``   Specifies the metadata filter provider type. Currently, the only         ``mysql``
+                                        supported type is a MySQL database, which is also used by the CLP
+                                        package to store metadata. Additional providers can be supported by
+                                        implementing the ``ClpMetadataFilterProvider`` interface.
+``clp.metadata-provider-type``          Specifies the metadata provider type. Currently, the only supported      ``mysql``
+                                        type is a MySQL database, which is also used by the CLP package to store
+                                        metadata. Additional providers can be supported by implementing the
+                                        ``ClpMetadataProvider`` interface.
+``clp.metadata-db-url``                 The JDBC URL used to connect to the metadata database. This property is
+                                        required if ``clp.metadata-provider-type`` is set to ``mysql``.
+``clp.metadata-db-name``                The name of the metadata database. This option is required if
+                                        ``clp.metadata-provider-type`` is set to ``mysql`` and the database name
+                                        is not specified in the URL.
+``clp.metadata-db-user``                The database user with access to the metadata database. This option is
+                                        required if ``clp.metadata-provider-type`` is set to ``mysql`` and the
+                                        database name is not specified in the URL.
+``clp.metadata-db-password``            The password for the metadata database user. This option is required if
+                                        ``clp.metadata-provider-type`` is set to ``mysql``.
+``clp.metadata-filter-config``          The absolute path to an optional metadata filter config file. See the
+                                        :ref:`Metadata Filter Config File<metadata-filter-config-file>` section
+                                        for details.
+``clp.metadata-table-prefix``           A string prefix prepended to all metadata table names when querying the
+                                        database. Useful for namespacing or avoiding collisions. This option is
+                                        required if ``clp.metadata-provider-type`` is set to ``mysql``.
+``clp.metadata-expire-interval``        Defines how long, in seconds, metadata entries remain valid before they  600
+                                        need to be refreshed.
+``clp.metadata-refresh-interval``       Specifies how frequently metadata is refreshed from the source, in       60
+                                        seconds. Set this to a lower value for frequently changing datasets or
+                                        to a higher value to reduce load.
+``clp.split-provider-type``             Specifies the split provider type. By default, it uses the same type as  ``mysql``
+                                        the metadata provider with the same connection parameters. Additional
+                                        types can be supported by implementing the ``ClpSplitProvider``
+                                        interface.
+======================================= ======================================================================== =========
 
 ****************************
 Metadata and Split Providers
@@ -96,8 +99,8 @@ uses a MySQL database for both metadata and split storage. We recommend using th
 automatically populates the database with the required information.
 
 If you prefer to use a different source--or the same source with a custom implementation--you can provide your own
-implementations of the ``ClpMetadataFilterProvider``, ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and
-configure the connector accordingly.
+implementations of the ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and configure the connector
+accordingly.
 
 .. _metadata-filter-config-file:
 
@@ -142,19 +145,18 @@ Each filter config has the following options:
 
 - ``columnName``: The data column's name.
 
-- ``metadataProviderSpecific`` *(optional)*: Configs specific to the current metadata provider. Options for the default
-  metadata provider (``ClpMySqlMetadataProvider``) are :ref:`below<clp-mysql-metadata-provider-specific-filter-config>`.
-  Customized
+- ``customOptions`` *(optional)*: Custom config options for a metadata filter provider. Options for the default metadata
+  filter provider (``ClpMySqlMetadataFilterProvider``) are :ref:`below<clp-mysql-metadata-filter-provider-config>`.
 
 - ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated metadata query.
   If a required filter is missing or cannot be added to the metadata query, the original query will be rejected.
 
-.. _clp-mysql-metadata-provider-specific-filter-config:
+.. _clp-mysql-metadata-filter-provider-config:
 
-ClpMySqlMetadataProvider-Specific Filter Config
+ClpMySqlMetadataFilterProvider-Specific Filter Config
 -----------------------------------------------
 
-For the ``ClpMySqlMetadataProvider``, the ``metadataProviderSpecific`` option of the filter config has the following
+For the ``ClpMySqlMetadataFilterProvider``, the ``customOptions`` option of the filter config has the following
 sub-options:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
@@ -185,7 +187,7 @@ The code block shows an example metadata filter config file:
       "clp.default.table_1": [
         {
           "columnName": "msg.timestamp",
-          "metadataProviderSpecific": {
+          "customOptions": {
             "rangeMapping": {
               "lowerBound": "begin_timestamp",
               "upperBound": "end_timestamp"
@@ -212,6 +214,9 @@ The code block shows an example metadata filter config file:
   - The column ``msg.timestamp`` is remapped via a ``rangeMapping`` to the metadata columns ``begin_timestamp`` and
     ``end_timestamp``, and is required to exist in every query.
   - The column ``file_name`` is used as-is without remapping.
+
+If you prefer to use a different format for the ``customOptions``, you can provide your own implementations of the
+``ClpMetadataFilterProvider`` interface, and configure the connector accordingly.
 
 Supported SQL Expressions
 =========================

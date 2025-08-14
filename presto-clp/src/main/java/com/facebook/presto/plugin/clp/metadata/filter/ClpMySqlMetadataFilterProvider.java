@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.MetadataProviderSpecificOptions;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 
@@ -42,7 +42,7 @@ public class ClpMySqlMetadataFilterProvider
 
     /**
      * This method performs regex-based replacements according to the {@code "rangeMapping"} field
-     * in {@link ClpMySqlMetadataProviderSpecificOptions} to convert numeric filter expressions. For
+     * in {@link ClpMySqlCustomMetadataFilterOptions} to convert numeric filter expressions. For
      * example:
      * <ul>
      *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
@@ -60,7 +60,7 @@ public class ClpMySqlMetadataFilterProvider
     {
         String[] splitScope = scope.split("\\.");
 
-        Map<String, ClpMySqlMetadataProviderSpecificOptions.RangeMapping> mappings = new HashMap<>(getAllMappingsFromFilters(filterMap.get(splitScope[0])));
+        Map<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> mappings = new HashMap<>(getAllMappingsFromFilters(filterMap.get(splitScope[0])));
 
         if (1 < splitScope.length) {
             mappings.putAll(getAllMappingsFromFilters(filterMap.get(splitScope[0] + "." + splitScope[1])));
@@ -71,9 +71,9 @@ public class ClpMySqlMetadataFilterProvider
         }
 
         String remappedSql = pushDownExpression;
-        for (Map.Entry<String, ClpMySqlMetadataProviderSpecificOptions.RangeMapping> entry : mappings.entrySet()) {
+        for (Map.Entry<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> entry : mappings.entrySet()) {
             String key = entry.getKey();
-            ClpMySqlMetadataProviderSpecificOptions.RangeMapping value = entry.getValue();
+            ClpMySqlCustomMetadataFilterOptions.RangeMapping value = entry.getValue();
             remappedSql = remappedSql.replaceAll(
                     format("\"(%s)\"\\s(>=?)\\s(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)", key),
                     format("%s $2 $3", value.upperBound));
@@ -88,21 +88,21 @@ public class ClpMySqlMetadataFilterProvider
     }
 
     @Override
-    protected Class<? extends MetadataProviderSpecificOptions> getMetadataProviderSpecificOptionsClass()
+    protected Class<? extends CustomMetadataFilterOptions> getMetadataProviderSpecificOptionsClass()
     {
-        return ClpMySqlMetadataProviderSpecificOptions.class;
+        return ClpMySqlCustomMetadataFilterOptions.class;
     }
 
-    private Map<String, ClpMySqlMetadataProviderSpecificOptions.RangeMapping> getAllMappingsFromFilters(List<ClpMetadataFilterConfig> filters)
+    private Map<String, ClpMySqlCustomMetadataFilterOptions.RangeMapping> getAllMappingsFromFilters(List<ClpMetadataFilterConfig> filters)
     {
         return null != filters
                 ? filters.stream()
                 .filter(filter ->
-                        filter.metadataProviderSpecific instanceof ClpMySqlMetadataProviderSpecificOptions &&
-                                ((ClpMySqlMetadataProviderSpecificOptions) filter.metadataProviderSpecific).rangeMapping != null)
+                        filter.customOptions instanceof ClpMySqlCustomMetadataFilterOptions &&
+                                ((ClpMySqlCustomMetadataFilterOptions) filter.customOptions).rangeMapping != null)
                 .collect(toImmutableMap(
                         filter -> filter.columnName,
-                        filter -> ((ClpMySqlMetadataProviderSpecificOptions) filter.metadataProviderSpecific).rangeMapping))
+                        filter -> ((ClpMySqlCustomMetadataFilterOptions) filter.customOptions).rangeMapping))
                 : ImmutableMap.of();
     }
 
@@ -120,8 +120,8 @@ public class ClpMySqlMetadataFilterProvider
      *   </li>
      * </ul>
      */
-    protected static class ClpMySqlMetadataProviderSpecificOptions
-            implements MetadataProviderSpecificOptions
+    protected static class ClpMySqlCustomMetadataFilterOptions
+            implements CustomMetadataFilterOptions
     {
         @JsonProperty("rangeMapping")
         public RangeMapping rangeMapping;

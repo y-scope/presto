@@ -25,6 +25,7 @@ import com.google.inject.Binder;
 import com.google.inject.Scopes;
 
 import static com.facebook.airlift.configuration.ConfigBinder.configBinder;
+import static com.facebook.presto.plugin.clp.ClpConfig.MetadataFilterProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.SplitProviderType;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE;
@@ -43,9 +44,13 @@ public class ClpModule
         configBinder(binder).bindConfig(ClpConfig.class);
 
         ClpConfig config = buildConfigObject(ClpConfig.class);
+
+        if (MetadataFilterProviderType.MYSQL == config.getMetadataFilterProviderType()) {
+            binder.bind(ClpMetadataFilterProvider.class).to(ClpMySqlMetadataFilterProvider.class).in(Scopes.SINGLETON);
+        }
+
         if (config.getMetadataProviderType() == MetadataProviderType.MYSQL) {
             binder.bind(ClpMetadataProvider.class).to(ClpMySqlMetadataProvider.class).in(Scopes.SINGLETON);
-            binder.bind(ClpMetadataFilterProvider.class).to(ClpMySqlMetadataFilterProvider.class).in(Scopes.SINGLETON);
         }
         else {
             throw new PrestoException(CLP_UNSUPPORTED_METADATA_SOURCE, "Unsupported metadata provider type: " + config.getMetadataProviderType());

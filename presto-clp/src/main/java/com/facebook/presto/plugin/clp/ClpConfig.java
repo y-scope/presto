@@ -24,6 +24,7 @@ public class ClpConfig
 
     private boolean polymorphicTypeEnabled = true;
 
+    private MetadataFilterProviderType metadataFilterProviderType = MetadataFilterProviderType.MYSQL;
     private MetadataProviderType metadataProviderType = MetadataProviderType.MYSQL;
     private String metadataDbUrl;
     private String metadataDbName;
@@ -45,6 +46,18 @@ public class ClpConfig
     public ClpConfig setPolymorphicTypeEnabled(boolean polymorphicTypeEnabled)
     {
         this.polymorphicTypeEnabled = polymorphicTypeEnabled;
+        return this;
+    }
+
+    public MetadataFilterProviderType getMetadataFilterProviderType()
+    {
+        return metadataFilterProviderType;
+    }
+
+    @Config("clp.metadata-filter-provider-type")
+    public ClpConfig setMetadataFilterProviderType(MetadataFilterProviderType metadataFilterProviderType)
+    {
+        this.metadataFilterProviderType = metadataFilterProviderType;
         return this;
     }
 
@@ -172,6 +185,11 @@ public class ClpConfig
     {
         this.splitProviderType = splitProviderType;
         return this;
+    }
+
+    public enum MetadataFilterProviderType
+    {
+        MYSQL
     }
 
     public enum MetadataProviderType

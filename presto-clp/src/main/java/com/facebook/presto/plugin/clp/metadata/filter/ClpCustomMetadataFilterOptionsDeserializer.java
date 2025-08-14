@@ -21,29 +21,29 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.MetadataProviderSpecificOptions;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.CustomMetadataFilterOptions;
 
 /**
- * Uses the given implementation of {@link MetadataProviderSpecificOptions} to deserialize the
- * {@code "metadataProviderSpecific"} field in the filter. The implementation is originally chosen
+ * Uses the given implementation of {@link CustomMetadataFilterOptions} to deserialize the
+ * {@code "customOptions"} field in the filter. The implementation is originally chosen
  * by the {@code clp.metadata-provider-type} config option.
  */
-public class ClpMetadataProviderSpecificOptionsDeserializer
-        extends JsonDeserializer<MetadataProviderSpecificOptions>
+public class ClpCustomMetadataFilterOptionsDeserializer
+        extends JsonDeserializer<CustomMetadataFilterOptions>
 {
-    private final Class<? extends MetadataProviderSpecificOptions> actualMetadataProviderSpecificOptionsClass;
+    private final Class<? extends CustomMetadataFilterOptions> actualCustomMetadataFilterOptionsClass;
 
-    public ClpMetadataProviderSpecificOptionsDeserializer(Class<? extends MetadataProviderSpecificOptions> actualMetadataProviderSpecificOptionsClass)
+    public ClpCustomMetadataFilterOptionsDeserializer(Class<? extends CustomMetadataFilterOptions> actualCustomMetadataFilterOptionsClass)
     {
-        this.actualMetadataProviderSpecificOptionsClass = actualMetadataProviderSpecificOptionsClass;
+        this.actualCustomMetadataFilterOptionsClass = actualCustomMetadataFilterOptionsClass;
     }
 
     @Override
-    public MetadataProviderSpecificOptions deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
+    public CustomMetadataFilterOptions deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
     {
         ObjectNode node = p.getCodec().readTree(p);
         ObjectMapper mapper = (ObjectMapper) p.getCodec();
 
-        return mapper.treeToValue(node, actualMetadataProviderSpecificOptionsClass);
+        return mapper.treeToValue(node, actualCustomMetadataFilterOptionsClass);
     }
 }
