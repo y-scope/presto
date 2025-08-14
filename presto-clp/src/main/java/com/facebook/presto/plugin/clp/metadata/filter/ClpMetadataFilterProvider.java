@@ -31,7 +31,7 @@ import java.util.function.Function;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_METADATA_FILTER_NOT_VALID;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_METADATA_FILTER_CONFIG_NOT_FOUND;
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataProviderSpecific;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.MetadataProviderSpecificOptions;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
@@ -46,11 +46,11 @@ import static java.util.Objects.requireNonNull;
  * to all tables within that schema).
  * <p></p>
  * Different metadata providers can customize filter configurations through the
- * {@code metadataProviderSpecific} field within each {@link ClpMetadataFilter}.
+ * {@code metadataProviderSpecific} field within each {@link ClpMetadataFilterConfig}.
  */
 public abstract class ClpMetadataFilterProvider
 {
-    protected final Map<String, List<ClpMetadataFilter>> filterMap;
+    protected final Map<String, List<ClpMetadataFilterConfig>> filterMap;
 
     public ClpMetadataFilterProvider(ClpConfig config)
     {
@@ -63,13 +63,13 @@ public abstract class ClpMetadataFilterProvider
         ObjectMapper mapper = new ObjectMapper();
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
-                MetadataProviderSpecific.class,
-                new ClpMetadataProviderSpecificDeserializer(getMetadataProviderSpecificClass()));
+                MetadataProviderSpecificOptions.class,
+                new ClpMetadataProviderSpecificOptionsDeserializer(getMetadataProviderSpecificOptionsClass()));
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
                     new File(config.getMetadataFilterConfig()),
-                    new TypeReference<Map<String, List<ClpMetadataFilter>>>() {});
+                    new TypeReference<Map<String, List<ClpMetadataFilterConfig>>>() {});
         }
         catch (IOException e) {
             throw new PrestoException(CLP_METADATA_FILTER_CONFIG_NOT_FOUND, "Failed to open metadata filter config file", e);
@@ -77,8 +77,8 @@ public abstract class ClpMetadataFilterProvider
     }
 
     /**
-     * Rewrites the given pushed-down expression for metadata filtering to remap filter conditions
-     * based on the configured range mappings for the given scope.
+     * Rewrites the given {@code pushDownExpression} for metadata filtering to remap filter
+     * conditions based on the configured range mappings for the given scope.
      * <p></p>
      * The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
      * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
@@ -87,19 +87,19 @@ public abstract class ClpMetadataFilterProvider
      * filter configuration.
      *
      * @param scope the scope of the filter
-     * @param pushDownExpression the pushed-down expression for metadata filtering that needs to
-     *                           be rewritten
-     * @return the rewritten pushed-down expression for metadata filtering
+     * @param pushDownExpression the {@code pushDownExpression} for metadata filtering that needs
+     *                           to be rewritten
+     * @return the rewritten {@code pushDownExpression} for metadata filtering
      */
     public abstract String remapMetadataFilterPushDown(String scope, String pushDownExpression);
 
     /**
-     * Checks for the given table, if the given pushed-down expression for metadata filtering
+     * Checks for the given table, if the given {@code pushDownExpression} for metadata filtering
      * contains all required fields.
      *
      * @param tableScopeSet the set of scopes of the tables that are being queried
-     * @param metadataFilterPushDownExpression the pushed-down expression for metadata filtering
-     *                                         to be checked
+     * @param metadataFilterPushDownExpression the {@code pushDownExpression} for metadata
+     *                                         filtering to be checked
      */
     public void checkContainsRequiredFilters(Set<String> tableScopeSet, String metadataFilterPushDownExpression)
     {
@@ -126,20 +126,20 @@ public abstract class ClpMetadataFilterProvider
     }
 
     /**
-     * Returns the {@link MetadataProviderSpecific} class implemented by the user. To respect our
+     * Returns the {@link MetadataProviderSpecificOptions} class implemented by the user. To respect our
      * code style, we recommend implementing a {@code protected static class} as an inner class
      * in the user-implemented {@link ClpMetadataFilterProvider} class.
      *
-     * @return the user-implemented {@link MetadataProviderSpecific} class.
+     * @return the user-implemented {@link MetadataProviderSpecificOptions} class.
      */
-    protected abstract Class<? extends MetadataProviderSpecific> getMetadataProviderSpecificClass();
+    protected abstract Class<? extends MetadataProviderSpecificOptions> getMetadataProviderSpecificOptionsClass();
 
     private Set<String> getRequiredColumnNames(String scope)
     {
         return collectColumnNamesFromScopes(scope, this::getRequiredColumnNamesFromFilters);
     }
 
-    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<ClpMetadataFilter>, Set<String>> extractor)
+    private Set<String> collectColumnNamesFromScopes(String scope, Function<List<ClpMetadataFilterConfig>, Set<String>> extractor)
     {
         String[] splitScope = scope.split("\\.");
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
@@ -157,14 +157,14 @@ public abstract class ClpMetadataFilterProvider
         return builder.build();
     }
 
-    private Set<String> getAllColumnNamesFromFilters(List<ClpMetadataFilter> filters)
+    private Set<String> getAllColumnNamesFromFilters(List<ClpMetadataFilterConfig> filters)
     {
         return null != filters ? filters.stream()
                 .map(filter -> filter.columnName)
                 .collect(toImmutableSet()) : ImmutableSet.of();
     }
 
-    private Set<String> getRequiredColumnNamesFromFilters(List<ClpMetadataFilter> filters)
+    private Set<String> getRequiredColumnNamesFromFilters(List<ClpMetadataFilterConfig> filters)
     {
         return null != filters ? filters.stream()
                 .filter(filter -> filter.required)

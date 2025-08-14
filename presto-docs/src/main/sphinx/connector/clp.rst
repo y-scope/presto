@@ -58,7 +58,8 @@ Property Name                      Description                                  
 ``clp.metadata-provider-type``     Specifies the metadata provider type. Currently, the only supported      ``mysql``
                                    type is a MySQL database, which is also used by the CLP package to store
                                    metadata. Additional providers can be supported by implementing the
-                                   ``ClpMetadataProvider`` interface.
+                                   ``ClpMetadataProvider`` interface. You may also need to implement the
+                                   ``ClpMetadataFilterProvider`` interface.
 ``clp.metadata-db-url``            The JDBC URL used to connect to the metadata database. This property is
                                    required if ``clp.metadata-provider-type`` is set to ``mysql``.
 ``clp.metadata-db-name``           The name of the metadata database. This option is required if
@@ -95,8 +96,8 @@ uses a MySQL database for both metadata and split storage. We recommend using th
 automatically populates the database with the required information.
 
 If you prefer to use a different source--or the same source with a custom implementation--you can provide your own
-implementations of the ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and configure the connector
-accordingly.
+implementations of the ``ClpMetadataFilterProvider``, ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and
+configure the connector accordingly.
 
 .. _metadata-filter-config-file:
 
@@ -143,6 +144,7 @@ Each filter config has the following options:
 
 - ``metadataProviderSpecific`` *(optional)*: Configs specific to the current metadata provider. Options for the default
   metadata provider (``ClpMySqlMetadataProvider``) are :ref:`below<clp-mysql-metadata-provider-specific-filter-config>`.
+  Customized
 
 - ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated metadata query.
   If a required filter is missing or cannot be added to the metadata query, the original query will be rejected.

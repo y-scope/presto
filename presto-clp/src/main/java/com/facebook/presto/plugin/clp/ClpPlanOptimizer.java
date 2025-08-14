@@ -63,7 +63,7 @@ public class ClpPlanOptimizer
         Rewriter rewriter = new Rewriter(idAllocator);
         PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
 
-        // Throw exception if there are any required metadata filters
+        // Throw exception if any required metadata filters are missing
         if (!rewriter.tableScopeSet.isEmpty() && !rewriter.hasVisitedFilter) {
             metadataFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, "");
         }

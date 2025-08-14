@@ -29,17 +29,17 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *   filter is missing or cannot be pushed down, the query will be rejected.</li>
  * </ul>
  */
-public class ClpMetadataFilter
+public class ClpMetadataFilterConfig
 {
     @JsonProperty("columnName")
     public String columnName;
 
     @JsonProperty("metadataProviderSpecific")
-    public MetadataProviderSpecific metadataProviderSpecific;
+    public MetadataProviderSpecificOptions metadataProviderSpecific;
 
     @JsonProperty("required")
     public boolean required;
 
-    public interface MetadataProviderSpecific
+    public interface MetadataProviderSpecificOptions
     {}
 }

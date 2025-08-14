@@ -21,29 +21,29 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 
-import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilter.MetadataProviderSpecific;
+import static com.facebook.presto.plugin.clp.metadata.filter.ClpMetadataFilterConfig.MetadataProviderSpecificOptions;
 
 /**
- * Uses the given implementation of {@link MetadataProviderSpecific} to deserialize the
+ * Uses the given implementation of {@link MetadataProviderSpecificOptions} to deserialize the
  * {@code "metadataProviderSpecific"} field in the filter. The implementation is originally chosen
  * by the {@code clp.metadata-provider-type} config option.
  */
-public class ClpMetadataProviderSpecificDeserializer
-        extends JsonDeserializer<MetadataProviderSpecific>
+public class ClpMetadataProviderSpecificOptionsDeserializer
+        extends JsonDeserializer<MetadataProviderSpecificOptions>
 {
-    private final Class<? extends MetadataProviderSpecific> actualMetadataProviderSpecificClass;
+    private final Class<? extends MetadataProviderSpecificOptions> actualMetadataProviderSpecificOptionsClass;
 
-    public ClpMetadataProviderSpecificDeserializer(Class<? extends MetadataProviderSpecific> actualMetadataProviderSpecificClass)
+    public ClpMetadataProviderSpecificOptionsDeserializer(Class<? extends MetadataProviderSpecificOptions> actualMetadataProviderSpecificOptionsClass)
     {
-        this.actualMetadataProviderSpecificClass = actualMetadataProviderSpecificClass;
+        this.actualMetadataProviderSpecificOptionsClass = actualMetadataProviderSpecificOptionsClass;
     }
 
     @Override
-    public MetadataProviderSpecific deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
+    public MetadataProviderSpecificOptions deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
     {
         ObjectNode node = p.getCodec().readTree(p);
         ObjectMapper mapper = (ObjectMapper) p.getCodec();
 
-        return mapper.treeToValue(node, actualMetadataProviderSpecificClass);
+        return mapper.treeToValue(node, actualMetadataProviderSpecificOptionsClass);
     }
 }
