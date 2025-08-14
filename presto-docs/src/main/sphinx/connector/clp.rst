@@ -1,22 +1,23 @@
-=============
+#############
 CLP Connector
-=============
+#############
 
 .. contents::
     :local:
     :backlinks: none
     :depth: 1
 
+********
 Overview
---------
+********
 
 The CLP Connector enables SQL-based querying of `CLP <https://github.com/y-scope/clp>`_ archives via Presto. This
 document describes how to configure the CLP Connector for use with a CLP cluster, as well as essential details for
 understanding the CLP connector.
 
-
+*************
 Configuration
--------------
+*************
 
 To configure the CLP connector, create a catalog properties file ``etc/catalog/clp.properties`` with at least the
 following contents, modifying the properties as appropriate:
@@ -33,9 +34,8 @@ following contents, modifying the properties as appropriate:
     clp.metadata-table-prefix=clp_
     clp.split-provider-type=mysql
 
-
 Configuration Properties
-------------------------
+========================
 
 The following configuration properties are available:
 
@@ -86,9 +86,9 @@ Property Name                      Description                                  
                                    interface.
 ================================== ======================================================================== =========
 
-
+****************************
 Metadata and Split Providers
-----------------------------
+****************************
 
 The CLP connector relies on metadata and split providers to retrieve information from various sources. By default, it
 uses a MySQL database for both metadata and split storage. We recommend using the CLP package for log ingestion, which
@@ -100,8 +100,9 @@ accordingly.
 
 .. _metadata-filter-config-file:
 
+***************************
 Metadata Filter Config File
-----------------------------
+***************************
 
 The metadata filter config file allows you to configure the set of columns that can be used to filter out irrelevant
 splits (CLP archives) when querying CLP's metadata database. This can significantly improve performance by reducing the
@@ -111,11 +112,10 @@ that involve the configured columns into a query against CLP's metadata database
 The configuration is a JSON object where each key under the root represents a :ref:`scope<scopes>` and each scope maps
 to an array of :ref:`filter configs<filter-configs>`.
 
-
 .. _scopes:
 
 Scopes
-^^^^^^
+======
 
 A *scope* can be one of the following:
 
@@ -129,32 +129,31 @@ will apply to all tables within that schema.
 .. _filter-configs:
 
 Filter Configs
-^^^^^^^^^^^^^^
+==============
 
-Each `filter config` indicates how a *data column*---a column in the Presto table, will be used as a filter to query in
-the metadata database. The basic structure of a filter contains the following three fields:
-
-- ``columnName``: indicates the data column's name.
-
-- ``metadataProviderSpecific`` *(optional)*: stores fields specific to some metadata provider that can be used for
-  metadata filtering. See an example of MySQL-specific fields
-  :ref:`here<example-of-metadata-filters-for-mysql-metadata-database>`. This provides the ability to generate metadata
-  filter queries for different metadata providers by modifying the pushed-down expression for metadata filtering
-  according to the contents of this field.
-
-- ``required`` *(optional, defaults to false)*: indicates whether the filter **must** be present in the pushed-down
-  expression for metadata filtering. If a required filter is missing or cannot be pushed down, the query will be
-  rejected.
+Each filter config indicates how a *data column*---i.e., a column in the Presto table---should be mapped to one or
+more *metadata columns*---i.e., columns in CLP's metadata database.
 
 For example, an integer data column (e.g., ``timestamp``), may be remapped to a pair of metadata columns that represent
 the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) of the data column within a split.
 
-.. _example-of-metadata-filters-for-mysql-metadata-database:
+Each filter config has the following options:
 
-Example of Metadata Filters for MySQL Metadata Database
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- ``columnName``: The data column's name.
 
-The field ``metadataProviderSpecific`` contains the following properties:
+- ``metadataProviderSpecific`` *(optional)*: Configs specific to the current metadata provider. Options for the default
+  metadata provider (``ClpMySqlMetadataProvider``) are :ref:`below<clp-mysql-metadata-provider-specific-filter-config>`.
+
+- ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated metadata query.
+  If a required filter is missing or cannot be added to the metadata query, the original query will be rejected.
+
+.. _clp-mysql-metadata-provider-specific-filter-config:
+
+ClpMySqlMetadataProvider-Specific Filter Config
+-----------------------------------------------
+
+For the ``ClpMySqlMetadataProvider``, the ``metadataProviderSpecific`` option of the filter config has the following
+sub-options:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
 
@@ -163,6 +162,8 @@ The field ``metadataProviderSpecific`` contains the following properties:
   - ``lowerBound``: The metadata column that represents the lower bound of values in a split for the data column.
   - ``upperBound``: The metadata column that represents the upper bound of values in a split for the data column.
 
+Filter Config Example
+---------------------
 
 The code block shows an example metadata filter config file:
 
@@ -211,7 +212,7 @@ The code block shows an example metadata filter config file:
   - The column ``file_name`` is used as-is without remapping.
 
 Supported SQL Expressions
-^^^^^^^^^^^^^^^^^^^^^^^^^
+=========================
 
 The connector supports translations from a Presto SQL query to the metadata filter query for the following expressions:
 
@@ -219,8 +220,9 @@ The connector supports translations from a Presto SQL query to the metadata filt
 - Dereferencing fields from row-typed variables.
 - Logical operators: ``AND``, ``OR``, and ``NOT``.
 
+**********
 Data Types
-----------
+**********
 
 The data type mappings are as follows:
 
@@ -239,21 +241,21 @@ CLP Type               Presto Type
 ====================== ====================
 
 String Types
-^^^^^^^^^^^^
+============
 
 CLP uses three distinct string types: ``ClpString`` (strings with whitespace), ``VarString`` (strings without
 whitespace), and ``DateString`` (strings representing dates). Currently, all three are mapped to Presto's ``VARCHAR``
 type.
 
 Array Types
-^^^^^^^^^^^
+===========
 
 CLP supports two array types: ``UnstructuredArray`` and ``StructuredArray``. Unstructured arrays are stored as strings
 in CLP and elements can be any type. However, in Presto arrays are homogeneous, so the elements are converted to strings
 when read. ``StructuredArray`` type is not supported in Presto.
 
 Object Types
-^^^^^^^^^^^^
+============
 
 CLP stores metadata using a global schema tree structure that captures all possible fields from various log structures.
 Internal nodes may represent objects containing nested fields as their children. In Presto, we map these internal object
@@ -297,8 +299,9 @@ Each JSON log maps to this unified ``ROW`` type, with absent fields represented 
 ``status``, ``thread_num``, ``backtrace``) become fields within the ``ROW``, clearly reflecting the nested and varying
 structures of the original JSON logs.
 
+***********
 SQL support
------------
+***********
 
 The connector only provides read access to data. It does not support DDL operations, such as creating or dropping
 tables. Currently, we only support one ``default`` schema.
