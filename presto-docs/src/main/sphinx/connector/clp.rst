@@ -31,7 +31,7 @@ following contents, modifying the properties as appropriate:
     clp.metadata-db-user=clp_user
     clp.metadata-db-password=clp_password
     clp.metadata-table-prefix=clp_
-    clp.split-filter-config=/path/to/metadata-filter-config.json
+    clp.split-filter-config=/path/to/split-filter-config.json
     clp.split-filter-provider-type=mysql
     clp.split-provider-type=mysql
 
