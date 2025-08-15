@@ -30,7 +30,6 @@ import java.util.Optional;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ArchivesTableRow;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.DbHandle;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupSplit;
 import static com.google.common.collect.ImmutableList.toImmutableList;

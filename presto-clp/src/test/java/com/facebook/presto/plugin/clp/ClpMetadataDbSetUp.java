@@ -66,6 +66,16 @@ public final class ClpMetadataDbSetUp
         return new DbHandle(format("/tmp/presto-clp-test-%s/%s", randomUUID(), dbName));
     }
 
+    public static String getDbName(DbHandle dbHandle)
+    {
+        return dbHandle.dbPath;
+    }
+
+    public static String getDbUrl(DbHandle dbHandle)
+    {
+        return format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
+    }
+
     public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpSchemaTreeNodeType>>> clpFields)
     {
         final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
@@ -122,7 +132,7 @@ public final class ClpMetadataDbSetUp
 
     public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<ArchivesTableRow>> splits)
     {
-        final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
+        final String metadataDbUrl = getDbUrl(dbHandle);
         final String archiveTableFormat = METADATA_DB_TABLE_PREFIX + "%s" + ARCHIVES_TABLE_SUFFIX;
 
         try (Connection conn = DriverManager.getConnection(metadataDbUrl, METADATA_DB_USER, METADATA_DB_PASSWORD); Statement stmt = conn.createStatement()) {
@@ -215,16 +225,6 @@ public final class ClpMetadataDbSetUp
             pstmt.setString(1, tableName);
             pstmt.setString(2, ARCHIVES_STORAGE_DIRECTORY_BASE + tableName);
             pstmt.executeUpdate();
-        }
-    }
-
-    static final class DbHandle
-    {
-        private final String dbPath;
-
-        DbHandle(String dbPath)
-        {
-            this.dbPath = dbPath;
         }
     }
 
