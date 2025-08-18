@@ -46,6 +46,12 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# CLP S3 support currently needs ca-certificates package to access the presigned URL
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --chmod=0775 --from=prestissimo-image /prestissimo/${BUILD_BASE_DIR}/${BUILD_DIR}/presto_cpp/main/presto_server /usr/bin/
 COPY --chmod=0775 --from=prestissimo-image /runtime-libraries/* /usr/lib64/prestissimo-libs/
 COPY --chmod=0755 ./etc /opt/presto-server/etc
