@@ -41,7 +41,7 @@ ENV BUILD_DIR=""
 
 # NOTE:
 # - We need `ca-certificates` to support reads from signed S3 URLs.
-# - We need `tzdata` as a workaround temporary for https://github.com/prestodb/presto/issues/25531
+# - We need `tzdata` as a temporary workaround for https://github.com/prestodb/presto/issues/25531
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ca-certificates \
