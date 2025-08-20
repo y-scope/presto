@@ -29,6 +29,7 @@ import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.SplitFilterProviderType;
 import static com.facebook.presto.plugin.clp.ClpConfig.SplitProviderType;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_SOURCE;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_SPLIT_FILTER_SOURCE;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_SPLIT_SOURCE;
 
 public class ClpModule
@@ -47,6 +48,9 @@ public class ClpModule
 
         if (SplitFilterProviderType.MYSQL == config.getSplitFilterProviderType()) {
             binder.bind(ClpSplitFilterProvider.class).to(ClpMySqlSplitFilterProvider.class).in(Scopes.SINGLETON);
+        }
+        else {
+            throw new PrestoException(CLP_UNSUPPORTED_SPLIT_FILTER_SOURCE, "Unsupported split filter provider type: " + config.getSplitFilterProviderType());
         }
 
         if (config.getMetadataProviderType() == MetadataProviderType.MYSQL) {
