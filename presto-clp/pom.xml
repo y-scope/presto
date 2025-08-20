@@ -132,7 +132,6 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -140,26 +139,5 @@
             <artifactId>commons-io</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>com.facebook.presto</groupId>
-            <artifactId>presto-tests</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <executions>
-                    <execution>
-                        <goals><goal>test-jar</goal></goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

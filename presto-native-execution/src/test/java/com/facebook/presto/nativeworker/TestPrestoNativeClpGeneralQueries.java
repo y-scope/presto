@@ -15,6 +15,7 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.plugin.clp.ClpPlugin;
+import com.facebook.presto.plugin.clp.DbHandle;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.SelectedRole;
 import com.facebook.presto.testing.QueryRunner;
@@ -22,59 +23,43 @@ import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import org.apache.commons.math3.util.Pair;
-import org.junit.Test;
+import org.testng.annotations.Test;
 
 import java.net.URI;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
-import com.facebook.presto.plugin.clp.DbHandle;
-
-import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.NativeQueryRunnerParameters;
+import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbName;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbUrl;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMetadata;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Float;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
 import static com.facebook.presto.spi.security.SelectedRole.Type.ROLE;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static java.util.Objects.requireNonNull;
-
 public class TestPrestoNativeClpGeneralQueries
-    extends AbstractTestQueryFramework
+        extends AbstractTestQueryFramework
 {
     private static final String TABLE_NAME = "test-e2e";
     private static final String CLP_CATALOG = "clp";
     private static final String DEFAULT_SCHEMA = "default";
 
     @Override
-    protected QueryRunner createQueryRunner() throws Exception {
+    protected QueryRunner createQueryRunner()
+            throws Exception
+    {
         DbHandle dbHandle = getDbHandle("metadata_testdb");
         setupMetadata(
                 dbHandle,
                 ImmutableMap.of(
                         TABLE_NAME,
-                        ImmutableList.of(
-                                new Pair<>("a", Integer),
-                                new Pair<>("a", ClpString),
-                                new Pair<>("b", Float),
-                                new Pair<>("b", ClpString),
-                                new Pair<>("c.d", Boolean),
-                                new Pair<>("c.e", VarString),
-                                new Pair<>("f.g.h", UnstructuredArray))));
+                        ImmutableList.of()));
 
         NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
         // Make query runner with external workers for tests
@@ -93,8 +78,7 @@ public class TestPrestoNativeClpGeneralQueries
                         false,
                         false,
                         false,
-                        false)
-                );
+                        false));
     }
 
     @Test
