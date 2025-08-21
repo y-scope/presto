@@ -68,7 +68,7 @@ public class TestClpSplit
 
             tableSplits.put(key, values);
         }
-        clpSplitProvider = setupSplit(dbHandle, tableSplits);
+        clpSplitProvider = setupSplit(dbHandle, tableSplits, "Sss");
     }
 
     @AfterMethod

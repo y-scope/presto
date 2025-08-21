@@ -16,8 +16,11 @@ package com.facebook.presto.nativeworker;
 import com.facebook.presto.Session;
 import com.facebook.presto.plugin.clp.ClpPlugin;
 import com.facebook.presto.plugin.clp.DbHandle;
+import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.SelectedRole;
+import com.facebook.presto.sql.planner.Plan;
+import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.facebook.presto.tests.DistributedQueryRunner;
@@ -26,27 +29,33 @@ import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
 
 import java.net.URI;
+import java.net.URL;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.NativeQueryRunnerParameters;
+import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalClpWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbName;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbUrl;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMetadata;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMongoDbTestLogsMetadata;
+import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMongoDbTestLogsSplit;
 import static com.facebook.presto.spi.security.SelectedRole.Type.ROLE;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static java.util.Objects.requireNonNull;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
+
 public class TestPrestoNativeClpGeneralQueries
         extends AbstractTestQueryFramework
 {
-    private static final String TABLE_NAME = "test-e2e";
+    private static final String TABLE_NAME = "test_e2e";
     private static final String CLP_CATALOG = "clp";
     private static final String DEFAULT_SCHEMA = "default";
 
@@ -54,25 +63,23 @@ public class TestPrestoNativeClpGeneralQueries
     protected QueryRunner createQueryRunner()
             throws Exception
     {
+        URL resource = getClass().getClassLoader().getResource("clp-archives");
+        System.out.println("pathttt: " + resource.getPath());
         DbHandle dbHandle = getDbHandle("metadata_testdb");
-        setupMetadata(
-                dbHandle,
-                ImmutableMap.of(
-                        TABLE_NAME,
-                        ImmutableList.of()));
+        setupMongoDbTestLogsMetadata(dbHandle, TABLE_NAME, resource.getPath() + "/");
+        setupMongoDbTestLogsSplit(dbHandle, TABLE_NAME, resource.getPath() + "/");
 
         NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
         // Make query runner with external workers for tests
         return createQueryRunner(
                 getDbUrl(dbHandle),
-                getDbName(dbHandle),
                 METADATA_DB_USER,
                 METADATA_DB_PASSWORD,
                 METADATA_DB_TABLE_PREFIX,
                 nativeQueryRunnerParameters.workerCount,
-                getExternalWorkerLauncher(
+                getExternalClpWorkerLauncher(
                         "clp",
-                        nativeQueryRunnerParameters.dataDirectory.toString(),
+                        nativeQueryRunnerParameters.serverBinary.toString(),
                         0,
                         Optional.empty(),
                         false,
@@ -84,12 +91,27 @@ public class TestPrestoNativeClpGeneralQueries
     @Test
     public void test()
     {
-        System.out.println("Hello world");
+        QueryRunner queryRunner = getQueryRunner();
+        assertEquals(queryRunner.getNodeCount(), 2);
+        assertTrue(queryRunner.tableExists(getSession(), TABLE_NAME));
+//        System.out.println("hahah " + queryRunner.execute(getSession(), String.format("SELECT * FROM %s LIMIT 1", TABLE_NAME)));
+
+        String query = String.format("SELECT * FROM %s LIMIT 1", TABLE_NAME);
+        try
+        {
+            QueryRunner.MaterializedResultWithPlan resultWithPlan = queryRunner.executeWithPlan(getSession(), query, WarningCollector.NOOP);
+            Plan queryPlan = resultWithPlan.getQueryPlan();
+            MaterializedResult actualResults = resultWithPlan.getMaterializedResult().toTestTypes();
+            System.out.println(actualResults);
+        }
+        catch (RuntimeException ex)
+        {
+            fail("Execution of 'actual' query failed: ", ex);
+        }
     }
 
     private static DistributedQueryRunner createQueryRunner(
             String metadataDatabaseUrl,
-            String metadataDatabaseName,
             String metadataDatabaseUser,
             String metadataDatabasePassword,
             String metadataTablePrefix,
@@ -97,7 +119,8 @@ public class TestPrestoNativeClpGeneralQueries
             Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher) throws Exception
     {
         requireNonNull(metadataDatabaseUrl, "metadataDatabaseUrl is null");
-        requireNonNull(metadataDatabaseName, "metadataDatabaseName is null");
+
+        // Metadata database name is null due to h2
         requireNonNull(metadataDatabaseUser, "metadataDatabaseUser is null");
         requireNonNull(metadataDatabasePassword, "metadataDatabasePassword is null");
         requireNonNull(metadataTablePrefix, "metadataTablePrefix is null");
@@ -108,13 +131,12 @@ public class TestPrestoNativeClpGeneralQueries
                         .build();
 
         Map<String, String> clpProperties = ImmutableMap.<String, String>builder()
-                .put("clp.metadata-provider", "mysql")
+                .put("clp.metadata-provider-type", "mysql")
                 .put("clp.metadata-db-url", metadataDatabaseUrl)
-                .put("clp.metadata-db-name", metadataDatabaseName)
                 .put("clp.metadata-db-user", metadataDatabaseUser)
                 .put("clp.metadata-db-password", metadataDatabasePassword)
                 .put("clp.metadata-table-prefix", metadataTablePrefix)
-                .put("clp.split-provider", "mysql")
+                .put("clp.split-provider-type", "mysql")
                 .build();
         queryRunner.installPlugin(new ClpPlugin());
         queryRunner.createCatalog(CLP_CATALOG, CLP_CATALOG, clpProperties);
@@ -125,7 +147,7 @@ public class TestPrestoNativeClpGeneralQueries
     {
         return testSessionBuilder()
                 .setIdentity(new Identity(
-                        "hive",
+                        "clp",
                         Optional.empty(),
                         role.map(selectedRole -> ImmutableMap.of(CLP_CATALOG, selectedRole))
                                 .orElse(ImmutableMap.of()),

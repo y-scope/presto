@@ -538,6 +538,59 @@ public class PrestoNativeQueryRunnerUtils
         return new NativeQueryRunnerParameters(prestoServerPath, dataDirectory, workerCount);
     }
 
+    public static Optional<BiFunction<Integer, URI, Process>> getExternalClpWorkerLauncher(
+            String catalogName,
+            String prestoServerPath,
+            int cacheMaxSize,
+            Optional<String> remoteFunctionServerUds,
+            Boolean failOnNestedLoopJoin,
+            boolean isCoordinatorSidecarEnabled,
+            boolean enableRuntimeMetricsCollection,
+            boolean enableSsdCache)
+    {
+        return
+                Optional.of((workerIndex, discoveryUri) -> {
+                    try {
+                        Path dir = Paths.get("/tmp", PrestoNativeQueryRunnerUtils.class.getSimpleName());
+                        Files.createDirectories(dir);
+                        Path tempDirectoryPath = Files.createTempDirectory(dir, "worker");
+                        log.info("Temp directory for Worker #%d: %s", workerIndex, tempDirectoryPath.toString());
+
+                        // Write config file - use an ephemeral port for the worker.
+                        String configProperties = format("discovery.uri=%s%n" +
+                                "presto.version=testversion%n" +
+                                "system-memory-gb=4%n" +
+                                "http-server.http.port=0%n" +
+                                "register-test-functions=false%n" +
+                                "runtime-metrics-collection-enabled=false%n", discoveryUri);
+
+                        Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
+                        Files.write(tempDirectoryPath.resolve("node.properties"),
+                                format("node.id=%s%n" +
+                                        "node.internal-address=127.0.0.1%n" +
+                                        "node.environment=testing%n" +
+                                        "node.location=test-location", UUID.randomUUID()).getBytes());
+
+                        Path catalogDirectoryPath = tempDirectoryPath.resolve("catalog");
+                        Files.createDirectory(catalogDirectoryPath);
+                        Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
+                                "connector.name=clp".getBytes());
+
+                        System.out.println("WORKER INDEX: " + workerIndex);
+                        // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
+                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
+                                .directory(tempDirectoryPath.toFile())
+                                .redirectErrorStream(true)
+                                .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
+                                .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
+                                .start();
+                    }
+                    catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                });
+    }
+
     public static Optional<BiFunction<Integer, URI, Process>> getExternalWorkerLauncher(
             String catalogName,
             String prestoServerPath,

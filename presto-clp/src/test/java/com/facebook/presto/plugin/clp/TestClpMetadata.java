@@ -67,7 +67,7 @@ public class TestClpMetadata
                                 new Pair<>("b", ClpString),
                                 new Pair<>("c.d", Boolean),
                                 new Pair<>("c.e", VarString),
-                                new Pair<>("f.g.h", UnstructuredArray))));
+                                new Pair<>("f.g.h", UnstructuredArray))), "ss");
     }
 
     @AfterMethod

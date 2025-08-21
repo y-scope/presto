@@ -18,6 +18,8 @@ import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.math3.util.Pair;
 
@@ -36,6 +38,13 @@ import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.C
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY;
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_NAME;
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_SUFFIX;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.NullValue;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_COLUMN_ID;
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_SUFFIX;
 import static java.lang.String.format;
@@ -76,7 +85,28 @@ public final class ClpMetadataDbSetUp
         return format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
     }
 
-    public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpSchemaTreeNodeType>>> clpFields)
+    public static ClpMetadata setupMongoDbTestLogsMetadata(DbHandle dbHandle, String tableName, String archivesDir)
+    {
+        // TODO: we don't have float in this case
+        final Map<String, List<Pair<String, ClpSchemaTreeNodeType>>> clpFields = ImmutableMap.of(
+                tableName,
+                ImmutableList.of(
+                        new Pair<>("id", Integer),
+                        new Pair<>("msg", ClpString),
+                        new Pair<>("msg", VarString),
+                        new Pair<>("attr.command.q._id.uid.dollar_sign_binary.sub_type", VarString),
+                        new Pair<>("attr.existing", Boolean),
+                        new Pair<>("tags", UnstructuredArray),
+                        new Pair<>("attr.obj.md.indexes", UnstructuredArray),
+                        new Pair<>("attr.build_u_u_i_d", NullValue),
+                        new Pair<>("t.dollar_sign_date", DateString)));
+        return setupMetadata(
+                dbHandle,
+                clpFields,
+                archivesDir);
+    }
+
+    public static ClpMetadata setupMetadata(DbHandle dbHandle, Map<String, List<Pair<String, ClpSchemaTreeNodeType>>> clpFields, String archivesDir)
     {
         final String metadataDbUrl = format(METADATA_DB_URL_TEMPLATE, dbHandle.dbPath);
         final String columnMetadataTableSuffix = "_column_metadata";
@@ -104,7 +134,7 @@ public final class ClpMetadataDbSetUp
                         COLUMN_METADATA_TABLE_COLUMN_TYPE);
 
                 stmt.execute(createColumnMetadataSQL);
-                updateDatasetsTable(conn, tableName);
+                updateDatasetsTable(conn, tableName, archivesDir);
 
                 try (PreparedStatement pstmt = conn.prepareStatement(insertColumnMetadataSQL)) {
                     for (Pair<String, ClpSchemaTreeNodeType> record : entry.getValue()) {
@@ -130,7 +160,16 @@ public final class ClpMetadataDbSetUp
         return new ClpMetadata(config, metadataProvider);
     }
 
-    public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<ArchivesTableRow>> splits)
+    public static ClpMySqlSplitProvider setupMongoDbTestLogsSplit(DbHandle dbHandle, String tableName, String archivesDir)
+    {
+        final Map<String, List<ArchivesTableRow>> splits = ImmutableMap.of(
+                tableName,
+                ImmutableList.of(
+                        new ArchivesTableRow("mongodb-processed-archive", 1679441694576L, 1679442346492L)));
+        return setupSplit(dbHandle, splits, archivesDir);
+    }
+
+    public static ClpMySqlSplitProvider setupSplit(DbHandle dbHandle, Map<String, List<ArchivesTableRow>> splits, String archivesDir)
     {
         final String metadataDbUrl = getDbUrl(dbHandle);
         final String archiveTableFormat = METADATA_DB_TABLE_PREFIX + "%s" + ARCHIVES_TABLE_SUFFIX;
@@ -141,7 +180,7 @@ public final class ClpMetadataDbSetUp
             // Create and populate archive tables
             for (Map.Entry<String, List<ArchivesTableRow>> tableSplits : splits.entrySet()) {
                 String tableName = tableSplits.getKey();
-                updateDatasetsTable(conn, tableName);
+//                updateDatasetsTable(conn, tableName, archivesDir);
 
                 String archiveTableName = format(archiveTableFormat, tableSplits.getKey());
                 String createArchiveTableSQL = format(
@@ -213,7 +252,7 @@ public final class ClpMetadataDbSetUp
         stmt.execute(createDatasetsTableSql);
     }
 
-    private static void updateDatasetsTable(Connection conn, String tableName)
+    private static void updateDatasetsTable(Connection conn, String tableName, String archivesDir)
             throws SQLException
     {
         final String insertDatasetsTableSql = format(
@@ -223,7 +262,7 @@ public final class ClpMetadataDbSetUp
                 DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY);
         try (PreparedStatement pstmt = conn.prepareStatement(insertDatasetsTableSql)) {
             pstmt.setString(1, tableName);
-            pstmt.setString(2, ARCHIVES_STORAGE_DIRECTORY_BASE + tableName);
+            pstmt.setString(2, archivesDir + tableName);
             pstmt.executeUpdate();
         }
     }
