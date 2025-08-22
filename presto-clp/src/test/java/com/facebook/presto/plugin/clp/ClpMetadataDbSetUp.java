@@ -165,7 +165,7 @@ public final class ClpMetadataDbSetUp
         final Map<String, List<ArchivesTableRow>> splits = ImmutableMap.of(
                 tableName,
                 ImmutableList.of(
-                        new ArchivesTableRow("mongodb-processed-archive", 1679441694576L, 1679442346492L)));
+                        new ArchivesTableRow("mongodb-processed-single-file-archive", 1679441694576L, 1679442346492L)));
         return setupSplit(dbHandle, splits, archivesDir);
     }
 
