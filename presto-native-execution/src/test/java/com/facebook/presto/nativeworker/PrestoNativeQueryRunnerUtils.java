@@ -540,13 +540,7 @@ public class PrestoNativeQueryRunnerUtils
 
     public static Optional<BiFunction<Integer, URI, Process>> getExternalClpWorkerLauncher(
             String catalogName,
-            String prestoServerPath,
-            int cacheMaxSize,
-            Optional<String> remoteFunctionServerUds,
-            Boolean failOnNestedLoopJoin,
-            boolean isCoordinatorSidecarEnabled,
-            boolean enableRuntimeMetricsCollection,
-            boolean enableSsdCache)
+            String prestoServerPath)
     {
         return
                 Optional.of((workerIndex, discoveryUri) -> {
@@ -576,7 +570,6 @@ public class PrestoNativeQueryRunnerUtils
                         Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
                                 "connector.name=clp".getBytes());
 
-                        System.out.println("WORKER INDEX: " + workerIndex);
                         // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
                         return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
                                 .directory(tempDirectoryPath.toFile())

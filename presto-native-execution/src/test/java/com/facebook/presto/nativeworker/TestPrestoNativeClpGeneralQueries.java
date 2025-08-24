@@ -14,8 +14,10 @@
 package com.facebook.presto.nativeworker;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.common.type.ArrayType;
+import com.facebook.presto.common.type.RowType;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpPlugin;
-import com.facebook.presto.plugin.clp.DbHandle;
 import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
 import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
@@ -29,27 +31,23 @@ import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.commons.math3.util.Pair;
 import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
 
 import java.net.URI;
 import java.net.URL;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
+import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.NativeQueryRunnerParameters;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalClpWorkerLauncher;
-import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbUrl;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMongoDbTestLogsMetadata;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMongoDbTestLogsSplit;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
@@ -70,6 +68,7 @@ public class TestPrestoNativeClpGeneralQueries
 {
     private static final String TABLE_NAME = "test_e2e";
     private static final String CLP_CATALOG = "clp";
+    private static final String CLP_CONNECTOR = CLP_CATALOG;
     private static final String DEFAULT_SCHEMA = "default";
     private ClpMockMetadataDatabase mockMetadataDatabase;
 
@@ -78,7 +77,7 @@ public class TestPrestoNativeClpGeneralQueries
             throws Exception
     {
         URL resource = getClass().getClassLoader().getResource("clp-archives");
-        String archiveStorageDirectory = format("%s/",  resource.getPath());
+        String archiveStorageDirectory = format("%s/", resource.getPath());
         mockMetadataDatabase = ClpMockMetadataDatabase
                 .builder()
                 .setArchiveStorageDirectory(archiveStorageDirectory)
@@ -104,8 +103,7 @@ public class TestPrestoNativeClpGeneralQueries
                                 UnstructuredArray,
                                 UnstructuredArray,
                                 NullValue,
-                                DateString
-                        ))))
+                                DateString))))
                 .addSplits(ImmutableMap.of(TABLE_NAME, new ArchivesTableRows(
                         ImmutableList.of("mongodb-processed-single-file-archive"),
                         ImmutableList.of(1679441694576L),
@@ -122,13 +120,7 @@ public class TestPrestoNativeClpGeneralQueries
                 nativeQueryRunnerParameters.workerCount,
                 getExternalClpWorkerLauncher(
                         CLP_CATALOG,
-                        nativeQueryRunnerParameters.serverBinary.toString(),
-                        0,
-                        Optional.empty(),
-                        false,
-                        false,
-                        false,
-                        false));
+                        nativeQueryRunnerParameters.serverBinary.toString()));
     }
 
     @Test
@@ -138,18 +130,29 @@ public class TestPrestoNativeClpGeneralQueries
         assertEquals(queryRunner.getNodeCount(), 2);
         assertTrue(queryRunner.tableExists(getSession(), TABLE_NAME));
 
-        String query = String.format("SELECT * FROM %s LIMIT 1", TABLE_NAME);
-        try
-        {
-            QueryRunner.MaterializedResultWithPlan resultWithPlan = queryRunner.executeWithPlan(getSession(), query, WarningCollector.NOOP);
-            Plan queryPlan = resultWithPlan.getQueryPlan();
-            MaterializedResult actualResults = resultWithPlan.getMaterializedResult().toTestTypes();
-            System.out.println(actualResults);
-        }
-        catch (RuntimeException ex)
-        {
-            fail("Execution of 'actual' query failed: ", ex);
-        }
+        // Test select star
+        assertClpQuery(
+                queryRunner,
+                getSession(),
+                format("SELECT * FROM %s LIMIT 1", TABLE_NAME),
+                ImmutableList.of(
+                        VARCHAR,
+                        RowType.from(ImmutableList.of(RowType.field("dollar_sign_date", TIMESTAMP))),
+                        BIGINT,
+                        RowType.from(ImmutableList.of(
+                                RowType.field("build_u_u_i_d", VARCHAR),
+                                RowType.field("command", RowType.from(ImmutableList.of(
+                                        RowType.field("q", RowType.from(ImmutableList.of(
+                                                RowType.field("_id", RowType.from(ImmutableList.of(
+                                                        RowType.field("uid", RowType.from(ImmutableList.of(
+                                                                RowType.field("dollar_sign_binary", RowType.from(ImmutableList.of(
+                                                                        RowType.field("sub_type", VARCHAR)))))))))))))))),
+                                RowType.field("existing", BOOLEAN),
+                                RowType.field("obj", RowType.from(ImmutableList.of(
+                                        RowType.field("md", RowType.from(ImmutableList.of(
+                                                RowType.field("indexes", new ArrayType(VARCHAR)))))))))),
+                        new ArrayType(VARCHAR)),
+                1);
     }
 
     @AfterTest
@@ -185,7 +188,7 @@ public class TestPrestoNativeClpGeneralQueries
                 .put("clp.split-provider-type", "mysql")
                 .build();
         queryRunner.installPlugin(new ClpPlugin());
-        queryRunner.createCatalog(CLP_CATALOG, CLP_CATALOG, clpProperties);
+        queryRunner.createCatalog(CLP_CATALOG, CLP_CONNECTOR, clpProperties);
         return queryRunner;
     }
 
@@ -204,5 +207,30 @@ public class TestPrestoNativeClpGeneralQueries
                 .setCatalog(CLP_CATALOG)
                 .setSchema(DEFAULT_SCHEMA)
                 .build();
+    }
+
+    private static void assertClpQuery(
+            QueryRunner queryRunner,
+            Session session,
+            String query,
+            List<Type> expectedTypes,
+            int expectedNumOfRows)
+    {
+        try {
+            QueryRunner.MaterializedResultWithPlan resultWithPlan = queryRunner.executeWithPlan(session, query, WarningCollector.NOOP);
+            MaterializedResult actualResults = resultWithPlan.getMaterializedResult().toTestTypes();
+            assertEquals(actualResults.getRowCount(), expectedNumOfRows);
+            List<Type> actualTypes = actualResults.getTypes();
+            assertEquals(actualTypes.size(), expectedTypes.size());
+            for (int i = 0; i < actualTypes.size(); ++i) {
+                assertEquals(actualTypes.get(i), expectedTypes.get(i));
+            }
+            Plan queryPlan = resultWithPlan.getQueryPlan();
+            // This ensures the query has been finished to avoid "Server is shut down" exception when tearing down
+            queryPlan.getStatsAndCosts();
+        }
+        catch (RuntimeException ex) {
+            fail("Execution of 'actual' query failed: ", ex);
+        }
     }
 }
