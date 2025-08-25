@@ -30,17 +30,17 @@ import static org.testng.Assert.fail;
 
 public class ColumnMetadataTableRows
 {
-    private List<String> names;
-    private List<ClpSchemaTreeNodeType> types;
-    private int numOfRows;
+    private final List<String> names;
+    private final List<ClpSchemaTreeNodeType> types;
+    private final int numOfRows;
 
     public static void createTableIfNotExist(Connection connection, String tablePrefix, String tableName)
     {
         String createTableSql = format(
                 "CREATE TABLE IF NOT EXISTS %s (" +
-                        " %s VARCHAR(512) NOT NULL," +
-                        " %s TINYINT NOT NULL," +
-                        " PRIMARY KEY (%s, %s))",
+                        "`%s` VARCHAR(512) NOT NULL, " +
+                        "`%s` TINYINT NOT NULL, " +
+                        "PRIMARY KEY (`%s`, `%s`))",
                 format("%s%s%s", tablePrefix, tableName, COLUMN_METADATA_TABLE_SUFFIX),
                 COLUMN_METADATA_TABLE_COLUMN_NAME,
                 COLUMN_METADATA_TABLE_COLUMN_TYPE,
@@ -57,7 +57,7 @@ public class ColumnMetadataTableRows
     public void insertToTable(Connection connection, String tablePrefix, String tableName)
     {
         String insertSql = format(
-                "INSERT INTO %s (%s, %s) VALUES (?, ?)",
+                "INSERT INTO `%s` (`%s`, `%s`) VALUES (?, ?)",
                 format("%s%s%s", tablePrefix, tableName, COLUMN_METADATA_TABLE_SUFFIX),
                 COLUMN_METADATA_TABLE_COLUMN_NAME,
                 COLUMN_METADATA_TABLE_COLUMN_TYPE);

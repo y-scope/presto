@@ -17,10 +17,7 @@ import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.DatasetsTableRows;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.io.FileUtils;
 
-import java.io.File;
-import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -35,7 +32,9 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 /**
- *
+ * File-backed H2 mock metadata database for CLP tests. Uses the same schema as the CLP package.
+ * Provides a builder-driven setup and a single-call teardown that drops all objects and deletes
+ * files.
  */
 public class ClpMockMetadataDatabase
 {
@@ -47,7 +46,6 @@ public class ClpMockMetadataDatabase
     private static final String MOCK_METADATA_DB_URL_TEMPLATE = "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
 
     private String url;
-    private File databaseFile;
     private String archiveStorageDirectory;
     private String username;
     private String password;
@@ -70,18 +68,10 @@ public class ClpMockMetadataDatabase
     public void teardown()
     {
         try (Connection connection = DriverManager.getConnection(url, username, password); Statement stmt = connection.createStatement()) {
-            stmt.execute("DROP ALL OBJECTS"); // wipes all tables, views, etc.
+            stmt.execute("DROP ALL OBJECTS DELETE FILES");
         }
         catch (SQLException e) {
             fail(e.getMessage());
-        }
-        if (databaseFile.exists()) {
-            try {
-                FileUtils.delete(databaseFile);
-            }
-            catch (IOException e) {
-                fail(e.getMessage());
-            }
         }
     }
 
@@ -164,7 +154,6 @@ public class ClpMockMetadataDatabase
 
         public Builder setDatabaseUrl(String databaseFilePath)
         {
-            mockMetadataDatabase.databaseFile = new File(databaseFilePath);
             mockMetadataDatabase.url = format(MOCK_METADATA_DB_URL_TEMPLATE, databaseFilePath);
             return this;
         }
@@ -194,9 +183,10 @@ public class ClpMockMetadataDatabase
         }
 
         /**
-         * Creates the datasets table if it does not already exist. Must be called immediately
-         * after calling {@code setDatabaseUrl}, {@code setArchiveStorageDirectory},
-         * {@code setUsername}, {@code setPassword} and {@code setTablePrefix}.
+         * Creates the datasets table if it does not already exist. Must be called before invoking
+         * {@code addTables}, {@code addColumnMetadata}, or {@code addSplits}. Assumes
+         * {@code setDatabaseUrl}, {@code setUsername}, {@code setPassword}, and
+         * {@code setTablePrefix} have been set (defaults provided).
          *
          * @return this builder
          */

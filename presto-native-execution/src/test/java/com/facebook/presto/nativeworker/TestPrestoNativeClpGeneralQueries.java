@@ -36,6 +36,7 @@ import org.testng.annotations.Test;
 
 import java.net.URI;
 import java.net.URL;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,14 +72,17 @@ public class TestPrestoNativeClpGeneralQueries
     private static final String CLP_CATALOG = "clp";
     private static final String CLP_CONNECTOR = CLP_CATALOG;
     private static final String DEFAULT_SCHEMA = "default";
+    private static final int DEFAULT_NUM_OF_WORKERS = 1;
     private ClpMockMetadataDatabase mockMetadataDatabase;
 
     @Override
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        URL resource = getClass().getClassLoader().getResource("clp-archives");
-        String archiveStorageDirectory = format("%s/", resource.getPath());
+        URL resource = requireNonNull(
+                getClass().getClassLoader().getResource("clp-archives"),
+                "Test resource 'clp-archives' not found on classpath");
+        String archiveStorageDirectory = format("%s/", Paths.get(resource.toURI()).toString());
         mockMetadataDatabase = ClpMockMetadataDatabase
                 .builder()
                 .setArchiveStorageDirectory(archiveStorageDirectory)
@@ -128,7 +132,7 @@ public class TestPrestoNativeClpGeneralQueries
     public void test()
     {
         QueryRunner queryRunner = getQueryRunner();
-        assertEquals(queryRunner.getNodeCount(), 2);
+        assertEquals(queryRunner.getNodeCount(), getNativeQueryRunnerParameters().workerCount.orElse(DEFAULT_NUM_OF_WORKERS) + 1);
         assertTrue(queryRunner.tableExists(getSession(), TABLE_NAME));
 
         // Test select star
@@ -159,7 +163,9 @@ public class TestPrestoNativeClpGeneralQueries
     @AfterTest
     public void teardown()
     {
-        mockMetadataDatabase.teardown();
+        if (mockMetadataDatabase != null) {
+            mockMetadataDatabase.teardown();
+        }
     }
 
     /**
@@ -192,7 +198,7 @@ public class TestPrestoNativeClpGeneralQueries
         requireNonNull(metadataTablePrefix, "metadataTablePrefix is null");
         DistributedQueryRunner queryRunner =
                 DistributedQueryRunner.builder(createDefaultSession())
-                        .setNodeCount(workerCount.orElse(1))
+                        .setNodeCount(workerCount.orElse(DEFAULT_NUM_OF_WORKERS))
                         .setExternalWorkerLauncher(externalWorkerLauncher)
                         .build();
 

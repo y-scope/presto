@@ -39,11 +39,11 @@ public class ArchivesTableRows
     public static void createTableIfNotExist(Connection connection, String tablePrefix, String tableName)
     {
         final String createTableSql = format(
-                "CREATE TABLE IF NOT EXISTS %s (" +
-                        "%s BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, " +
-                        "%s VARCHAR(64) NOT NULL, " +
-                        "%s BIGINT, " +
-                        "%s BIGINT)",
+                "CREATE TABLE IF NOT EXISTS `%s` (" +
+                        "`%s` BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                        "`%s` VARCHAR(64) NOT NULL, " +
+                        "`%s` BIGINT, " +
+                        "`%s` BIGINT)",
                 format("%s%s%s", tablePrefix, tableName, ARCHIVES_TABLE_SUFFIX),
                 COLUMN_PAGINATION_ID,
                 COLUMN_ID,
@@ -60,7 +60,7 @@ public class ArchivesTableRows
     public void insertToTable(Connection connection, String tablePrefix, String tableName)
     {
         final String insertSql = format(
-                "INSERT INTO %s (%s, %s, %s) VALUES (?, ?, ?)",
+                "INSERT INTO `%s` (`%s`, `%s`, `%s`) VALUES (?, ?, ?)",
                 format("%s%s%s", tablePrefix, tableName, ARCHIVES_TABLE_SUFFIX),
                 COLUMN_ID,
                 COLUMN_BEGIN_TIMESTAMP,
