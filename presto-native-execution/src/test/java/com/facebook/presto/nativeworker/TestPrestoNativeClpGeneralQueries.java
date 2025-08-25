@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.nativeworker;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.RowType;
@@ -24,7 +25,6 @@ import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.SelectedRole;
-import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
@@ -66,6 +66,7 @@ import static org.testng.Assert.fail;
 public class TestPrestoNativeClpGeneralQueries
         extends AbstractTestQueryFramework
 {
+    private static final Logger log = Logger.get(TestPrestoNativeClpGeneralQueries.class);
     private static final String TABLE_NAME = "test_e2e";
     private static final String CLP_CATALOG = "clp";
     private static final String CLP_CONNECTOR = CLP_CATALOG;
@@ -161,6 +162,22 @@ public class TestPrestoNativeClpGeneralQueries
         mockMetadataDatabase.teardown();
     }
 
+    /**
+     * Creates the CLP's {@link QueryRunner}, including launching a coordinator and
+     * {@code workerCount} workers. The coordinator's configuration is set up here, while the
+     * worker's configuration is set up at
+     * {@link PrestoNativeQueryRunnerUtils#getExternalClpWorkerLauncher}.
+     *
+     * @param metadataDatabaseUrl the value of {@code clp.metadata-db-url} config option
+     * @param metadataDatabaseUser the value of {@code clp.metadata-db-user} config option
+     * @param metadataDatabasePassword the value of {@code clp.metadata-db-password} config option
+     * @param metadataTablePrefix the value of {@code clp.metadata-table-prefix} config option
+     * @param workerCount the number of workers used during end-to-end testing
+     * @param externalWorkerLauncher the configured worker created by
+     * {@link PrestoNativeQueryRunnerUtils#getExternalClpWorkerLauncher}
+     * @return the create query runner
+     * @throws Exception
+     */
     private static DistributedQueryRunner createQueryRunner(
             String metadataDatabaseUrl,
             String metadataDatabaseUser,
@@ -174,7 +191,7 @@ public class TestPrestoNativeClpGeneralQueries
         requireNonNull(metadataDatabasePassword, "metadataDatabasePassword is null");
         requireNonNull(metadataTablePrefix, "metadataTablePrefix is null");
         DistributedQueryRunner queryRunner =
-                DistributedQueryRunner.builder(createSession(Optional.of(new SelectedRole(ROLE, Optional.of("admin")))))
+                DistributedQueryRunner.builder(createDefaultSession())
                         .setNodeCount(workerCount.orElse(1))
                         .setExternalWorkerLauncher(externalWorkerLauncher)
                         .build();
@@ -192,8 +209,14 @@ public class TestPrestoNativeClpGeneralQueries
         return queryRunner;
     }
 
-    private static Session createSession(Optional<SelectedRole> role)
+    /**
+     * Creates a default mock session for query use.
+     *
+     * @return a default session
+     */
+    private static Session createDefaultSession()
     {
+        Optional<SelectedRole> role = Optional.of(new SelectedRole(ROLE, Optional.of("admin")));
         return testSessionBuilder()
                 .setIdentity(new Identity(
                         "clp",
@@ -209,6 +232,16 @@ public class TestPrestoNativeClpGeneralQueries
                 .build();
     }
 
+    /**
+     * Executes the given query with the given query runner and session, then checks the type and
+     * the number of returning rows.
+     *
+     * @param queryRunner
+     * @param session
+     * @param query
+     * @param expectedTypes
+     * @param expectedNumOfRows
+     */
     private static void assertClpQuery(
             QueryRunner queryRunner,
             Session session,
@@ -217,6 +250,7 @@ public class TestPrestoNativeClpGeneralQueries
             int expectedNumOfRows)
     {
         try {
+            long start = System.nanoTime();
             QueryRunner.MaterializedResultWithPlan resultWithPlan = queryRunner.executeWithPlan(session, query, WarningCollector.NOOP);
             MaterializedResult actualResults = resultWithPlan.getMaterializedResult().toTestTypes();
             assertEquals(actualResults.getRowCount(), expectedNumOfRows);
@@ -225,9 +259,8 @@ public class TestPrestoNativeClpGeneralQueries
             for (int i = 0; i < actualTypes.size(); ++i) {
                 assertEquals(actualTypes.get(i), expectedTypes.get(i));
             }
-            Plan queryPlan = resultWithPlan.getQueryPlan();
-            // This ensures the query has been finished to avoid "Server is shut down" exception when tearing down
-            queryPlan.getStatsAndCosts();
+            long end = System.nanoTime();
+            log.info("Query [%s] end-to-end latency: %s s", query, (end - start) / 1e9);
         }
         catch (RuntimeException ex) {
             fail("Execution of 'actual' query failed: ", ex);

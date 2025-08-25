@@ -34,11 +34,75 @@ import static java.util.Objects.requireNonNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+/**
+ *
+ */
 public class ClpMockMetadataDatabase
 {
+    private static final String MOCK_METADATA_DB_DEFAULT_USERNAME = "sa";
+    private static final String MOCK_METADATA_DB_DEFAULT_PASSWORD = "";
+
+    private static final String MOCK_METADATA_DB_DEFAULT_TABLE_PREFIX = "clp_";
+
+    private static final String MOCK_METADATA_DB_URL_TEMPLATE = "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
+
+    private String url;
+    private File databaseFile;
+    private String archiveStorageDirectory;
+    private String username;
+    private String password;
+    private String tablePrefix;
+
+    /**
+     * Creates a new builder instance for constructing {@link ClpMockMetadataDatabase}.
+     *
+     * @return a new {@link Builder}
+     */
     public static Builder builder()
     {
         return new Builder();
+    }
+
+    /**
+     * Tears down the mock database by dropping all objects (tables, views, etc.) and deleting the
+     * backing database file. Any exceptions during cleanup will cause the test to fail.
+     */
+    public void teardown()
+    {
+        try (Connection connection = DriverManager.getConnection(url, username, password); Statement stmt = connection.createStatement()) {
+            stmt.execute("DROP ALL OBJECTS"); // wipes all tables, views, etc.
+        }
+        catch (SQLException e) {
+            fail(e.getMessage());
+        }
+        if (databaseFile.exists()) {
+            try {
+                FileUtils.delete(databaseFile);
+            }
+            catch (IOException e) {
+                fail(e.getMessage());
+            }
+        }
+    }
+
+    public String getUrl()
+    {
+        return url;
+    }
+
+    public String getUsername()
+    {
+        return username;
+    }
+
+    public String getPassword()
+    {
+        return password;
+    }
+
+    public String getTablePrefix()
+    {
+        return tablePrefix;
     }
 
     private void addTableToDatasetsTableIfNotExist(List<String> tableNames)
@@ -82,59 +146,7 @@ public class ClpMockMetadataDatabase
         }
     }
 
-    public void teardown()
-    {
-        try (Connection connection = DriverManager.getConnection(url, username, password); Statement stmt = connection.createStatement()) {
-            stmt.execute("DROP ALL OBJECTS"); // wipes all tables, views, etc.
-        }
-        catch (SQLException e) {
-            fail(e.getMessage());
-        }
-        if (databaseFile.exists()) {
-            try {
-                FileUtils.delete(databaseFile);
-            }
-            catch (IOException e) {
-                fail(e.getMessage());
-            }
-        }
-    }
-
-    public String getUrl()
-    {
-        return url;
-    }
-
-    public String getUsername()
-    {
-        return username;
-    }
-
-    public String getPassword()
-    {
-        return password;
-    }
-
-    public String getTablePrefix()
-    {
-        return tablePrefix;
-    }
-
-    private static final String MOCK_METADATA_DB_DEFAULT_USERNAME = "sa";
-    private static final String MOCK_METADATA_DB_DEFAULT_PASSWORD = "";
-
-    private static final String MOCK_METADATA_DB_DEFAULT_TABLE_PREFIX = "clp_";
-
-    private static final String MOCK_METADATA_DB_URL_TEMPLATE = "jdbc:h2:file:%s;MODE=MySQL;DATABASE_TO_UPPER=FALSE";
-
     private ClpMockMetadataDatabase() {}
-
-    private String url;
-    private File databaseFile;
-    private String archiveStorageDirectory;
-    private String username;
-    private String password;
-    private String tablePrefix;
 
     public static final class Builder
     {
@@ -181,8 +193,16 @@ public class ClpMockMetadataDatabase
             return this;
         }
 
+        /**
+         * Creates the datasets table if it does not already exist. Must be called immediately
+         * after calling {@code setDatabaseUrl}, {@code setArchiveStorageDirectory},
+         * {@code setUsername}, {@code setPassword} and {@code setTablePrefix}.
+         *
+         * @return this builder
+         */
         public Builder createDatasetsTableIfNotExist()
         {
+            validateDatasetsTableCreationRequirements();
             if (!isDatasetsTableCreated) {
                 DatasetsTableRows.createTableIfNotExist(
                         mockMetadataDatabase.url,
@@ -194,38 +214,72 @@ public class ClpMockMetadataDatabase
             return this;
         }
 
+        /**
+         * Ensures all table names have been registered in the datasets table and for each table name
+         * an archives table and a column metadata table have been created.
+         *
+         * @param tableNames list of table names to add
+         * @return this builder
+         */
         public Builder addTables(List<String> tableNames)
         {
-            validate();
+            validateMockMetadataDatabase();
             mockMetadataDatabase.addTableToDatasetsTableIfNotExist(tableNames);
             return this;
         }
 
+        /**
+         * Inserts column metadata for the given fields into the column metadata table corresponding to
+         * the given table name.
+         *
+         * @param clpFields mapping of table name to {@link ColumnMetadataTableRows}
+         * @return this builder
+         */
         public Builder addColumnMetadata(Map<String, ColumnMetadataTableRows> clpFields)
         {
-            validate();
+            validateMockMetadataDatabase();
             mockMetadataDatabase.addColumnMetadata(clpFields);
             return this;
         }
 
+        /**
+         * Inserts split metadata into the archives table corresponding to the given table name.
+         *
+         * @param splits mapping of table name to {@link ArchivesTableRows}
+         * @return this builder
+         */
         public Builder addSplits(Map<String, ArchivesTableRows> splits)
         {
-            validate();
+            validateMockMetadataDatabase();
             mockMetadataDatabase.addSplits(splits);
             return this;
         }
 
+        /**
+         * Builds and returns the configured {@link ClpMockMetadataDatabase} instance.
+         *
+         * @return the constructed {@link ClpMockMetadataDatabase}
+         */
         public ClpMockMetadataDatabase build()
         {
-            validate();
+            validateMockMetadataDatabase();
             return mockMetadataDatabase;
         }
 
-        private void validate()
+        /**
+         * Validates that all required parameters have been set and the datasets table has been
+         * created.
+         */
+        private void validateMockMetadataDatabase()
         {
             assertTrue(isDatasetsTableCreated, "createDatasetsTableIfNotExist might not be called");
-            requireNonNull(mockMetadataDatabase.url, "url is null");
             requireNonNull(mockMetadataDatabase.archiveStorageDirectory, "archiveStorageDirectory is null");
+            validateDatasetsTableCreationRequirements();
+        }
+
+        private void validateDatasetsTableCreationRequirements()
+        {
+            requireNonNull(mockMetadataDatabase.url, "url is null");
             requireNonNull(mockMetadataDatabase.username, "username is null");
             requireNonNull(mockMetadataDatabase.password, "password is null");
             requireNonNull(mockMetadataDatabase.tablePrefix, "tablePrefix is null");
