@@ -16,17 +16,17 @@ package com.facebook.presto.plugin.clp.split.filter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Defines the basic filter JSON structure.
- * <p></p>
- * Here are the explanations for each field:
+ * Options for a how a column in a Presto query should be pushed down into a query against CLP's
+ * metadata database (during split pruning):
  * <ul>
- *   <li><b>{@code columnName}</b>: the data column's name.</li>
+ *   <li><b>{@code columnName}</b>: The column's name in the Presto query.</li>
  *
- *   <li><b>{@code customOptions}</b>: the split filter provider specific sub-object.</li>
+ *   <li><b>{@code customOptions}</b>: Options specific to the current
+ *   {@link ClpSplitFilterProvider}.</li>
  *
- *   <li><b>{@code required}</b> (optional, defaults to {@code false}): indicates whether the
- *   filter must be present in the pushed-down expression for split filtering. If a required
- *   filter is missing or cannot be pushed down, the query will be rejected.</li>
+ *   <li><b>{@code required}</b> (optional, defaults to {@code false}): Whether the filter must be
+ *   present in the generated metadata query. If a required filter is missing or cannot be added to
+ *   the metadata query, the original query will be rejected.</li>
  * </ul>
  */
 public class ClpSplitFilterConfig

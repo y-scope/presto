@@ -28,8 +28,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 
 /**
- * Loads and manages split filter configurations of MySQL metadata database for the CLP
- * connector.
+ * Implementation for the CLP package's MySQL metadata database.
  */
 public class ClpMySqlSplitFilterProvider
         extends ClpSplitFilterProvider
@@ -41,9 +40,8 @@ public class ClpMySqlSplitFilterProvider
     }
 
     /**
-     * This method performs regex-based replacements according to the {@code "rangeMapping"} field
-     * in {@link ClpMySqlCustomSplitFilterOptions} to convert numeric filter expressions. For
-     * example:
+     * Performs regex-based replacements to rewrite {@code pushDownExpression} according to the
+     * {@code "rangeMapping"} field in {@link ClpMySqlCustomSplitFilterOptions}. For example:
      * <ul>
      *   <li>{@code "msg.timestamp" >= 1234} → {@code end_timestamp >= 1234}</li>
      *   <li>{@code "msg.timestamp" <= 5678} → {@code begin_timestamp <= 5678}</li>
@@ -51,9 +49,9 @@ public class ClpMySqlSplitFilterProvider
      *   {@code (begin_timestamp <= 4567 AND end_timestamp >= 4567)}</li>
      * </ul>
      *
-     * @param scope the scope of the filter
-     * @param pushDownExpression the MySQL SQL string that needs to be rewritten
-     * @return the rewritten SQL string
+     * @param scope the filter's scope
+     * @param pushDownExpression the expression to be rewritten
+     * @return the rewritten expression
      */
     @Override
     public String remapSplitFilterPushDownExpression(String scope, String pushDownExpression)
@@ -107,15 +105,14 @@ public class ClpMySqlSplitFilterProvider
     }
 
     /**
-     * The MySql-specific fields in the filter contains:
+     * Custom options:
      * <ul>
-     *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object only for numeric type filter
-     *   with the following properties:
+     *   <li><b>{@code rangeMapping}</b> <i>(optional)</i>: an object with the following properties:
      *      <ul>
-     *          <li>{@code lowerBound}: The metadata column that represents the lower bound of values
-     *          in a split for the data column.</li>
-     *          <li>{@code upperBound}: The metadata column that represents the upper bound of values
-     *          in a split for the data column.</li>
+     *          <li>{@code lowerBound}: The numeric metadata column that represents the lower bound
+     *          of values in a split for the numeric data column.</li>
+     *          <li>{@code upperBound}: The numeric metadata column that represents the upper bound
+     *          of values in a split for the numeric data column.</li>
      *      </ul>
      *   </li>
      * </ul>

@@ -24,9 +24,9 @@ import java.io.IOException;
 import static com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterConfig.CustomSplitFilterOptions;
 
 /**
- * Uses the given implementation of {@link CustomSplitFilterOptions} to deserialize the
- * {@code "customOptions"} field in the filter. The implementation is originally chosen
- * by the {@code clp.split-filter-provider-type} config option.
+ * Uses the given {@link CustomSplitFilterOptions} implementation to deserialize the
+ * {@code "customOptions"} field in a {@link ClpSplitFilterConfig}. The implementation is determined
+ * by the implemented {@link ClpSplitFilterProvider}.
  */
 public class ClpCustomSplitFilterOptionsDeserializer
         extends JsonDeserializer<CustomSplitFilterOptions>

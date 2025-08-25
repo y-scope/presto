@@ -36,17 +36,16 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Loads and manages split filter configurations for the CLP connector.
+ * Loads and manages {@link ClpSplitFilterConfig}s from a config file.
  * <p></p>
- * The configuration file is specified by the {@code clp.split-filter-config} property and defines
- * split filters used to optimize query execution through split filtering.
+ * The config file is specified by the {@code clp.split-filter-config} property.
  * <p></p>
  * Filter configs can be declared at either a catalog, schema, or table scope. Filter configs under
  * a particular scope will apply to all child scopes (e.g., schema-level filter configs will apply
  * to all tables within that schema).
  * <p></p>
- * Different split filter providers can customize filter configurations through the
- * {@code "customOptions"} field within each {@link ClpSplitFilterConfig}.
+ * Implementations of this class can customize filter configs through the {@code "customOptions"}
+ * field within each {@link ClpSplitFilterConfig}.
  */
 public abstract class ClpSplitFilterProvider
 {
@@ -77,30 +76,27 @@ public abstract class ClpSplitFilterProvider
     }
 
     /**
-     * Rewrites the given {@code pushDownExpression} for split filtering to remap filter conditions
-     * based on the custom configuration options stored defined in {@code "customOptions"} fields
-     * of the given scope.
+     * Rewrites {@code pushDownExpression} to remap filter conditions based on the
+     * {@code "customOptions"} for the given scope.
      * <p></p>
-     * The {@code scope} follows the format {@code catalog[.schema][.table]}, and determines
-     * which filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
+     * {@code scope} follows the format {@code catalog[.schema][.table]}, and determines which
+     * filter mappings to apply, since mappings from more specific scopes (e.g., table-level)
      * override or supplement those from broader scopes (e.g., catalog-level). For each scope
-     * (catalog, schema, table), this method collects all range mappings defined in the split
-     * filter configuration.
+     * (catalog, schema, table), this method collects all mappings defined in
+     * {@code "customOptions"}.
      *
      * @param scope the scope of the filter
-     * @param pushDownExpression the {@code pushDownExpression} for split filtering that needs to
-     *                           be rewritten
-     * @return the rewritten {@code pushDownExpression} for split filtering
+     * @param pushDownExpression the expression to be rewritten
+     * @return the rewritten expression
      */
     public abstract String remapSplitFilterPushDownExpression(String scope, String pushDownExpression);
 
     /**
-     * Checks for the given table, if the given {@code pushDownExpression} for split filtering
-     * contains all required fields.
+     * Checks for the given table, if {@code splitFilterPushDownExpression} contains all required
+     * fields.
      *
      * @param tableScopeSet the set of scopes of the tables that are being queried
-     * @param splitFilterPushDownExpression the remapped {@code pushDownExpression} for split
-     *                                      filtering to be checked
+     * @param splitFilterPushDownExpression the expression to be checked
      */
     public void checkContainsRequiredFilters(Set<String> tableScopeSet, String splitFilterPushDownExpression)
     {
@@ -127,11 +123,11 @@ public abstract class ClpSplitFilterProvider
     }
 
     /**
-     * Returns the {@link CustomSplitFilterOptions} class implemented by the user. To respect our
-     * code style, we recommend implementing a {@code protected static class} as an inner class
-     * in the user-implemented {@link ClpSplitFilterProvider} class.
+     * Returns the implemented {@link CustomSplitFilterOptions} class. To respect our code style, we
+     * recommend implementing a {@code protected static class} as an inner class in the implemented
+     * {@link ClpSplitFilterProvider} class.
      *
-     * @return the user-implemented {@link CustomSplitFilterOptions} class.
+     * @return the implemented {@link CustomSplitFilterOptions} class
      */
     protected abstract Class<? extends CustomSplitFilterOptions> getCustomSplitFilterOptionsClass();
 

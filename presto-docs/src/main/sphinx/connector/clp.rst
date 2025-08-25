@@ -79,8 +79,8 @@ Property Name                        Description                                
                                      seconds. Set this to a lower value for frequently changing datasets or
                                      to a higher value to reduce load.
 ``clp.split-filter-config``          The absolute path to an optional split filter config file. See the
-                                     :ref:`Split Filter Config File<split-filter-config-file>` section
-                                     for details.
+                                     :ref:`Split Filter Config File<split-filter-config-file>` section for
+                                     details.
 ``clp.split-filter-provider-type``   Specifies the split filter provider type. Currently, the only supported  ``mysql``
                                      type is a MySQL database, which is also used by the CLP package to
                                      store metadata. Additional providers can be supported by implementing
@@ -146,20 +146,18 @@ Each filter config has the following options:
 
 - ``columnName``: The data column's name.
 
-- ``customOptions`` *(optional)*: Custom config options for a split filter provider. Options for the default split
-  filter provider (``ClpMySqlSplitFilterProvider``) are :ref:`below<clp-mysql-split-filter-provider-config>`.
+- ``customOptions`` *(optional)*: Custom options for a split filter provider. Options for the default split filter
+  provider (``ClpMySqlSplitFilterProvider``) are :ref:`below<clp-mysql-split-filter-provider-config>`.
 
-- ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated split filter
-  query. If a required filter is missing or cannot be added to the split filter query, the original query will be
-  rejected.
+- ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated metadata query.
+  If a required filter is missing or cannot be added to the metadata query, the original query will be rejected.
 
 .. _clp-mysql-split-filter-provider-config:
 
 ClpMySqlSplitFilterProvider-Specific Filter Config
 -----------------------------------------------
 
-For the ``ClpMySqlSplitFilterProvider``, the ``customOptions`` option of the filter config has the following
-sub-options:
+For ``ClpMySqlSplitFilterProvider``, the ``customOptions`` option of the filter config has the following sub-options:
 
 - ``rangeMapping`` *(optional)*: an object with the following properties:
 
@@ -171,7 +169,7 @@ sub-options:
 Filter Config Example
 ---------------------
 
-The code block shows an example split filter config file:
+The code block shows an example filter config file:
 
 .. code-block:: json
 
@@ -217,7 +215,7 @@ The code block shows an example split filter config file:
     ``end_timestamp``, and is required to exist in every query.
   - The column ``file_name`` is used as-is without remapping.
 
-If you prefer to use a different format for the ``customOptions``, you can provide your own implementations of the
+If you prefer to use a different format for ``customOptions``, you can provide your own implementation of the
 ``ClpSplitFilterProvider`` interface, and configure the connector accordingly.
 
 Supported SQL Expressions
