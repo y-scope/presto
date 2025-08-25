@@ -28,12 +28,12 @@ import static com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterConfig.C
  * {@code "customOptions"} field in a {@link ClpSplitFilterConfig}. The implementation is determined
  * by the implemented {@link ClpSplitFilterProvider}.
  */
-public class ClpSplitFilterConfigrCustomOptionsDeserializer
+public class ClpSplitFilterConfigCustomOptionsDeserializer
         extends JsonDeserializer<CustomSplitFilterOptions>
 {
     private final Class<? extends CustomSplitFilterOptions> actualCustomSplitFilterOptionsClass;
 
-    public ClpSplitFilterConfigrCustomOptionsDeserializer(Class<? extends CustomSplitFilterOptions> actualCustomSplitFilterOptionsClass)
+    public ClpSplitFilterConfigCustomOptionsDeserializer(Class<? extends CustomSplitFilterOptions> actualCustomSplitFilterOptionsClass)
     {
         this.actualCustomSplitFilterOptionsClass = actualCustomSplitFilterOptionsClass;
     }

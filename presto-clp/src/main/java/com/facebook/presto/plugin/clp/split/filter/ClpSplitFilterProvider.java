@@ -63,7 +63,7 @@ public abstract class ClpSplitFilterProvider
         SimpleModule module = new SimpleModule();
         module.addDeserializer(
                 CustomSplitFilterOptions.class,
-                new ClpSplitFilterConfigrCustomOptionsDeserializer(getCustomSplitFilterOptionsClass()));
+                new ClpSplitFilterConfigCustomOptionsDeserializer(getCustomSplitFilterOptionsClass()));
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
