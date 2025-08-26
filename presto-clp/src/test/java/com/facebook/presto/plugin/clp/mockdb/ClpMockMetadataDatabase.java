@@ -17,6 +17,7 @@ import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.DatasetsTableRows;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -26,9 +27,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_COLUMN_NAME;
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_COLUMN_TYPE;
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_SUFFIX;
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY;
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_NAME;
+import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_SUFFIX;
+import static com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows.COLUMN_BEGIN_TIMESTAMP;
+import static com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows.COLUMN_END_TIMESTAMP;
+import static com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows.COLUMN_ID;
+import static com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows.COLUMN_PAGINATION_ID;
+import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_SUFFIX;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
-import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 /**
@@ -95,13 +106,15 @@ public class ClpMockMetadataDatabase
         return tablePrefix;
     }
 
+    private ClpMockMetadataDatabase() {}
+
     private void addTableToDatasetsTableIfNotExist(List<String> tableNames)
     {
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
             ImmutableList.Builder<String> repeatedArchiveStorageDirectory = ImmutableList.builder();
             for (String tableName : tableNames) {
-                ArchivesTableRows.createTableIfNotExist(connection, tablePrefix, tableName);
-                ColumnMetadataTableRows.createTableIfNotExist(connection, tablePrefix, tableName);
+                createArchivesTableIfNotExist(connection, tableName);
+                createColumnMetadataTableIfNotExist(connection, tableName);
                 repeatedArchiveStorageDirectory.add(archiveStorageDirectory);
             }
             DatasetsTableRows datasetsTableRows = new DatasetsTableRows(tableNames, repeatedArchiveStorageDirectory.build());
@@ -136,71 +149,112 @@ public class ClpMockMetadataDatabase
         }
     }
 
-    private ClpMockMetadataDatabase() {}
+    private void createArchivesTableIfNotExist(Connection connection, String tableName)
+    {
+        final String createTableSql = format(
+                "CREATE TABLE IF NOT EXISTS `%s` (" +
+                        "`%s` BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                        "`%s` VARCHAR(64) NOT NULL, " +
+                        "`%s` BIGINT, " +
+                        "`%s` BIGINT)",
+                format("%s%s%s", tablePrefix, tableName, ARCHIVES_TABLE_SUFFIX),
+                COLUMN_PAGINATION_ID,
+                COLUMN_ID,
+                COLUMN_BEGIN_TIMESTAMP,
+                COLUMN_END_TIMESTAMP);
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute(createTableSql);
+        }
+        catch (SQLException e) {
+            fail(e.getMessage());
+        }
+    }
+
+    private void createColumnMetadataTableIfNotExist(Connection connection, String tableName)
+    {
+        String createTableSql = format(
+                "CREATE TABLE IF NOT EXISTS %s (" +
+                        "`%s` VARCHAR(512) NOT NULL, " +
+                        "`%s` TINYINT NOT NULL, " +
+                        "PRIMARY KEY (`%s`, `%s`))",
+                format("%s%s%s", tablePrefix, tableName, COLUMN_METADATA_TABLE_SUFFIX),
+                COLUMN_METADATA_TABLE_COLUMN_NAME,
+                COLUMN_METADATA_TABLE_COLUMN_TYPE,
+                COLUMN_METADATA_TABLE_COLUMN_NAME,
+                COLUMN_METADATA_TABLE_COLUMN_TYPE);
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute(createTableSql);
+        }
+        catch (SQLException e) {
+            fail(e.getMessage());
+        }
+    }
+
+    private void createDatasetsTableIfNotExist()
+    {
+        final String createTableSql = format(
+                "CREATE TABLE IF NOT EXISTS %s (%s VARCHAR(255) PRIMARY KEY, %s VARCHAR(4096) NOT NULL)",
+                format("%s%s", tablePrefix, DATASETS_TABLE_SUFFIX),
+                DATASETS_TABLE_COLUMN_NAME,
+                DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY);
+        try (Connection connection = DriverManager.getConnection(url, username, password); Statement stmt = connection.createStatement()) {
+            stmt.execute(createTableSql);
+        }
+        catch (SQLException e) {
+            fail(e.getMessage());
+        }
+    }
 
     public static final class Builder
     {
-        private final ClpMockMetadataDatabase mockMetadataDatabase;
-        private boolean isDatasetsTableCreated;
+        private String url;
+        private String archiveStorageDirectory;
+        private String username;
+        private String password;
+        private String tablePrefix;
+
+        private final ImmutableList.Builder<String> tableNamesBuilder;
+        private final ImmutableMap.Builder<String, ColumnMetadataTableRows> clpFieldsBuilder;
+        private final ImmutableMap.Builder<String, ArchivesTableRows> splitsBuilder;
 
         private Builder()
         {
-            mockMetadataDatabase = new ClpMockMetadataDatabase();
             setDatabaseUrl(format("/tmp/%s", UUID.randomUUID()));
             setUsername(MOCK_METADATA_DB_DEFAULT_USERNAME);
             setPassword(MOCK_METADATA_DB_DEFAULT_PASSWORD);
             setTablePrefix(MOCK_METADATA_DB_DEFAULT_TABLE_PREFIX);
+            tableNamesBuilder = ImmutableList.builder();
+            clpFieldsBuilder = ImmutableMap.builder();
+            splitsBuilder = ImmutableMap.builder();
         }
 
         public Builder setDatabaseUrl(String databaseFilePath)
         {
-            mockMetadataDatabase.url = format(MOCK_METADATA_DB_URL_TEMPLATE, databaseFilePath);
+            this.url = format(MOCK_METADATA_DB_URL_TEMPLATE, databaseFilePath);
             return this;
         }
 
         public Builder setArchiveStorageDirectory(String archiveStorageDirectory)
         {
-            mockMetadataDatabase.archiveStorageDirectory = archiveStorageDirectory;
+            this.archiveStorageDirectory = archiveStorageDirectory;
             return this;
         }
 
         public Builder setUsername(String username)
         {
-            mockMetadataDatabase.username = username;
+            this.username = username;
             return this;
         }
 
         public Builder setPassword(String password)
         {
-            mockMetadataDatabase.password = password;
+            this.password = password;
             return this;
         }
 
         public Builder setTablePrefix(String tablePrefix)
         {
-            mockMetadataDatabase.tablePrefix = tablePrefix;
-            return this;
-        }
-
-        /**
-         * Creates the datasets table if it does not already exist. Must be called before invoking
-         * {@code addTables}, {@code addColumnMetadata}, or {@code addSplits}. Assumes
-         * {@code setDatabaseUrl}, {@code setUsername}, {@code setPassword}, and
-         * {@code setTablePrefix} have been set (defaults provided).
-         *
-         * @return this builder
-         */
-        public Builder createDatasetsTableIfNotExist()
-        {
-            validateDatasetsTableCreationRequirements();
-            if (!isDatasetsTableCreated) {
-                DatasetsTableRows.createTableIfNotExist(
-                        mockMetadataDatabase.url,
-                        mockMetadataDatabase.username,
-                        mockMetadataDatabase.password,
-                        mockMetadataDatabase.tablePrefix);
-                isDatasetsTableCreated = true;
-            }
+            this.tablePrefix = tablePrefix;
             return this;
         }
 
@@ -213,8 +267,7 @@ public class ClpMockMetadataDatabase
          */
         public Builder addTables(List<String> tableNames)
         {
-            validateMockMetadataDatabase();
-            mockMetadataDatabase.addTableToDatasetsTableIfNotExist(tableNames);
+            tableNamesBuilder.addAll(tableNames);
             return this;
         }
 
@@ -227,8 +280,7 @@ public class ClpMockMetadataDatabase
          */
         public Builder addColumnMetadata(Map<String, ColumnMetadataTableRows> clpFields)
         {
-            validateMockMetadataDatabase();
-            mockMetadataDatabase.addColumnMetadata(clpFields);
+            clpFieldsBuilder.putAll(clpFields);
             return this;
         }
 
@@ -240,8 +292,7 @@ public class ClpMockMetadataDatabase
          */
         public Builder addSplits(Map<String, ArchivesTableRows> splits)
         {
-            validateMockMetadataDatabase();
-            mockMetadataDatabase.addSplits(splits);
+            splitsBuilder.putAll(splits);
             return this;
         }
 
@@ -252,7 +303,18 @@ public class ClpMockMetadataDatabase
          */
         public ClpMockMetadataDatabase build()
         {
-            validateMockMetadataDatabase();
+            validate();
+            ClpMockMetadataDatabase mockMetadataDatabase = new ClpMockMetadataDatabase();
+            mockMetadataDatabase.url = this.url;
+            mockMetadataDatabase.archiveStorageDirectory = this.archiveStorageDirectory;
+            mockMetadataDatabase.username = this.username;
+            mockMetadataDatabase.password = this.password;
+            mockMetadataDatabase.tablePrefix = this.tablePrefix;
+
+            mockMetadataDatabase.createDatasetsTableIfNotExist();
+            mockMetadataDatabase.addTableToDatasetsTableIfNotExist(tableNamesBuilder.build());
+            mockMetadataDatabase.addColumnMetadata(clpFieldsBuilder.build());
+            mockMetadataDatabase.addSplits(splitsBuilder.build());
             return mockMetadataDatabase;
         }
 
@@ -260,19 +322,13 @@ public class ClpMockMetadataDatabase
          * Validates that all required parameters have been set and the datasets table has been
          * created.
          */
-        private void validateMockMetadataDatabase()
+        private void validate()
         {
-            assertTrue(isDatasetsTableCreated, "createDatasetsTableIfNotExist might not be called");
-            requireNonNull(mockMetadataDatabase.archiveStorageDirectory, "archiveStorageDirectory is null");
-            validateDatasetsTableCreationRequirements();
-        }
-
-        private void validateDatasetsTableCreationRequirements()
-        {
-            requireNonNull(mockMetadataDatabase.url, "url is null");
-            requireNonNull(mockMetadataDatabase.username, "username is null");
-            requireNonNull(mockMetadataDatabase.password, "password is null");
-            requireNonNull(mockMetadataDatabase.tablePrefix, "tablePrefix is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(archiveStorageDirectory, "archiveStorageDirectory is null");
+            requireNonNull(username, "username is null");
+            requireNonNull(password, "password is null");
+            requireNonNull(tablePrefix, "tablePrefix is null");
         }
     }
 }

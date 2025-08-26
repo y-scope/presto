@@ -554,9 +554,7 @@ public class PrestoNativeQueryRunnerUtils
                         String configProperties = format("discovery.uri=%s%n" +
                                 "presto.version=testversion%n" +
                                 "system-memory-gb=4%n" +
-                                "http-server.http.port=0%n" +
-                                "register-test-functions=false%n" +
-                                "runtime-metrics-collection-enabled=true%n", discoveryUri);
+                                "http-server.http.port=0%n", discoveryUri);
 
                         Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
                         Files.write(tempDirectoryPath.resolve("node.properties"),

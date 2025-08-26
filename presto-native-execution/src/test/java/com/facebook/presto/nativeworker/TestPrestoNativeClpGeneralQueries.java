@@ -18,29 +18,18 @@ import com.facebook.presto.Session;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.plugin.clp.ClpPlugin;
-import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
-import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
-import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
+import com.facebook.presto.plugin.clp.ClpQueryRunner;
 import com.facebook.presto.spi.WarningCollector;
-import com.facebook.presto.spi.security.Identity;
-import com.facebook.presto.spi.security.SelectedRole;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
-import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
 
-import java.net.URI;
 import java.net.URL;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.BiFunction;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
@@ -49,15 +38,10 @@ import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.NativeQueryRunnerParameters;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalClpWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.NullValue;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
-import static com.facebook.presto.spi.security.SelectedRole.Type.ROLE;
-import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.CLP_CATALOG;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_NUM_OF_WORKERS;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_TABLE_NAME;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.createDefaultQueryRunnerWithMockDatabase;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static org.testng.Assert.assertEquals;
@@ -68,12 +52,7 @@ public class TestPrestoNativeClpGeneralQueries
         extends AbstractTestQueryFramework
 {
     private static final Logger log = Logger.get(TestPrestoNativeClpGeneralQueries.class);
-    private static final String TABLE_NAME = "test_e2e";
-    private static final String CLP_CATALOG = "clp";
-    private static final String CLP_CONNECTOR = CLP_CATALOG;
-    private static final String DEFAULT_SCHEMA = "default";
-    private static final int DEFAULT_NUM_OF_WORKERS = 1;
-    private ClpMockMetadataDatabase mockMetadataDatabase;
+    private ClpQueryRunner clpQueryRunner;
 
     @Override
     protected QueryRunner createQueryRunner()
@@ -83,49 +62,14 @@ public class TestPrestoNativeClpGeneralQueries
                 getClass().getClassLoader().getResource("clp-archives"),
                 "Test resource 'clp-archives' not found on classpath");
         String archiveStorageDirectory = format("%s/", Paths.get(resource.toURI()).toString());
-        mockMetadataDatabase = ClpMockMetadataDatabase
-                .builder()
-                .setArchiveStorageDirectory(archiveStorageDirectory)
-                .createDatasetsTableIfNotExist()
-                .addTables(ImmutableList.of(TABLE_NAME))
-                .addColumnMetadata(ImmutableMap.of(TABLE_NAME, new ColumnMetadataTableRows(
-                        ImmutableList.of(
-                                "id",
-                                "msg",
-                                "msg",
-                                "attr.command.q._id.uid.dollar_sign_binary.sub_type",
-                                "attr.existing",
-                                "tags",
-                                "attr.obj.md.indexes",
-                                "attr.build_u_u_i_d",
-                                "t.dollar_sign_date"),
-                        ImmutableList.of(
-                                Integer,
-                                ClpString,
-                                VarString,
-                                VarString,
-                                Boolean,
-                                UnstructuredArray,
-                                UnstructuredArray,
-                                NullValue,
-                                DateString))))
-                .addSplits(ImmutableMap.of(TABLE_NAME, new ArchivesTableRows(
-                        ImmutableList.of("mongodb-processed-single-file-archive"),
-                        ImmutableList.of(1679441694576L),
-                        ImmutableList.of(1679442346492L))))
-                .build();
-
         NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        // Make query runner with external workers for tests
-        return createQueryRunner(
-                mockMetadataDatabase.getUrl(),
-                mockMetadataDatabase.getUsername(),
-                mockMetadataDatabase.getPassword(),
-                mockMetadataDatabase.getTablePrefix(),
+        clpQueryRunner = createDefaultQueryRunnerWithMockDatabase(
+                archiveStorageDirectory,
                 nativeQueryRunnerParameters.workerCount,
                 getExternalClpWorkerLauncher(
                         CLP_CATALOG,
                         nativeQueryRunnerParameters.serverBinary.toString()));
+        return clpQueryRunner.getActualQueryRunner();
     }
 
     @Test
@@ -133,13 +77,13 @@ public class TestPrestoNativeClpGeneralQueries
     {
         QueryRunner queryRunner = getQueryRunner();
         assertEquals(queryRunner.getNodeCount(), getNativeQueryRunnerParameters().workerCount.orElse(DEFAULT_NUM_OF_WORKERS) + 1);
-        assertTrue(queryRunner.tableExists(getSession(), TABLE_NAME));
+        assertTrue(queryRunner.tableExists(getSession(), DEFAULT_TABLE_NAME));
 
         // Test select star
         assertClpQuery(
                 queryRunner,
                 getSession(),
-                format("SELECT * FROM %s LIMIT 1", TABLE_NAME),
+                format("SELECT * FROM %s LIMIT 1", DEFAULT_TABLE_NAME),
                 ImmutableList.of(
                         VARCHAR,
                         RowType.from(ImmutableList.of(RowType.field("dollar_sign_date", TIMESTAMP))),
@@ -163,79 +107,9 @@ public class TestPrestoNativeClpGeneralQueries
     @AfterTest
     public void teardown()
     {
-        if (mockMetadataDatabase != null) {
-            mockMetadataDatabase.teardown();
+        if (null != clpQueryRunner.getMockMetadataDatabase()) {
+            clpQueryRunner.getMockMetadataDatabase().teardown();
         }
-    }
-
-    /**
-     * Creates the CLP's {@link QueryRunner}, including launching a coordinator and
-     * {@code workerCount} workers. The coordinator's configuration is set up here, while the
-     * worker's configuration is set up at
-     * {@link PrestoNativeQueryRunnerUtils#getExternalClpWorkerLauncher}.
-     *
-     * @param metadataDatabaseUrl the value of {@code clp.metadata-db-url} config option
-     * @param metadataDatabaseUser the value of {@code clp.metadata-db-user} config option
-     * @param metadataDatabasePassword the value of {@code clp.metadata-db-password} config option
-     * @param metadataTablePrefix the value of {@code clp.metadata-table-prefix} config option
-     * @param workerCount the number of workers used during end-to-end testing
-     * @param externalWorkerLauncher the configured worker created by
-     * {@link PrestoNativeQueryRunnerUtils#getExternalClpWorkerLauncher}
-     * @return the create query runner
-     * @throws Exception
-     */
-    private static DistributedQueryRunner createQueryRunner(
-            String metadataDatabaseUrl,
-            String metadataDatabaseUser,
-            String metadataDatabasePassword,
-            String metadataTablePrefix,
-            Optional<Integer> workerCount,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher) throws Exception
-    {
-        requireNonNull(metadataDatabaseUrl, "metadataDatabaseUrl is null");
-        requireNonNull(metadataDatabaseUser, "metadataDatabaseUser is null");
-        requireNonNull(metadataDatabasePassword, "metadataDatabasePassword is null");
-        requireNonNull(metadataTablePrefix, "metadataTablePrefix is null");
-        DistributedQueryRunner queryRunner =
-                DistributedQueryRunner.builder(createDefaultSession())
-                        .setNodeCount(workerCount.orElse(DEFAULT_NUM_OF_WORKERS))
-                        .setExternalWorkerLauncher(externalWorkerLauncher)
-                        .build();
-
-        Map<String, String> clpProperties = ImmutableMap.<String, String>builder()
-                .put("clp.metadata-provider-type", "mysql")
-                .put("clp.metadata-db-url", metadataDatabaseUrl)
-                .put("clp.metadata-db-user", metadataDatabaseUser)
-                .put("clp.metadata-db-password", metadataDatabasePassword)
-                .put("clp.metadata-table-prefix", metadataTablePrefix)
-                .put("clp.split-provider-type", "mysql")
-                .build();
-        queryRunner.installPlugin(new ClpPlugin());
-        queryRunner.createCatalog(CLP_CATALOG, CLP_CONNECTOR, clpProperties);
-        return queryRunner;
-    }
-
-    /**
-     * Creates a default mock session for query use.
-     *
-     * @return a default session
-     */
-    private static Session createDefaultSession()
-    {
-        Optional<SelectedRole> role = Optional.of(new SelectedRole(ROLE, Optional.of("admin")));
-        return testSessionBuilder()
-                .setIdentity(new Identity(
-                        "clp",
-                        Optional.empty(),
-                        role.map(selectedRole -> ImmutableMap.of(CLP_CATALOG, selectedRole))
-                                .orElse(ImmutableMap.of()),
-                        ImmutableMap.of(),
-                        ImmutableMap.of(),
-                        Optional.empty(),
-                        Optional.empty()))
-                .setCatalog(CLP_CATALOG)
-                .setSchema(DEFAULT_SCHEMA)
-                .build();
     }
 
     /**

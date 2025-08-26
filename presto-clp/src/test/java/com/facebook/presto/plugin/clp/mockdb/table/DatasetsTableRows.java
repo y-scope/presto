@@ -14,10 +14,8 @@
 package com.facebook.presto.plugin.clp.mockdb.table;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY;
@@ -32,21 +30,6 @@ public class DatasetsTableRows
     private final List<String> names;
     private final List<String> archivesStorageDirectories;
     private final int numOfRows;
-
-    public static void createTableIfNotExist(String url, String username, String password, String tablePrefix)
-    {
-        final String createTableSql = format(
-                "CREATE TABLE IF NOT EXISTS %s (%s VARCHAR(255) PRIMARY KEY, %s VARCHAR(4096) NOT NULL)",
-                format("%s%s", tablePrefix, DATASETS_TABLE_SUFFIX),
-                DATASETS_TABLE_COLUMN_NAME,
-                DATASETS_TABLE_COLUMN_ARCHIVE_STORAGE_DIRECTORY);
-        try (Connection connection = DriverManager.getConnection(url, username, password); Statement stmt = connection.createStatement()) {
-            stmt.execute(createTableSql);
-        }
-        catch (SQLException e) {
-            fail(e.getMessage());
-        }
-    }
 
     public void insertToTable(Connection connection, String tablePrefix)
     {

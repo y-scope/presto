@@ -16,7 +16,6 @@ package com.facebook.presto.plugin.clp.mockdb.table;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider.ARCHIVES_TABLE_SUFFIX;
@@ -26,36 +25,15 @@ import static org.testng.Assert.fail;
 
 public class ArchivesTableRows
 {
-    private static final String COLUMN_PAGINATION_ID = "pagination_id";
-    private static final String COLUMN_ID = "id";
-    private static final String COLUMN_BEGIN_TIMESTAMP = "begin_timestamp";
-    private static final String COLUMN_END_TIMESTAMP = "end_timestamp";
+    public static final String COLUMN_PAGINATION_ID = "pagination_id";
+    public static final String COLUMN_ID = "id";
+    public static final String COLUMN_BEGIN_TIMESTAMP = "begin_timestamp";
+    public static final String COLUMN_END_TIMESTAMP = "end_timestamp";
 
     private final List<String> ids;
     private final List<Long> beginTimestamps;
     private final List<Long> endTimestamps;
     private final int numberOfRows;
-
-    public static void createTableIfNotExist(Connection connection, String tablePrefix, String tableName)
-    {
-        final String createTableSql = format(
-                "CREATE TABLE IF NOT EXISTS `%s` (" +
-                        "`%s` BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                        "`%s` VARCHAR(64) NOT NULL, " +
-                        "`%s` BIGINT, " +
-                        "`%s` BIGINT)",
-                format("%s%s%s", tablePrefix, tableName, ARCHIVES_TABLE_SUFFIX),
-                COLUMN_PAGINATION_ID,
-                COLUMN_ID,
-                COLUMN_BEGIN_TIMESTAMP,
-                COLUMN_END_TIMESTAMP);
-        try (Statement stmt = connection.createStatement()) {
-            stmt.execute(createTableSql);
-        }
-        catch (SQLException e) {
-            fail(e.getMessage());
-        }
-    }
 
     public void insertToTable(Connection connection, String tablePrefix, String tableName)
     {

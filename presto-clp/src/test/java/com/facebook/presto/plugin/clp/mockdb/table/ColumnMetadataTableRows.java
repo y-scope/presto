@@ -18,7 +18,6 @@ import com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider.COLUMN_METADATA_TABLE_COLUMN_NAME;
@@ -33,26 +32,6 @@ public class ColumnMetadataTableRows
     private final List<String> names;
     private final List<ClpSchemaTreeNodeType> types;
     private final int numOfRows;
-
-    public static void createTableIfNotExist(Connection connection, String tablePrefix, String tableName)
-    {
-        String createTableSql = format(
-                "CREATE TABLE IF NOT EXISTS %s (" +
-                        "`%s` VARCHAR(512) NOT NULL, " +
-                        "`%s` TINYINT NOT NULL, " +
-                        "PRIMARY KEY (`%s`, `%s`))",
-                format("%s%s%s", tablePrefix, tableName, COLUMN_METADATA_TABLE_SUFFIX),
-                COLUMN_METADATA_TABLE_COLUMN_NAME,
-                COLUMN_METADATA_TABLE_COLUMN_TYPE,
-                COLUMN_METADATA_TABLE_COLUMN_NAME,
-                COLUMN_METADATA_TABLE_COLUMN_TYPE);
-        try (Statement stmt = connection.createStatement()) {
-            stmt.execute(createTableSql);
-        }
-        catch (SQLException e) {
-            fail(e.getMessage());
-        }
-    }
 
     public void insertToTable(Connection connection, String tablePrefix, String tableName)
     {
