@@ -18,12 +18,15 @@ import com.facebook.presto.Session;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.plugin.clp.ClpQueryRunner;
+import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
+import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
+import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
 
@@ -35,13 +38,15 @@ import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
-import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.NativeQueryRunnerParameters;
-import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getExternalClpWorkerLauncher;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
-import static com.facebook.presto.plugin.clp.ClpQueryRunner.CLP_CATALOG;
 import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_NUM_OF_WORKERS;
-import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_TABLE_NAME;
-import static com.facebook.presto.plugin.clp.ClpQueryRunner.createDefaultQueryRunnerWithMockDatabase;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.NullValue;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.VarString;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static org.testng.Assert.assertEquals;
@@ -52,7 +57,8 @@ public class TestPrestoNativeClpGeneralQueries
         extends AbstractTestQueryFramework
 {
     private static final Logger log = Logger.get(TestPrestoNativeClpGeneralQueries.class);
-    private ClpQueryRunner clpQueryRunner;
+    private static final String DEFAULT_TABLE_NAME = "test_e2e";
+    private ClpMockMetadataDatabase mockMetadataDatabase;
 
     @Override
     protected QueryRunner createQueryRunner()
@@ -61,15 +67,44 @@ public class TestPrestoNativeClpGeneralQueries
         URL resource = requireNonNull(
                 getClass().getClassLoader().getResource("clp-archives"),
                 "Test resource 'clp-archives' not found on classpath");
-        String archiveStorageDirectory = format("%s/", Paths.get(resource.toURI()).toString());
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        clpQueryRunner = createDefaultQueryRunnerWithMockDatabase(
-                archiveStorageDirectory,
-                nativeQueryRunnerParameters.workerCount,
-                getExternalClpWorkerLauncher(
-                        CLP_CATALOG,
-                        nativeQueryRunnerParameters.serverBinary.toString()));
-        return clpQueryRunner.getActualQueryRunner();
+        String archiveStorageDirectory = format("%s/", Paths.get(resource.toURI()));
+        mockMetadataDatabase = ClpMockMetadataDatabase.builder().setArchiveStorageDirectory(archiveStorageDirectory).build();
+        return PrestoNativeQueryRunnerUtils.createNativeClpQueryRunner(
+                mockMetadataDatabase.getUrl(),
+                mockMetadataDatabase.getUsername(),
+                mockMetadataDatabase.getPassword(),
+                mockMetadataDatabase.getTablePrefix());
+    }
+
+    @Override
+    protected void createTables()
+    {
+        mockMetadataDatabase.addTableToDatasetsTableIfNotExist(ImmutableList.of(DEFAULT_TABLE_NAME));
+        mockMetadataDatabase.addColumnMetadata(ImmutableMap.of(DEFAULT_TABLE_NAME, new ColumnMetadataTableRows(
+                ImmutableList.of(
+                        "id",
+                        "msg",
+                        "msg",
+                        "attr.command.q._id.uid.dollar_sign_binary.sub_type",
+                        "attr.existing",
+                        "tags",
+                        "attr.obj.md.indexes",
+                        "attr.build_u_u_i_d",
+                        "t.dollar_sign_date"),
+                ImmutableList.of(
+                        Integer,
+                        ClpString,
+                        VarString,
+                        VarString,
+                        Boolean,
+                        UnstructuredArray,
+                        UnstructuredArray,
+                        NullValue,
+                        DateString))));
+        mockMetadataDatabase.addSplits(ImmutableMap.of(DEFAULT_TABLE_NAME, new ArchivesTableRows(
+                ImmutableList.of("mongodb-processed-single-file-archive"),
+                ImmutableList.of(1679441694576L),
+                ImmutableList.of(1679442346492L))));
     }
 
     @Test
@@ -107,8 +142,8 @@ public class TestPrestoNativeClpGeneralQueries
     @AfterTest
     public void teardown()
     {
-        if (null != clpQueryRunner.getMockMetadataDatabase()) {
-            clpQueryRunner.getMockMetadataDatabase().teardown();
+        if (null != mockMetadataDatabase) {
+            mockMetadataDatabase.teardown();
         }
     }
 

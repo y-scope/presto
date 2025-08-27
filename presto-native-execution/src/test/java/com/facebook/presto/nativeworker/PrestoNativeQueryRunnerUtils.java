@@ -26,6 +26,7 @@ import com.facebook.presto.hive.metastore.StorageFormat;
 import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.iceberg.FileFormat;
 import com.facebook.presto.iceberg.IcebergQueryRunner;
+import com.facebook.presto.plugin.clp.ClpQueryRunner;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.DistributedQueryRunner;
@@ -64,6 +65,7 @@ import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeW
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerSystemProperties;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerTpcdsProperties;
 import static com.facebook.presto.nativeworker.SymlinkManifestGeneratorUtils.createSymlinkManifest;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.CLP_CATALOG;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static java.util.Objects.requireNonNull;
@@ -215,6 +217,25 @@ public class PrestoNativeQueryRunnerUtils
         if (!metastore.getTable(METASTORE_CONTEXT, targetSchemaName, tableName).isPresent()) {
             metastore.createTable(METASTORE_CONTEXT, createHiveSymlinkTable(targetSchemaName, tableName, columns, symlinkTableDataPath.toString()), PRINCIPAL_PRIVILEGES, emptyList());
         }
+    }
+
+    public static QueryRunner createNativeClpQueryRunner(
+            String metadataDbUrl,
+            String metadataDbUser,
+            String metadataDbPassword,
+            String metadataDbTablePrefix)
+            throws Exception
+    {
+        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
+        return ClpQueryRunner.createQueryRunner(
+                metadataDbUrl,
+                metadataDbUser,
+                metadataDbPassword,
+                metadataDbTablePrefix,
+                nativeQueryRunnerParameters.workerCount,
+                getExternalClpWorkerLauncher(
+                        CLP_CATALOG,
+                        nativeQueryRunnerParameters.serverBinary.toString()));
     }
 
     public static QueryRunner createJavaIcebergQueryRunner(boolean addStorageFormatToPath)

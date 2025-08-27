@@ -17,7 +17,6 @@ import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.DatasetsTableRows;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -106,9 +105,7 @@ public class ClpMockMetadataDatabase
         return tablePrefix;
     }
 
-    private ClpMockMetadataDatabase() {}
-
-    private void addTableToDatasetsTableIfNotExist(List<String> tableNames)
+    public void addTableToDatasetsTableIfNotExist(List<String> tableNames)
     {
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
             ImmutableList.Builder<String> repeatedArchiveStorageDirectory = ImmutableList.builder();
@@ -125,7 +122,7 @@ public class ClpMockMetadataDatabase
         }
     }
 
-    private void addColumnMetadata(Map<String, ColumnMetadataTableRows> clpFields)
+    public void addColumnMetadata(Map<String, ColumnMetadataTableRows> clpFields)
     {
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
             for (Map.Entry<String, ColumnMetadataTableRows> entry : clpFields.entrySet()) {
@@ -137,7 +134,7 @@ public class ClpMockMetadataDatabase
         }
     }
 
-    private void addSplits(Map<String, ArchivesTableRows> splits)
+    public void addSplits(Map<String, ArchivesTableRows> splits)
     {
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
             for (Map.Entry<String, ArchivesTableRows> entry : splits.entrySet()) {
@@ -147,6 +144,10 @@ public class ClpMockMetadataDatabase
         catch (SQLException e) {
             fail(e.getMessage());
         }
+    }
+
+    private ClpMockMetadataDatabase()
+    {
     }
 
     private void createArchivesTableIfNotExist(Connection connection, String tableName)
@@ -213,19 +214,12 @@ public class ClpMockMetadataDatabase
         private String password;
         private String tablePrefix;
 
-        private final ImmutableList.Builder<String> tableNamesBuilder;
-        private final ImmutableMap.Builder<String, ColumnMetadataTableRows> clpFieldsBuilder;
-        private final ImmutableMap.Builder<String, ArchivesTableRows> splitsBuilder;
-
         private Builder()
         {
             setDatabaseUrl(format("/tmp/%s", UUID.randomUUID()));
             setUsername(MOCK_METADATA_DB_DEFAULT_USERNAME);
             setPassword(MOCK_METADATA_DB_DEFAULT_PASSWORD);
             setTablePrefix(MOCK_METADATA_DB_DEFAULT_TABLE_PREFIX);
-            tableNamesBuilder = ImmutableList.builder();
-            clpFieldsBuilder = ImmutableMap.builder();
-            splitsBuilder = ImmutableMap.builder();
         }
 
         public Builder setDatabaseUrl(String databaseFilePath)
@@ -259,44 +253,6 @@ public class ClpMockMetadataDatabase
         }
 
         /**
-         * Ensures all table names have been registered in the datasets table and for each table name
-         * an archives table and a column metadata table have been created.
-         *
-         * @param tableNames list of table names to add
-         * @return this builder
-         */
-        public Builder addTables(List<String> tableNames)
-        {
-            tableNamesBuilder.addAll(tableNames);
-            return this;
-        }
-
-        /**
-         * Inserts column metadata for the given fields into the column metadata table corresponding to
-         * the given table name.
-         *
-         * @param clpFields mapping of table name to {@link ColumnMetadataTableRows}
-         * @return this builder
-         */
-        public Builder addColumnMetadata(Map<String, ColumnMetadataTableRows> clpFields)
-        {
-            clpFieldsBuilder.putAll(clpFields);
-            return this;
-        }
-
-        /**
-         * Inserts split metadata into the archives table corresponding to the given table name.
-         *
-         * @param splits mapping of table name to {@link ArchivesTableRows}
-         * @return this builder
-         */
-        public Builder addSplits(Map<String, ArchivesTableRows> splits)
-        {
-            splitsBuilder.putAll(splits);
-            return this;
-        }
-
-        /**
          * Builds and returns the configured {@link ClpMockMetadataDatabase} instance.
          *
          * @return the constructed {@link ClpMockMetadataDatabase}
@@ -312,9 +268,6 @@ public class ClpMockMetadataDatabase
             mockMetadataDatabase.tablePrefix = this.tablePrefix;
 
             mockMetadataDatabase.createDatasetsTableIfNotExist();
-            mockMetadataDatabase.addTableToDatasetsTableIfNotExist(tableNamesBuilder.build());
-            mockMetadataDatabase.addColumnMetadata(clpFieldsBuilder.build());
-            mockMetadataDatabase.addSplits(splitsBuilder.build());
             return mockMetadataDatabase;
         }
 
