@@ -14,15 +14,9 @@
 package com.facebook.presto.nativeworker;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.Session;
-import com.facebook.presto.common.type.ArrayType;
-import com.facebook.presto.common.type.RowType;
-import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
 import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
-import com.facebook.presto.spi.WarningCollector;
-import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.google.common.collect.ImmutableList;
@@ -32,12 +26,7 @@ import org.testng.annotations.Test;
 
 import java.net.URL;
 import java.nio.file.Paths;
-import java.util.List;
 
-import static com.facebook.presto.common.type.BigintType.BIGINT;
-import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
-import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getNativeQueryRunnerParameters;
 import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_NUM_OF_WORKERS;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
@@ -51,7 +40,6 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.fail;
 
 public class TestPrestoNativeClpGeneralQueries
         extends AbstractTestQueryFramework
@@ -114,29 +102,21 @@ public class TestPrestoNativeClpGeneralQueries
         assertEquals(queryRunner.getNodeCount(), getNativeQueryRunnerParameters().workerCount.orElse(DEFAULT_NUM_OF_WORKERS) + 1);
         assertTrue(queryRunner.tableExists(getSession(), DEFAULT_TABLE_NAME));
 
-        // Test select star
-        assertClpQuery(
-                queryRunner,
-                getSession(),
-                format("SELECT * FROM %s LIMIT 1", DEFAULT_TABLE_NAME),
-                ImmutableList.of(
-                        VARCHAR,
-                        RowType.from(ImmutableList.of(RowType.field("dollar_sign_date", TIMESTAMP))),
-                        BIGINT,
-                        RowType.from(ImmutableList.of(
-                                RowType.field("build_u_u_i_d", VARCHAR),
-                                RowType.field("command", RowType.from(ImmutableList.of(
-                                        RowType.field("q", RowType.from(ImmutableList.of(
-                                                RowType.field("_id", RowType.from(ImmutableList.of(
-                                                        RowType.field("uid", RowType.from(ImmutableList.of(
-                                                                RowType.field("dollar_sign_binary", RowType.from(ImmutableList.of(
-                                                                        RowType.field("sub_type", VARCHAR)))))))))))))))),
-                                RowType.field("existing", BOOLEAN),
-                                RowType.field("obj", RowType.from(ImmutableList.of(
-                                        RowType.field("md", RowType.from(ImmutableList.of(
-                                                RowType.field("indexes", new ArrayType(VARCHAR)))))))))),
-                        new ArrayType(VARCHAR)),
-                1);
+        // H2QueryRunner currently can't change the timestamp format, and the default timestamp
+        // format of Presto is different, so for now we have to manually format the timestamp
+        // field.
+        assertQuery(format("SELECT msg, format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS'), id, attr, tags FROM %s ORDER BY t.dollar_sign_date LIMIT 1", DEFAULT_TABLE_NAME),
+                "SELECT\n" +
+                        "  'Initialized wire specification',\n" +
+                        "  TIMESTAMP '2023-03-22 12:34:54.576',\n" +
+                        "  4915701,\n" +
+                        "  ARRAY[\n" +
+                        "    NULL,\n" +
+                        "    ARRAY[ARRAY[ARRAY[ARRAY[ARRAY[NULL]]]]],\n" +
+                        "    NULL,\n" +
+                        "    ARRAY[ARRAY[NULL]]\n" +
+                        "  ],\n" +
+                        "  NULL");
     }
 
     @AfterTest
@@ -144,41 +124,6 @@ public class TestPrestoNativeClpGeneralQueries
     {
         if (null != mockMetadataDatabase) {
             mockMetadataDatabase.teardown();
-        }
-    }
-
-    /**
-     * Executes the given query with the given query runner and session, then checks the type and
-     * the number of returning rows.
-     *
-     * @param queryRunner
-     * @param session
-     * @param query
-     * @param expectedTypes
-     * @param expectedNumOfRows
-     */
-    private static void assertClpQuery(
-            QueryRunner queryRunner,
-            Session session,
-            String query,
-            List<Type> expectedTypes,
-            int expectedNumOfRows)
-    {
-        try {
-            long start = System.nanoTime();
-            QueryRunner.MaterializedResultWithPlan resultWithPlan = queryRunner.executeWithPlan(session, query, WarningCollector.NOOP);
-            MaterializedResult actualResults = resultWithPlan.getMaterializedResult().toTestTypes();
-            assertEquals(actualResults.getRowCount(), expectedNumOfRows);
-            List<Type> actualTypes = actualResults.getTypes();
-            assertEquals(actualTypes.size(), expectedTypes.size());
-            for (int i = 0; i < actualTypes.size(); ++i) {
-                assertEquals(actualTypes.get(i), expectedTypes.get(i));
-            }
-            long end = System.nanoTime();
-            log.info("Query [%s] end-to-end latency: %s s", query, (end - start) / 1e9);
-        }
-        catch (RuntimeException ex) {
-            fail("Execution of 'actual' query failed: ", ex);
         }
     }
 }
