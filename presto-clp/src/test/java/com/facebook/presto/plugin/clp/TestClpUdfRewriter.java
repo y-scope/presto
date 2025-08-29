@@ -22,6 +22,8 @@ import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
 import com.facebook.presto.plugin.clp.optimization.ClpUdfRewriter;
+import com.facebook.presto.plugin.clp.split.filter.ClpMySqlSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
@@ -92,7 +94,7 @@ public class TestClpUdfRewriter
     private LocalQueryRunner localQueryRunner;
     private FunctionAndTypeManager functionAndTypeManager;
     private FunctionResolution functionResolution;
-    private ClpMetadataFilterProvider metadataFilterProvider;
+    private ClpSplitFilterProvider splitFilterProvider;
     private PlanNodeIdAllocator planNodeIdAllocator;
     private VariableAllocator variableAllocator;
 
@@ -123,7 +125,7 @@ public class TestClpUdfRewriter
         localQueryRunner.getMetadata().registerBuiltInFunctions(extractFunctions(new ClpPlugin().getFunctions()));
         functionAndTypeManager = localQueryRunner.getMetadata().getFunctionAndTypeManager();
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
-        metadataFilterProvider = new ClpMetadataFilterProvider(new ClpConfig());
+        splitFilterProvider = new ClpMySqlSplitFilterProvider(new ClpConfig());
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
     }
@@ -147,7 +149,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -175,7 +177,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -212,7 +214,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
