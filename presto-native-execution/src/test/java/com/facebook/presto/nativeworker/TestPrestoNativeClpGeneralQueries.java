@@ -105,17 +105,26 @@ public class TestPrestoNativeClpGeneralQueries
         // H2QueryRunner currently can't change the timestamp format, and the default timestamp
         // format of Presto is different, so for now we have to manually format the timestamp
         // field.
-        assertQuery(format("SELECT msg, format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS'), id, attr, tags FROM %s ORDER BY t.dollar_sign_date LIMIT 1", DEFAULT_TABLE_NAME),
-                "SELECT\n" +
-                        "  'Initialized wire specification',\n" +
-                        "  TIMESTAMP '2023-03-22 12:34:54.576',\n" +
-                        "  4915701,\n" +
-                        "  ARRAY[\n" +
-                        "    NULL,\n" +
-                        "    ARRAY[ARRAY[ARRAY[ARRAY[ARRAY[NULL]]]]],\n" +
-                        "    NULL,\n" +
-                        "    ARRAY[ARRAY[NULL]]\n" +
-                        "  ],\n" +
+        assertQuery(
+                format("SELECT" +
+                        " msg," +
+                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " id," +
+                        " attr," +
+                        " tags" +
+                        " FROM %s" +
+                        " ORDER BY t.dollar_sign_date" +
+                        " LIMIT 1", DEFAULT_TABLE_NAME),
+                "SELECT" +
+                        "  'Initialized wire specification'," +
+                        "  TIMESTAMP '2023-03-22 12:34:54.576'," +
+                        "  4915701," +
+                        "  ARRAY[" +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[ARRAY[ARRAY[ARRAY[NULL]]]]]," +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[NULL]]" +
+                        "  ]," +
                         "  NULL");
     }
 
