@@ -147,7 +147,7 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT * FROM test WHERE CLP_GET_INT('user_id') = 0 AND CLP_GET_FLOAT('fare') < 50.0 AND CLP_GET_STRING('city') = 'SF' AND " +
+                "SELECT * FROM test WHERE CLP_GET_BIGINT('user_id') = 0 AND CLP_GET_DOUBLE('fare') < 50.0 AND CLP_GET_STRING('city') = 'SF' AND " +
                         "CLP_GET_BOOL('isHoliday') = true AND cardinality(CLP_GET_STRING_ARRAY('tags')) > 0 AND LOWER(city.Name) = 'beijing'",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
@@ -186,7 +186,7 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT CLP_GET_INT('user_id'), CLP_GET_FLOAT('fare'), CLP_GET_STRING('user'), " +
+                "SELECT CLP_GET_BIGINT('user_id'), CLP_GET_DOUBLE('fare'), CLP_GET_STRING('user'), " +
                         "CLP_GET_BOOL('isHoliday'), CLP_GET_STRING_ARRAY('tags'), city.Name FROM test",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
@@ -202,9 +202,9 @@ public class TestClpUdfRewriter
                 anyTree(
                         project(
                                 ImmutableMap.of(
-                                        "clp_get_int",
+                                        "clp_get_bigint",
                                         PlanMatchPattern.expression("user_und_id"),
-                                        "clp_get_float",
+                                        "clp_get_double",
                                         PlanMatchPattern.expression("fare"),
                                         "clp_get_string",
                                         PlanMatchPattern.expression("user"),
@@ -236,7 +236,7 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('city.Name')) from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'beijing'",
+                "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('city.Name')) from test WHERE CLP_GET_BIGINT('user_id') = 0 AND LOWER(city.Name) = 'beijing'",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);

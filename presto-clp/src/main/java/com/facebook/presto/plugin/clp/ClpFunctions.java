@@ -26,20 +26,20 @@ public final class ClpFunctions
     {
     }
 
-    @ScalarFunction(value = "CLP_GET_INT", deterministic = false)
+    @ScalarFunction(value = "CLP_GET_BIGINT", deterministic = false)
     @Description("Retrieves an integer value corresponding to the given JSON path.")
     @SqlType(StandardTypes.BIGINT)
-    public static long clpGetInt(@SqlType(StandardTypes.VARCHAR) Slice jsonPath)
+    public static long clpGetBigint(@SqlType(StandardTypes.VARCHAR) Slice jsonPath)
     {
-        throw new UnsupportedOperationException("CLP_GET_INT is a placeholder function without implementation.");
+        throw new UnsupportedOperationException("CLP_GET_BIGINT is a placeholder function without implementation.");
     }
 
-    @ScalarFunction(value = "CLP_GET_FLOAT", deterministic = false)
+    @ScalarFunction(value = "CLP_GET_DOUBLE", deterministic = false)
     @Description("Retrieves a floating point value corresponding to the given JSON path.")
     @SqlType(StandardTypes.DOUBLE)
-    public static double clpGetFloat(@SqlType(StandardTypes.VARCHAR) Slice jsonPath)
+    public static double clpGetDouble(@SqlType(StandardTypes.VARCHAR) Slice jsonPath)
     {
-        throw new UnsupportedOperationException("CLP_GET_FLOAT is a placeholder function without implementation.");
+        throw new UnsupportedOperationException("CLP_GET_DOUBLE is a placeholder function without implementation.");
     }
 
     @ScalarFunction(value = "CLP_GET_BOOL", deterministic = false)
