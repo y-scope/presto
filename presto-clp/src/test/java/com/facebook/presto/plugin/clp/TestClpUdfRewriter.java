@@ -187,7 +187,7 @@ public class TestClpUdfRewriter
         Plan plan = localQueryRunner.createPlan(
                 session,
                 "SELECT CLP_GET_INT('user_id'), CLP_GET_FLOAT('fare'), CLP_GET_STRING('user'), " +
-                        "CLP_GET_BOOL('isHoliday'), CLP_GET_STRING_ARRAY('tags'), city.Name from test",
+                        "CLP_GET_BOOL('isHoliday'), CLP_GET_STRING_ARRAY('tags'), city.Name FROM test",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
@@ -203,13 +203,13 @@ public class TestClpUdfRewriter
                         project(
                                 ImmutableMap.of(
                                         "clp_get_int",
-                                        PlanMatchPattern.expression("user_id"),
+                                        PlanMatchPattern.expression("user_und_id"),
                                         "clp_get_float",
                                         PlanMatchPattern.expression("fare"),
                                         "clp_get_string",
                                         PlanMatchPattern.expression("user"),
                                         "clp_get_bool",
-                                        PlanMatchPattern.expression("isHoliday"),
+                                        PlanMatchPattern.expression("is_uxholiday"),
                                         "clp_get_string_array",
                                         PlanMatchPattern.expression("tags"),
                                         "expr",
