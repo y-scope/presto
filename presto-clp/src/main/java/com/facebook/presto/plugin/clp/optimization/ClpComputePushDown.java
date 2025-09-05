@@ -132,12 +132,12 @@ public class ClpComputePushDown
             boolean hasMetadataFilter = metadataSqlQuery.isPresent() && !metadataSqlQuery.get().isEmpty();
             if (hasMetadataFilter) {
                 metadataSqlQuery = Optional.of(splitFilterProvider.remapSplitFilterPushDownExpression(tableScope, metadataSqlQuery.get()));
-                log.debug("Metadata SQL query: %s", metadataSqlQuery);
+                log.debug("Metadata SQL query: %s", metadataSqlQuery.get());
             }
 
             if (kqlQuery.isPresent() || hasMetadataFilter) {
                 if (kqlQuery.isPresent()) {
-                    log.debug("KQL query: %s", kqlQuery);
+                    log.debug("KQL query: %s", kqlQuery.get());
                 }
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSqlQuery);

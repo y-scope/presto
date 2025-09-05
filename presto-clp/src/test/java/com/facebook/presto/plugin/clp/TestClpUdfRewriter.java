@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.common.transaction.TransactionId;
+import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.cost.PlanNodeStatsEstimate;
 import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
@@ -56,6 +57,7 @@ import java.util.Set;
 
 import static com.facebook.presto.common.Utils.checkState;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
 import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
@@ -145,7 +147,8 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT * FROM test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
+                "SELECT * FROM test WHERE CLP_GET_INT('user_id') = 0 AND CLP_GET_FLOAT('fare') < 50.0 AND CLP_GET_STRING('city') = 'SF' AND " +
+                        "CLP_GET_BOOL('isHoliday') = true AND cardinality(CLP_GET_STRING_ARRAY('tags')) > 0 AND LOWER(city.Name) = 'BEIJING'",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
@@ -159,10 +162,20 @@ public class TestClpUdfRewriter
                 new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
                 anyTree(
                         filter(
-                                expression("lower(city.Name) = 'BEIJING'"),
+                                expression("lower(city.Name) = 'BEIJING' AND cardinality(tags) > 0"),
                                 ClpTableScanMatcher.clpTableScanPattern(
-                                        new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
-                                        ImmutableSet.of(city, fare, isHoliday, new ClpColumnHandle("user_id", BIGINT))))));
+                                        new ClpTableLayoutHandle(
+                                                table,
+                                                Optional.of(
+                                                        "(((user_id: 0 AND fare < 50.0) AND (city: \"SF\" AND isHoliday: true)))"),
+                                                Optional.empty()),
+                                        ImmutableSet.of(
+                                                city,
+                                                fare,
+                                                isHoliday,
+                                                new ClpColumnHandle("user_id", BIGINT),
+                                                new ClpColumnHandle("city", VARCHAR),
+                                                new ClpColumnHandle("tags", new ArrayType(VARCHAR)))))));
     }
 
     @Test
@@ -173,7 +186,8 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT CLP_GET_STRING('user'), city.Name FROM test",
+                "SELECT CLP_GET_INT('user_id'), CLP_GET_FLOAT('fare'), CLP_GET_STRING('user'), " +
+                        "CLP_GET_BOOL('isHoliday'), CLP_GET_STRING_ARRAY('tags'), city.Name from test",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
@@ -188,8 +202,16 @@ public class TestClpUdfRewriter
                 anyTree(
                         project(
                                 ImmutableMap.of(
+                                        "clp_get_int",
+                                        PlanMatchPattern.expression("user_id"),
+                                        "clp_get_float",
+                                        PlanMatchPattern.expression("fare"),
                                         "clp_get_string",
                                         PlanMatchPattern.expression("user"),
+                                        "clp_get_bool",
+                                        PlanMatchPattern.expression("isHoliday"),
+                                        "clp_get_string_array",
+                                        PlanMatchPattern.expression("tags"),
                                         "expr",
                                         PlanMatchPattern.expression("city.Name")),
                                 ClpTableScanMatcher.clpTableScanPattern(
@@ -198,7 +220,11 @@ public class TestClpUdfRewriter
                                                 Optional.empty(),
                                                 Optional.empty()),
                                         ImmutableSet.of(
+                                                new ClpColumnHandle("user_id", BIGINT),
+                                                new ClpColumnHandle("fare", DOUBLE),
                                                 new ClpColumnHandle("user", VARCHAR),
+                                                isHoliday,
+                                                new ClpColumnHandle("tags", new ArrayType(VARCHAR)),
                                                 city)))));
     }
 

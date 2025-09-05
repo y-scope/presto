@@ -49,7 +49,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Utility for rewriting CLP UDFs (e.g., <code>CLP_GET_*</code>) in {@link RowExpression} trees.
  * <p>
- * This optimizer traverses a query plan and rewrites calls to <code>CLP_GET_*</code> UDFs into
+ * Traverses a query plan and rewrites calls to <code>CLP_GET_*</code> UDFs into
  * {@link VariableReferenceExpression}s with meaningful names derived from their arguments.
  * <p>
  * This enables querying fields that are not part of the original table schema but are available
@@ -62,7 +62,7 @@ public final class ClpUdfRewriter
 
     public ClpUdfRewriter(FunctionMetadataManager functionManager)
     {
-        this.functionManager = requireNonNull(functionManager);
+        this.functionManager = requireNonNull(functionManager, "functionManager is null");
     }
 
     @Override
@@ -73,14 +73,14 @@ public final class ClpUdfRewriter
 
     /**
      * Collects all existing variable assignments from {@link TableScanNode} instances that map
-     * column handles to {@link VariableReferenceExpression}s.
+     * {@link ColumnHandle}s to {@link VariableReferenceExpression}s.
      * <p>
      * This method traverses the given plan subtree, visiting the {@link TableScanNode} and
      * extracting its assignments. The resulting map allows tracking which scan-level variables
      * already exist for specific columns, so that subsequent optimizer passes (e.g., CLP UDF
      * rewriting) can reuse them instead of creating duplicates.
      * <p>
-     * The returned map is keyed by the column handle, and the value is the
+     * The key of the returned map is the {@link ColumnHandle}, and the value is the
      * {@link VariableReferenceExpression} assigned to it in the scan node.
      *
      * @param root the root {@link PlanNode} of the plan subtree
@@ -137,24 +137,26 @@ public final class ClpUdfRewriter
         }
 
         /**
-         * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each resulting
-         * variable into the given map along with its associated {@link ColumnHandle}.
+         * Rewrites <code>CLP_GET_*</code> UDFs in a {@link RowExpression}, collecting each
+         * resulting variable into the given map along with its associated {@link ColumnHandle}.
          * <p>
-         * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is used to
-         * construct the name of the variable reference (e.g. <code>CLP_GET_STRING('foo')</code> becomes
-         * a variable name <code>foo</code>). Invalid usages (e.g., non-constant arguments) will throw a
-         * {@link PrestoException}.
+         * Each <code>CLP_GET_*</code> UDF must take a single constant string argument, which is
+         * used to construct the name of the variable reference (e.g.
+         * <code>CLP_GET_STRING('foo')</code> becomes a variable name <code>foo</code>). Invalid
+         * usages (e.g., non-constant arguments) will throw a {@link PrestoException}.
          *
          * @param expression the input expression to analyze and possibly rewrite
          * @param functionManager function manager used to resolve function metadata
          * @param variableAllocator variable allocator used to create new variable references
-         * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls replaced
+         * @return a possibly rewritten {@link RowExpression} with <code>CLP_GET_*</code> calls
+         * replaced
          */
         private RowExpression rewriteClpUdfs(
                 RowExpression expression,
                 FunctionMetadataManager functionManager,
                 VariableAllocator variableAllocator)
         {
+            // Handle CLP_GET_* function calls
             if (expression instanceof CallExpression) {
                 CallExpression call = (CallExpression) expression;
                 String functionName = functionManager.getFunctionMetadata(call.getFunctionHandle()).getName().getObjectName().toUpperCase();
@@ -191,6 +193,7 @@ public final class ClpUdfRewriter
                 return new CallExpression(call.getDisplayName(), call.getFunctionHandle(), call.getType(), rewrittenArgs);
             }
 
+            // Handle special forms (e.g., AND, OR, etc.)
             if (expression instanceof SpecialFormExpression) {
                 SpecialFormExpression special = (SpecialFormExpression) expression;
 
@@ -258,8 +261,8 @@ public final class ClpUdfRewriter
         }
 
         /**
-         * Builds a new {@link TableScanNode} that includes additional variables and column handles
-         * for rewritten CLP UDFs.
+         * Builds a new {@link TableScanNode} that includes additional
+         * {@link VariableReferenceExpression}s and {@link ColumnHandle}s for rewritten CLP UDFs.
          *
          * @param node the original table scan node
          * @return the updated table scan node
