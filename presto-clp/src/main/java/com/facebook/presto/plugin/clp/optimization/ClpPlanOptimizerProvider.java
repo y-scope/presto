@@ -42,7 +42,7 @@ public class ClpPlanOptimizerProvider
     @Override
     public Set<ConnectorPlanOptimizer> getLogicalPlanOptimizers()
     {
-        return ImmutableSet.of();
+        return ImmutableSet.of(new ClpUdfRewriter(functionManager));
     }
 
     @Override
