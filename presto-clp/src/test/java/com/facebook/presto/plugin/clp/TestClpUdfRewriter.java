@@ -148,7 +148,7 @@ public class TestClpUdfRewriter
         Plan plan = localQueryRunner.createPlan(
                 session,
                 "SELECT * FROM test WHERE CLP_GET_INT('user_id') = 0 AND CLP_GET_FLOAT('fare') < 50.0 AND CLP_GET_STRING('city') = 'SF' AND " +
-                        "CLP_GET_BOOL('isHoliday') = true AND cardinality(CLP_GET_STRING_ARRAY('tags')) > 0 AND LOWER(city.Name) = 'BEIJING'",
+                        "CLP_GET_BOOL('isHoliday') = true AND cardinality(CLP_GET_STRING_ARRAY('tags')) > 0 AND LOWER(city.Name) = 'beijing'",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
@@ -162,7 +162,7 @@ public class TestClpUdfRewriter
                 new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
                 anyTree(
                         filter(
-                                expression("lower(city.Name) = 'BEIJING' AND cardinality(tags) > 0"),
+                                expression("lower(city.Name) = 'beijing' AND cardinality(tags) > 0"),
                                 ClpTableScanMatcher.clpTableScanPattern(
                                         new ClpTableLayoutHandle(
                                                 table,
@@ -236,7 +236,7 @@ public class TestClpUdfRewriter
 
         Plan plan = localQueryRunner.createPlan(
                 session,
-                "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('user')) from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'BEIJING'",
+                "SELECT LOWER(city.Name), LOWER(CLP_GET_STRING('city.Name')) from test WHERE CLP_GET_INT('user_id') = 0 AND LOWER(city.Name) = 'beijing'",
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
@@ -254,13 +254,13 @@ public class TestClpUdfRewriter
                                         "lower",
                                         PlanMatchPattern.expression("lower(city.Name)"),
                                         "lower_0",
-                                        PlanMatchPattern.expression("lower(user)")),
+                                        PlanMatchPattern.expression("lower(city_dot__uxname)")),
                                 filter(
-                                        expression("lower(city.Name) = 'BEIJING'"),
+                                        expression("lower(city.Name) = 'beijing'"),
                                         ClpTableScanMatcher.clpTableScanPattern(
                                                 new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
                                                 ImmutableSet.of(
-                                                        new ClpColumnHandle("user", VARCHAR),
+                                                        new ClpColumnHandle("city.Name", VARCHAR),
                                                         new ClpColumnHandle("user_id", BIGINT),
                                                         city))))));
     }
