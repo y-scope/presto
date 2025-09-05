@@ -75,14 +75,14 @@ jobs:
             docker pull "$SRC_IMAGE"
           fi
       
-          TAR="prestissimo-worker-dev-env-image-${{ github.sha }}.tar"
+          TAR="prestissimo-worker-dev-env-image.tar"
           docker save "$SRC_IMAGE" -o "$TAR"
           echo "Saved $SRC_IMAGE to $TAR"
 
       - name: "Upload dependency image artifact"
         uses: "actions/upload-artifact@v4"
         with:
-          name: prestissimo-worker-dev-env-image-${{ github.sha }}
-          path: prestissimo-worker-dev-env-image-${{ github.sha }}.tar
+          name: prestissimo-worker-dev-env-image
+          path: prestissimo-worker-dev-env-image.tar
           if-no-files-found: error
           retention-days: 1

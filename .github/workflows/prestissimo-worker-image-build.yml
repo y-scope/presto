@@ -31,7 +31,7 @@ jobs:
       - name: "Download dependency image artifact"
         uses: "actions/download-artifact@v4"
         with:
-          name: "prestissimo-worker-dev-env-image-${{github.event.workflow_run.head_sha}}"
+          name: "prestissimo-worker-dev-env-image"
           path: ./_deps_image
           run-id: "${{github.event.workflow_run.id}}"
           github-token: "${{secrets.GITHUB_TOKEN}}"
@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAR="./_deps_image/prestissimo-worker-dev-env-image-${{github.event.workflow_run.head_sha}}.tar"
+          TAR="./_deps_image/prestissimo-worker-dev-env-image.tar"
           OUT="$(docker load -i "$TAR")"
           echo "$OUT"
           IMAGE_REF="$(echo "$OUT" | awk -F': ' '/^Loaded image:/ {print $2}' | tail -n1)"
