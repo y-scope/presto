@@ -19,6 +19,7 @@ import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 
 public final class ClpFunctions
 {
@@ -64,5 +65,37 @@ public final class ClpFunctions
     public static Block clpGetStringArray(@SqlType(StandardTypes.VARCHAR) Slice jsonPath)
     {
         throw new UnsupportedOperationException("CLP_GET_STRING_ARRAY is a placeholder function without implementation.");
+    }
+
+    @ScalarFunction(value = "CLP_WILDCARD_STRING_COLUMN", deterministic = false)
+    @Description("Used in filter expressions to allow comparisons with any string column in the log record.")
+    @SqlType(StandardTypes.VARCHAR)
+    public static Slice clpWildcardStringColumn()
+    {
+        return Slices.EMPTY_SLICE;
+    }
+
+    @ScalarFunction(value = "CLP_WILDCARD_INT_COLUMN", deterministic = false)
+    @Description("Used in filter expressions to allow comparisons with any integer column in the log record.")
+    @SqlType(StandardTypes.BIGINT)
+    public static long clpWildcardIntColumn()
+    {
+        return 0;
+    }
+
+    @ScalarFunction(value = "CLP_WILDCARD_FLOAT_COLUMN", deterministic = false)
+    @Description("Used in filter expressions to allow comparisons with any floating point column in the log record.")
+    @SqlType(StandardTypes.DOUBLE)
+    public static double clpWildcardFloatColumn()
+    {
+        return 0.0;
+    }
+
+    @ScalarFunction(value = "CLP_WILDCARD_BOOL_COLUMN", deterministic = false)
+    @Description("Used in filter expressions to allow comparisons with any boolean column in the log record.")
+    @SqlType(StandardTypes.BOOLEAN)
+    public static boolean clpWildcardBoolColumn()
+    {
+        return false;
     }
 }

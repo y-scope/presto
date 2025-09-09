@@ -271,6 +271,23 @@ public class TestClpFilterToKql
                 testMetadataFilterColumns);
     }
 
+    @Test
+    public void testClpWildcardUdf()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+
+        testPushDown(sessionHolder, "CLP_WILDCARD_STRING_COLUMN() = 'Beijing'", "*: \"Beijing\"", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_INT_COLUMN() = 1", "*: 1", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_FLOAT_COLUMN() > 0", "* > 0", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_BOOL_COLUMN() = true", "*: true", null);
+
+        testPushDown(
+                sessionHolder,
+                "CLP_WILDCARD_STRING_COLUMN() = 'Beijing' AND CLP_WILDCARD_INT_COLUMN() = 1 AND city.Region.Id = 1",
+                "((*: \"Beijing\" AND *: 1) AND city.Region.Id: 1)",
+                null);
+    }
+
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
     {
         ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
