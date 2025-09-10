@@ -128,6 +128,7 @@ public class TestPrestoNativeClpGeneralQueries
                         "    ARRAY[ARRAY[NULL]]" +
                         "  ]," +
                         "  NULL");
+
         // Test WHERE clause with numeric comparison
         assertQuery(
                 format("SELECT" +
@@ -151,6 +152,7 @@ public class TestPrestoNativeClpGeneralQueries
                         "    ARRAY[ARRAY[NULL]]" +
                         "  ]," +
                         "  NULL");
+
         // Test WHERE clause with string matching
         assertQuery(
                 format("SELECT" +
