@@ -126,6 +126,51 @@ public class TestPrestoNativeClpGeneralQueries
                         "    ARRAY[ARRAY[NULL]]" +
                         "  ]," +
                         "  NULL");
+        assertQuery(
+                format("SELECT" +
+                        " msg," +
+                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " id," +
+                        " attr," +
+                        " tags" +
+                        " FROM %s" +
+                        " WHERE t.dollar_sign_date > from_unixtime(1679441694.576)" +
+                        " ORDER BY id" +
+                        " LIMIT 1", DEFAULT_TABLE_NAME),
+                "SELECT" +
+                        "  'There were no users to pin, not starting tracker thread'," +
+                        "  TIMESTAMP '2023-03-22 12:34:55.821'," +
+                        "  20227," +
+                        "  ARRAY[" +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[ARRAY[ARRAY[ARRAY[NULL]]]]]," +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[NULL]]" +
+                        "  ]," +
+                        "  NULL");
+        assertQuery(
+                format("SELECT" +
+                        " msg," +
+                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " id," +
+                        " attr," +
+                        " tags" +
+                        " FROM %s" +
+                        " WHERE t.dollar_sign_date > from_unixtime(1679441694.576)" +
+                        " AND msg like '%%user%%'" +
+                        " ORDER BY id" +
+                        " LIMIT 1", DEFAULT_TABLE_NAME),
+                "SELECT" +
+                        "  'There were no users to pin, not starting tracker thread'," +
+                        "  TIMESTAMP '2023-03-22 12:34:55.821'," +
+                        "  20227," +
+                        "  ARRAY[" +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[ARRAY[ARRAY[ARRAY[NULL]]]]]," +
+                        "    NULL," +
+                        "    ARRAY[ARRAY[NULL]]" +
+                        "  ]," +
+                        "  NULL");
     }
 
     @AfterTest
