@@ -108,7 +108,7 @@ public class TestPrestoNativeClpGeneralQueries
         assertQuery(
                 format("SELECT" +
                         " msg," +
-                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " FORMAT_DATETIME(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
                         " id," +
                         " attr," +
                         " tags" +
@@ -129,12 +129,12 @@ public class TestPrestoNativeClpGeneralQueries
         assertQuery(
                 format("SELECT" +
                         " msg," +
-                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " FORMAT_DATETIME(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
                         " id," +
                         " attr," +
                         " tags" +
                         " FROM %s" +
-                        " WHERE t.dollar_sign_date > from_unixtime(1679441694.576)" +
+                        " WHERE t.dollar_sign_date > FROM_UNIXTIME(1679441694.576)" +
                         " ORDER BY id" +
                         " LIMIT 1", DEFAULT_TABLE_NAME),
                 "SELECT" +
@@ -151,13 +151,13 @@ public class TestPrestoNativeClpGeneralQueries
         assertQuery(
                 format("SELECT" +
                         " msg," +
-                        " format_datetime(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
+                        " FORMAT_DATETIME(t.dollar_sign_date, 'yyyy-MM-dd HH:mm:ss.SSS')," +
                         " id," +
                         " attr," +
                         " tags" +
                         " FROM %s" +
-                        " WHERE t.dollar_sign_date > from_unixtime(1679441694.576)" +
-                        " AND msg like '%%user%%'" +
+                        " WHERE t.dollar_sign_date > FROM_UNIXTIME(1679441694.576)" +
+                        " AND msg LIKE '%%user%%'" +
                         " ORDER BY id" +
                         " LIMIT 1", DEFAULT_TABLE_NAME),
                 "SELECT" +
