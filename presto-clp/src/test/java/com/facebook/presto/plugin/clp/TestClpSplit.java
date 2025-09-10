@@ -54,7 +54,7 @@ public class TestClpSplit
         int numSplitsPerTable = 10;
 
         for (int i = 0; i < numTables; i++) {
-            String tableName = "test_" + i;
+            String tableName = "test_split_" + i;
             tableNamesBuilder.add(tableName);
 
             ImmutableList.Builder<String> idsBuilder = ImmutableList.builder();
