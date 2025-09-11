@@ -20,6 +20,7 @@
 #include "presto_cpp/presto_protocol/connector/iceberg/IcebergConnectorProtocol.h"
 #include "presto_cpp/presto_protocol/connector/tpch/TpchConnectorProtocol.h"
 
+#include <velox/type/fbclp/ClpTypeParser.h>
 #include <velox/type/fbhive/HiveTypeParser.h>
 #include "velox/connectors/clp/ClpColumnHandle.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
@@ -1580,7 +1581,7 @@ ClpPrestoToVeloxConnector::toVeloxColumnHandle(
   return std::make_unique<connector::clp::ClpColumnHandle>(
       clpColumn->columnName,
       clpColumn->originalColumnName,
-      typeParser.parse(clpColumn->columnType));
+      facebook::velox::type::fbclp::parseClpType(clpColumn->columnType));
 }
 
 std::unique_ptr<velox::connector::ConnectorTableHandle>

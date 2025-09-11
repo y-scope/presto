@@ -17,5 +17,6 @@ if(PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR)
   target_link_libraries(presto_connectors presto_flight_connector)
 endif()
 
-target_link_libraries(presto_connectors presto_velox_expr_conversion
-                      velox_clp_connector velox_type_fbhive)
+target_link_libraries(
+  presto_connectors presto_velox_expr_conversion velox_clp_connector
+  velox_type_fbhive velox_type_fbclp_parser)
