@@ -19,7 +19,6 @@ import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 
 public final class ClpFunctions
 {
@@ -72,7 +71,7 @@ public final class ClpFunctions
     @SqlType(StandardTypes.VARCHAR)
     public static Slice clpWildcardStringColumn()
     {
-        return Slices.EMPTY_SLICE;
+        throw new UnsupportedOperationException("CLP_WILDCARD_STRING_COLUMN is a placeholder function without implementation.");
     }
 
     @ScalarFunction(value = "CLP_WILDCARD_INT_COLUMN", deterministic = false)
@@ -80,7 +79,7 @@ public final class ClpFunctions
     @SqlType(StandardTypes.BIGINT)
     public static long clpWildcardIntColumn()
     {
-        return 0;
+        throw new UnsupportedOperationException("CLP_WILDCARD_INT_COLUMN is a placeholder function without implementation.");
     }
 
     @ScalarFunction(value = "CLP_WILDCARD_FLOAT_COLUMN", deterministic = false)
@@ -88,7 +87,7 @@ public final class ClpFunctions
     @SqlType(StandardTypes.DOUBLE)
     public static double clpWildcardFloatColumn()
     {
-        return 0.0;
+        throw new UnsupportedOperationException("CLP_WILDCARD_FLOAT_COLUMN is a placeholder function without implementation.");
     }
 
     @ScalarFunction(value = "CLP_WILDCARD_BOOL_COLUMN", deterministic = false)
@@ -96,6 +95,6 @@ public final class ClpFunctions
     @SqlType(StandardTypes.BOOLEAN)
     public static boolean clpWildcardBoolColumn()
     {
-        return false;
+        throw new UnsupportedOperationException("CLP_WILDCARD_BOOL_COLUMN is a placeholder function without implementation.");
     }
 }

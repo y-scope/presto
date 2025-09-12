@@ -446,26 +446,39 @@ public class ClpFilterToKqlConverter
                 ((CallExpression) possibleCall).getFunctionHandle());
         String functionName = metadata.getName().getObjectName().toUpperCase();
 
-        if (!functionName.startsWith("CLP_WILDCARD")) {
+        if (!functionName.startsWith("CLP_WILDCARD_")) {
             return Optional.empty();
         }
 
-        if (!(possibleConst instanceof ConstantExpression)) {
-            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "CLP_WILDCARD_COLUMN can only be used in a filter against a constant value");
+        String literalString;
+        Type literalType;
+        if (possibleConst instanceof ConstantExpression) {
+            literalString = getLiteralString((ConstantExpression) possibleConst);
+            literalType = possibleConst.getType();
         }
-
-        ClpExpression constExpression = possibleConst.accept(this, null);
-        if (!constExpression.getPushDownExpression().isPresent()) {
+        else if (possibleConst instanceof CallExpression) {
+            CallExpression call = (CallExpression) possibleConst;
+            if (standardFunctionResolution.isCastFunction(call.getFunctionHandle())
+                    && call.getArguments().size() == 1
+                    && call.getArguments().get(0) instanceof ConstantExpression) {
+                literalString = getLiteralString((ConstantExpression) call.getArguments().get(0));
+                literalType = possibleConst.getType(); // post-cast type
+            }
+            else {
+                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "CLP_WILDCARD_* functions can only be used in a filter against a constant value");
+            }
+        }
+        else {
             throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    possibleConst + " is not supported in CLP_WILDCARD UDFs");
+                    "CLP_WILDCARD_* functions can only be used in a filter against a constant value");
         }
 
         return Optional.of(buildClpExpression(
                 "*",
-                constExpression.getPushDownExpression().get(),
+                literalString,
                 operator,
-                possibleCall.getType(),
+                literalType,
                 parentNode));
     }
 
