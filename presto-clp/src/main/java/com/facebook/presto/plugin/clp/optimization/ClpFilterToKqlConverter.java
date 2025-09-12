@@ -376,7 +376,7 @@ public class ClpFilterToKqlConverter
             return clpWildcardLeft.get();
         }
 
-        Optional<ClpExpression> clpWildcardRight = tryInterpretClpWildcard(right, left, operator, node);
+        Optional<ClpExpression> clpWildcardRight = tryInterpretClpWildcard(right, left, flip(operator), node);
         if (clpWildcardRight.isPresent()) {
             return clpWildcardRight.get();
         }
