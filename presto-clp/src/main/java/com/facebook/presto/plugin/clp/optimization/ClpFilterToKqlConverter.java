@@ -144,6 +144,11 @@ public class ClpFilterToKqlConverter
             }
         }
 
+        String functionName = functionMetadata.getName().getObjectName().toUpperCase();
+        if (functionName.startsWith("CLP_WILDCARD_")) {
+            return new ClpExpression("*");
+        }
+
         return new ClpExpression(node);
     }
 
@@ -371,16 +376,6 @@ public class ClpFilterToKqlConverter
             return maybeRightSubstring.get();
         }
 
-        Optional<ClpExpression> clpWildcardLeft = tryInterpretClpWildcard(left, right, operator, node);
-        if (clpWildcardLeft.isPresent()) {
-            return clpWildcardLeft.get();
-        }
-
-        Optional<ClpExpression> clpWildcardRight = tryInterpretClpWildcard(right, left, flip(operator), node);
-        if (clpWildcardRight.isPresent()) {
-            return clpWildcardRight.get();
-        }
-
         ClpExpression leftExpression = left.accept(this, null);
         ClpExpression rightExpression = right.accept(this, null);
         Optional<String> leftPushDownExpression = leftExpression.getPushDownExpression();
@@ -414,72 +409,6 @@ public class ClpFilterToKqlConverter
         }
         // fallback
         return new ClpExpression(node);
-    }
-
-    /**
-     * Attempts to interpret a <code>CLP_WILDCARD_*</code> function call in a logical binary
-     * expression.
-     * <p></p>
-     * This method checks if the <code>possibleCall</code> is a CLP_WILDCARD function and the
-     * <code>possibleConst</code> is a constant expression. If so, it builds a corresponding
-     * {@link ClpExpression}. Otherwise, returns {@link Optional#empty()}.
-     * <p></p>
-     * Example: <code>CLP_WILDCARD_STRING_COLUMN() = 'abc'</code>
-     *
-     * @param possibleCall  the operand that may be a <code>CLP_WILDCARD_*</code> function call
-     * @param possibleConst the opposite operand which must be a literal/constant at planning time
-     * @param operator      the comparison operator from the parent binary expression
-     * @param parentNode    the enclosing call (binary comparison) node
-     * @return an Optional with the built {@link ClpExpression} if recognized; otherwise empty
-     */
-    private Optional<ClpExpression> tryInterpretClpWildcard(
-            RowExpression possibleCall,
-            RowExpression possibleConst,
-            OperatorType operator,
-            CallExpression parentNode)
-    {
-        if (!(possibleCall instanceof CallExpression)) {
-            return Optional.empty();
-        }
-
-        FunctionMetadata metadata = functionMetadataManager.getFunctionMetadata(
-                ((CallExpression) possibleCall).getFunctionHandle());
-        String functionName = metadata.getName().getObjectName().toUpperCase();
-
-        if (!functionName.startsWith("CLP_WILDCARD_")) {
-            return Optional.empty();
-        }
-
-        String literalString;
-        Type literalType;
-        if (possibleConst instanceof ConstantExpression) {
-            literalString = getLiteralString((ConstantExpression) possibleConst);
-            literalType = possibleConst.getType();
-        }
-        else if (possibleConst instanceof CallExpression) {
-            CallExpression call = (CallExpression) possibleConst;
-            if (standardFunctionResolution.isCastFunction(call.getFunctionHandle())
-                    && call.getArguments().size() == 1
-                    && call.getArguments().get(0) instanceof ConstantExpression) {
-                literalString = getLiteralString((ConstantExpression) call.getArguments().get(0));
-                literalType = possibleConst.getType(); // post-cast type
-            }
-            else {
-                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                        "CLP_WILDCARD_* functions can only be used in a filter against a constant value");
-            }
-        }
-        else {
-            throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "CLP_WILDCARD_* functions can only be used in a filter against a constant value");
-        }
-
-        return Optional.of(buildClpExpression(
-                "*",
-                literalString,
-                operator,
-                literalType,
-                parentNode));
     }
 
     /**
