@@ -286,6 +286,16 @@ public class TestClpFilterToKql
                 "CLP_WILDCARD_STRING_COLUMN() = 'Beijing' AND CLP_WILDCARD_INT_COLUMN() = 1 AND city.Region.Id = 1",
                 "((*: \"Beijing\" AND *: 1) AND city.Region.Id: 1)",
                 null);
+        testPushDown(
+                sessionHolder,
+                "CLP_WILDCARD_STRING_COLUMN() = 'Toronto' OR CLP_WILDCARD_INT_COLUMN() = 2",
+                "(*: \"Toronto\" OR *: 2)",
+                null);
+        testPushDown(
+                sessionHolder,
+                "CLP_WILDCARD_STRING_COLUMN() = 'Shanghai' AND (CLP_WILDCARD_INT_COLUMN() = 3 OR city.Region.Id = 5)",
+                "(*: \"Shanghai\" AND (*: 3 OR city.Region.Id: 5))",
+                null);
     }
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
