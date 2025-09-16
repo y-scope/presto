@@ -281,6 +281,12 @@ public class TestClpFilterToKql
         testPushDown(sessionHolder, "CLP_WILDCARD_FLOAT_COLUMN() > 0", "* > 0", null);
         testPushDown(sessionHolder, "CLP_WILDCARD_BOOL_COLUMN() = true", "*: true", null);
 
+        testPushDown(sessionHolder, "CLP_WILDCARD_STRING_COLUMN() like 'hello%'", "*: \"hello*\"", null);
+        testPushDown(sessionHolder, "substr(CLP_WILDCARD_STRING_COLUMN(), 1, 2) = 'he'", "*: \"he*\"", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_INT_COLUMN() BETWEEN 0 AND 5", "* >= 0 AND * <= 5", null);
+        testPushDown(sessionHolder, "CLP_WILDCARD_STRING_COLUMN() IN ('hello world', 'hello world 2')", "(*: \"hello world\" OR *: \"hello world 2\")", null);
+
+        testPushDown(sessionHolder, "NOT CLP_WILDCARD_FLOAT_COLUMN() > 0", "NOT * > 0", null);
         testPushDown(
                 sessionHolder,
                 "CLP_WILDCARD_STRING_COLUMN() = 'Beijing' AND CLP_WILDCARD_INT_COLUMN() = 1 AND city.Region.Id = 1",
