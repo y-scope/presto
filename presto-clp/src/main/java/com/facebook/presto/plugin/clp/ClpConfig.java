@@ -214,6 +214,7 @@ public class ClpConfig
 
     public enum SplitProviderType
     {
-        MYSQL
+        MYSQL,
+        PINOT
     }
 }

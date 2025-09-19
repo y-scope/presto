@@ -13,11 +13,10 @@
  */
 package com.facebook.presto.plugin.clp;
 
-import com.facebook.presto.common.type.ArrayType;
-import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpYamlMetadataProvider;
-import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.plugin.clp.split.ClpPinotSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
@@ -27,12 +26,9 @@ import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 
-import static com.facebook.presto.common.type.BigintType.BIGINT;
-import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
-import static com.facebook.presto.common.type.DoubleType.DOUBLE;
-import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType.YAML;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
@@ -40,10 +36,11 @@ import static org.testng.Assert.assertEquals;
 
 public class TestClpYamlMetadata
 {
-    private static final String PINOT_BROKER_URL = "jdbc:pinot://localhost:8099";
+    private static final String PINOT_BROKER_URL = "http://localhost:8099";
     private static final String METADATA_YAML_PATH = "/home/xiaochong-dev/presto-e2e/pinot/tables-schema.yaml";
     private static final String TABLE_NAME = "cockroachdb";
     private ClpMetadata metadata;
+    private ClpSplitProvider clpSplitProvider;
 
     @BeforeTest
     public void setUp()
@@ -55,6 +52,7 @@ public class TestClpYamlMetadata
                 .setMetadataYamlPath(METADATA_YAML_PATH);
         ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config);
         metadata = new ClpMetadata(config, metadataProvider);
+        clpSplitProvider = new ClpPinotSplitProvider(config);
     }
 
     @Test
@@ -69,6 +67,17 @@ public class TestClpYamlMetadata
         ImmutableSet.Builder<SchemaTableName> builder = ImmutableSet.builder();
         builder.add(new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME));
         assertEquals(new HashSet<>(metadata.listTables(SESSION, Optional.empty())), builder.build());
+    }
+
+    @Test
+    public void testListSplits()
+    {
+        ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
+                new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME), ""),
+                Optional.empty(),
+                Optional.empty());
+        List<ClpSplit> result = clpSplitProvider.listSplits(layoutHandle);
+        System.out.println("Hello world");
     }
 
     @Test

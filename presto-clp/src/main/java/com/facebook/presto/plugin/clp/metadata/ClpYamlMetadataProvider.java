@@ -24,13 +24,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.commons.lang3.tuple.Pair;
+
+import javax.inject.Inject;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_TABLE_SCHEMA_YAML;
@@ -43,6 +47,7 @@ public class ClpYamlMetadataProvider
     private final ClpConfig config;
     private Map<SchemaTableName, String> tableSchemaYamlMap;
 
+    @Inject
     public ClpYamlMetadataProvider(ClpConfig config)
     {
         this.config = config;
@@ -54,21 +59,24 @@ public class ClpYamlMetadataProvider
         Path tableSchemaPath = Paths.get(tableSchemaYamlMap.get(schemaTableName));
         ClpSchemaTree schemaTree = new ClpSchemaTree(config.isPolymorphicTypeEnabled());
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.findAndRegisterModules();
 
         try {
             Map<String, Object> root = mapper.readValue(
                     new File(tableSchemaPath.toString()),
                     new TypeReference<HashMap<String, Object>>() {});
-            ImmutableList.Builder<Pair<String, Byte>> typesBuilder = ImmutableList.builder();
-            collectTypes(root, "",  typesBuilder);
-            for (Pair<String, Byte> entry : typesBuilder.build()) {
-                schemaTree.addColumn(entry.getLeft(), entry.getRight());
+            ImmutableList.Builder<String> namesBuilder = ImmutableList.builder();
+            ImmutableList.Builder<Byte> typesBuilder = ImmutableList.builder();
+            collectTypes(root, "", namesBuilder, typesBuilder);
+            ImmutableList<String> names = namesBuilder.build();
+            ImmutableList<Byte> types = typesBuilder.build();
+            // The names and types should have same sizes
+            for (int i = 0; i < names.size(); i++) {
+                schemaTree.addColumn(names.get(i), types.get(i));
             }
             return schemaTree.collectColumnHandles();
         }
         catch (IOException e) {
-            log.error(format("Failed to parse table schema file %s, error: %s",  tableSchemaPath, e.getMessage()), e);
+            log.error(format("Failed to parse table schema file %s, error: %s", tableSchemaPath, e.getMessage()), e);
         }
         return Collections.emptyList();
     }
@@ -78,7 +86,6 @@ public class ClpYamlMetadataProvider
     {
         Path tablesSchemaPath = Paths.get(config.getMetadataYamlPath());
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.findAndRegisterModules();
 
         try {
             Map<String, Object> root = mapper.readValue(new File(tablesSchemaPath.toString()),
@@ -100,7 +107,7 @@ public class ClpYamlMetadataProvider
                 tableSchemaYamlMapBuilder.put(schemaTableName, tableSchemaYamlPath);
             }
             this.tableSchemaYamlMap = tableSchemaYamlMapBuilder.build();
-            return  tableHandlesBuilder.build();
+            return tableHandlesBuilder.build();
         }
         catch (IOException e) {
             log.error(format("Failed to parse metadata file: %s, error: %s", config.getMetadataYamlPath(), e.getMessage()), e);
@@ -108,24 +115,26 @@ public class ClpYamlMetadataProvider
         return Collections.emptyList();
     }
 
-    private void collectTypes(Object node, String prefix, ImmutableList.Builder<Pair<String, Byte>> fullNamesBuilder)
+    private void collectTypes(Object node, String prefix, ImmutableList.Builder<String> namesBuilder, ImmutableList.Builder<Byte> typesBuilder)
     {
         if (node instanceof Number) {
-            fullNamesBuilder.add(Pair.of(prefix, ((Number) node).byteValue()));
+            namesBuilder.add(prefix);
+            typesBuilder.add(((Number) node).byteValue());
             return;
         }
         if (node instanceof List) {
             for (Number type : (List<Number>) node) {
-                fullNamesBuilder.add(Pair.of(prefix, (type.byteValue())));
+                namesBuilder.add(prefix);
+                typesBuilder.add(type.byteValue());
             }
             return;
         }
         for (Map.Entry<String, Object> entry : ((Map<String, Object>) node).entrySet()) {
             if (!prefix.isEmpty()) {
-                collectTypes(entry.getValue(), format("%s.%s", prefix, entry.getKey()), fullNamesBuilder);
+                collectTypes(entry.getValue(), format("%s.%s", prefix, entry.getKey()), namesBuilder, typesBuilder);
                 continue;
             }
-            collectTypes(entry.getValue(), entry.getKey(), fullNamesBuilder);
+            collectTypes(entry.getValue(), entry.getKey(), namesBuilder, typesBuilder);
         }
     }
 }
