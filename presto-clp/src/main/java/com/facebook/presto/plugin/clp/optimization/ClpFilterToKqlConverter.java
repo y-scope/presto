@@ -57,6 +57,8 @@ import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.RealType.REAL;
 import static com.facebook.presto.common.type.SmallintType.SMALLINT;
+import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
+import static com.facebook.presto.common.type.TimestampType.TIMESTAMP_MICROSECONDS;
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
@@ -914,6 +916,8 @@ public class ClpFilterToKqlConverter
                 || type.equals(TINYINT)
                 || type.equals(DOUBLE)
                 || type.equals(REAL)
+                || type.equals(TIMESTAMP)
+                || type.equals(TIMESTAMP_MICROSECONDS)
                 || type instanceof DecimalType;
     }
 

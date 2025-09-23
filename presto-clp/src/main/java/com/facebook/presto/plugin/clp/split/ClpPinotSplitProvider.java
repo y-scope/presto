@@ -102,7 +102,9 @@ public class ClpPinotSplitProvider
                 SplitType splitType = splitPath.endsWith(".clp.zst") ? IR : ARCHIVE;
                 splits.add(new ClpSplit(splitPath, splitType, Optional.empty()));
             }
-            return splits.build();
+            List<ClpSplit> filteredSplits = splits.build();
+            log.debug("Number of filtered splits: %s", filteredSplits.size());
+            return filteredSplits;
         }
         catch (Exception e) {
             log.error(e);
