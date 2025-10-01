@@ -33,7 +33,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
@@ -100,7 +99,7 @@ public class ClpPinotSplitProvider
                 JsonNode row = it.next();
                 String splitPath = row.elements().next().asText();
                 SplitType splitType = splitPath.endsWith(".clp.zst") ? IR : ARCHIVE;
-                splits.add(new ClpSplit(splitPath, splitType, Optional.empty()));
+                splits.add(new ClpSplit(splitPath, splitType, clpTableLayoutHandle.getKqlQuery()));
             }
             List<ClpSplit> filteredSplits = splits.build();
             log.debug("Number of filtered splits: %s", filteredSplits.size());
