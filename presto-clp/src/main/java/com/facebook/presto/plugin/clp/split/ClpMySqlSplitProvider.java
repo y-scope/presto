@@ -84,14 +84,14 @@ public class ClpMySqlSplitProvider
         if (topNSpecOptional.isPresent()) {
             ClpTopNSpec topNSpec = topNSpecOptional.get();
             // Only handles one range metadata column for now
-            ClpTopNSpec.Ordering ordering = topNSpec.orderings.get(0);
-            String col = ordering.columns.get(ordering.columns.size() - 1);
-            String dir = (ordering.order == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
+            ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
+            String col = ordering.getColumns().get(ordering.getColumns().size() - 1);
+            String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
             archivePathQuery += " ORDER BY " + "`" + col + "` " + dir;
 
             List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(archivePathQuery, ordering);
-            List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.limit, ordering.order);
-
+            List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
+ni
             for (ArchiveMeta a : selected) {
                 splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
             }
@@ -147,8 +147,8 @@ public class ClpMySqlSplitProvider
             while (rs.next()) {
                 list.add(new ArchiveMeta(
                         rs.getString(ARCHIVES_TABLE_COLUMN_ID),
-                        rs.getLong(ordering.columns.get(0)),
-                        rs.getLong(ordering.columns.get(1)),
+                        rs.getLong(ordering.getColumns().get(0)),
+                        rs.getLong(ordering.getColumns().get(1)),
                         rs.getLong(ARCHIVES_TABLE_NUM_MESSAGES)));
             }
         }

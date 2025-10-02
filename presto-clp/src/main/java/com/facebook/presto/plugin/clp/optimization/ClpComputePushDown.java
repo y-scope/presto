@@ -196,17 +196,17 @@ public class ClpComputePushDown
 
             if (existingTopN.isPresent()) {
                 ClpTopNSpec ex = existingTopN.get();
-                if (!sameOrdering(ex.orderings, newOrderings)) {
+                if (!sameOrdering(ex.getOrderings(), newOrderings)) {
                     return node.replaceChildren(ImmutableList.of(rewrittenSource)); // leave existing as-is
                 }
-                long mergedLimit = Math.min(ex.limit, node.getCount());
-                if (mergedLimit == ex.limit) {
+                long mergedLimit = Math.min(ex.getLimit(), node.getCount());
+                if (mergedLimit == ex.getLimit()) {
                     // No change needed; keep current layout/spec
                     return node.replaceChildren(ImmutableList.of(rewrittenSource));
                 }
 
                 // Tighten the limit on the layout
-                ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.orderings);
+                ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.getOrderings());
                 ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
                 ClpTableLayoutHandle newLayout =
                         new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.of(tightened));
@@ -367,10 +367,10 @@ public class ClpComputePushDown
             for (int i = 0; i < a.size(); i++) {
                 ClpTopNSpec.Ordering x = a.get(i);
                 ClpTopNSpec.Ordering y = b.get(i);
-                if (!Objects.equals(x.columns, y.columns)) {
+                if (!Objects.equals(x.getColumns(), y.getColumns())) {
                     return false;
                 }
-                if (x.order != y.order) {
+                if (x.getOrder() != y.getOrder()) {
                     return false;
                 }
             }
