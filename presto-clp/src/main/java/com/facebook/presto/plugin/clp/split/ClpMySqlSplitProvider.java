@@ -91,7 +91,7 @@ public class ClpMySqlSplitProvider
 
             List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(archivePathQuery, ordering);
             List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
-ni
+
             for (ArchiveMeta a : selected) {
                 splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
             }

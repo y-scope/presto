@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.block.SortOrder;
+import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpMetadata;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -36,7 +37,9 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TopNNode;
+import com.facebook.presto.spi.relation.ConstantExpression;
 import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -347,18 +350,6 @@ public class ClpComputePushDown
             }
         }
 
-        private boolean areIdents(ProjectNode project, List<Ordering> vars)
-        {
-            for (Ordering ord : vars) {
-                VariableReferenceExpression out = ord.getVariable();
-                RowExpression expr = project.getAssignments().get(out);
-                if (!(expr instanceof VariableReferenceExpression)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         private boolean sameOrdering(List<ClpTopNSpec.Ordering> a, List<ClpTopNSpec.Ordering> b)
         {
             if (a.size() != b.size()) {
@@ -387,6 +378,109 @@ public class ClpComputePushDown
                 return Optional.of((VariableReferenceExpression) expr);
             }
             return Optional.empty();
+        }
+
+        /** Accept plain var or dereference-of-var passthroughs. */
+        private boolean areIdents(ProjectNode project, List<Ordering> vars)
+        {
+            for (Ordering ord : vars) {
+                VariableReferenceExpression out = ord.getVariable();
+                RowExpression expr = project.getAssignments().get(out);
+
+                if (expr instanceof VariableReferenceExpression) {
+                    continue;
+                }
+                if (isDereferenceChainOverVariable(expr)) {
+                    continue;
+                }
+                return false;
+            }
+            return true;
+        }
+
+        /** Build final column name string for CLP (e.g., "msg.timestamp"), or empty if not pushdownable. */
+        private Optional<String> buildOrderColumnName(
+                ProjectNode project,
+                VariableReferenceExpression outVar,
+                Map<VariableReferenceExpression, ColumnHandle> assignments)
+        {
+            if (project == null) {
+                // ORDER BY directly on scan var
+                ColumnHandle ch = assignments.get(outVar);
+                if (!(ch instanceof ClpColumnHandle)) {
+                    return Optional.empty();
+                }
+                return Optional.of(((ClpColumnHandle) ch).getOriginalColumnName());
+            }
+
+            RowExpression expr = project.getAssignments().get(outVar);
+            if (expr instanceof VariableReferenceExpression) {
+                ColumnHandle ch = assignments.get((VariableReferenceExpression) expr);
+                if (!(ch instanceof ClpColumnHandle)) {
+                    return Optional.empty();
+                }
+                return Optional.of(((ClpColumnHandle) ch).getOriginalColumnName());
+            }
+
+            // Handle DEREFERENCE chain: baseVar.field1.field2...
+            Deque<String> path = new ArrayDeque<>();
+            RowExpression cur = expr;
+
+            while (cur instanceof SpecialFormExpression
+                    && ((SpecialFormExpression) cur).getForm() == SpecialFormExpression.Form.DEREFERENCE) {
+                SpecialFormExpression s = (SpecialFormExpression) cur;
+                RowExpression base = s.getArguments().get(0);
+                RowExpression indexExpr = s.getArguments().get(1);
+
+                if (!(indexExpr instanceof ConstantExpression) || !(base.getType() instanceof RowType)) {
+                    return Optional.empty();
+                }
+                int idx;
+                Object v = ((ConstantExpression) indexExpr).getValue();
+                if (v instanceof Long) {
+                    idx = Math.toIntExact((Long) v);
+                } else if (v instanceof Integer) {
+                    idx = (Integer) v;
+                } else {
+                    return Optional.empty();
+                }
+
+                RowType rowType = (RowType) base.getType();
+                if (idx < 0 || idx >= rowType.getFields().size()) {
+                    return Optional.empty();
+                }
+                String fname = rowType.getFields().get(idx).getName().orElse(String.valueOf(idx));
+                // We traverse outer->inner; collect in deque and join later
+                path.addLast(fname);
+
+                cur = base; // move up the chain
+            }
+
+            if (!(cur instanceof VariableReferenceExpression)) {
+                return Optional.empty();
+            }
+
+            ColumnHandle baseCh = assignments.get((VariableReferenceExpression) cur);
+            if (!(baseCh instanceof ClpColumnHandle)) {
+                return Optional.empty();
+            }
+
+            String baseName = ((ClpColumnHandle) baseCh).getOriginalColumnName();
+            if (path.isEmpty()) {
+                return Optional.of(baseName);
+            }
+            return Optional.of(baseName + "." + String.join(".", path));
+        }
+
+        /** True if expr is DEREFERENCE(... DEREFERENCE(baseVar, i) ..., j) with baseVar a VariableReferenceExpression. */
+        private boolean isDereferenceChainOverVariable(RowExpression expr)
+        {
+            RowExpression cur = expr;
+            while (cur instanceof SpecialFormExpression
+                    && ((SpecialFormExpression) cur).getForm() == SpecialFormExpression.Form.DEREFERENCE) {
+                cur = ((SpecialFormExpression) cur).getArguments().get(0);
+            }
+            return (cur instanceof VariableReferenceExpression);
         }
 
         private ClpTopNSpec.Order toClpOrder(SortOrder so)
