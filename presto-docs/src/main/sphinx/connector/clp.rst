@@ -252,10 +252,14 @@ CLP Type               Presto Type
 Double Types
 ============
 
-CLP uses three distinct double types: ``Float`` (a standard IEEE-754 double-precision value), ``FormattedFloat`` (a
-double-precision value stored together with its original formatting details), and ``DictionaryFloat`` (a
-double-precision value whose full string representation is stored in the variable dictionary, with values encoded by
-their corresponding dictionary IDs). At present, all three are mapped to Presto's ``DOUBLE`` type.
+CLP uses three distinct double types:
+
+- ``Float`` is a standard IEEE-754 double-precision value.
+- ``FormattedFloat`` is a double-precision value stored together with its original formatting details.
+- ``DictionaryFloat`` is a double-precision value whose full string representation is stored in the variable dictionary,
+  with values encoded by their corresponding dictionary IDs.
+
+At present, all three are mapped to Presto's ``DOUBLE`` type.
 
 String Types
 ============
