@@ -44,7 +44,9 @@ import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +56,7 @@ import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
+import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
@@ -177,23 +180,15 @@ public class ClpComputePushDown
             List<ClpTopNSpec.Ordering> newOrderings = new ArrayList<>(ords.size());
             for (Ordering ord : ords) {
                 VariableReferenceExpression outVar = ord.getVariable();
-                VariableReferenceExpression scanVar =
-                        (project == null)
-                                ? outVar
-                                : resolveThroughProject(project, outVar).orElse(null);
-                if (scanVar == null) {
-                    // Missing or non-identity mapping → skip pushdown
+                Optional<String> columnNameOpt = buildOrderColumnName(project, outVar, assignments);
+                if (!columnNameOpt.isPresent()) {
                     return node.replaceChildren(ImmutableList.of(rewrittenSource));
                 }
-                ClpColumnHandle columnHandle = ((ClpColumnHandle) assignments.get(scanVar));
-                if (columnHandle == null) {
-                    // ORDER BY is not a base scan column → skip pushdown
-                    return node.replaceChildren(ImmutableList.of(rewrittenSource));
-                }
+
                 String tableScope = CONNECTOR_NAME + "." + (clpTableHandle != null ?
                         clpTableHandle.getSchemaTableName().toString() : ClpMetadata.DEFAULT_SCHEMA_NAME);
-                String columnName = columnHandle.getOriginalColumnName();
-                List<String> remappedColumnName = splitFilterProvider.remapColumnName(tableScope, columnName);
+
+                List<String> remappedColumnName = splitFilterProvider.remapColumnName(tableScope, columnNameOpt.get());
                 newOrderings.add(new ClpTopNSpec.Ordering(remappedColumnName, toClpOrder(ord.getSortOrder())));
             }
 
@@ -368,18 +363,6 @@ public class ClpComputePushDown
             return true;
         }
 
-        private Optional<VariableReferenceExpression> resolveThroughProject(ProjectNode project, VariableReferenceExpression out)
-        {
-            if (project == null) {
-                return Optional.empty();
-            }
-            RowExpression expr = project.getAssignments().get(out);
-            if (expr instanceof VariableReferenceExpression) {
-                return Optional.of((VariableReferenceExpression) expr);
-            }
-            return Optional.empty();
-        }
-
         /** Accept plain var or dereference-of-var passthroughs. */
         private boolean areIdents(ProjectNode project, List<Ordering> vars)
         {
@@ -438,10 +421,12 @@ public class ClpComputePushDown
                 int idx;
                 Object v = ((ConstantExpression) indexExpr).getValue();
                 if (v instanceof Long) {
-                    idx = Math.toIntExact((Long) v);
-                } else if (v instanceof Integer) {
+                    idx = toIntExact((Long) v);
+                }
+                else if (v instanceof Integer) {
                     idx = (Integer) v;
-                } else {
+                }
+                else {
                     return Optional.empty();
                 }
 

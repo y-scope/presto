@@ -162,8 +162,8 @@ public class ClpMySqlSplitProvider
      * Selects the set of archives that must be scanned to guarantee the top-N results by timestamp
      * (ASC or DESC), given only archive ranges and message counts.
      * <ul>
-     *   <li>Merges overlapping archives into components (union of time ranges).</li>
-     *   <li>For DESC: always include the newest component, then add older ones until their total
+     *   <li>Merges overlapping archives into groups (union of time ranges).</li>
+     *   <li>For DESC: always include the newest group, then add older ones until their total
      *      message counts cover the limit.</li>
      *   <li>For ASC: symmetric — start from the oldest, then add newer ones.</li>
      * </ul>
@@ -220,7 +220,7 @@ public class ClpMySqlSplitProvider
      * Groups overlapping archives into non-overlapping archive groups.
      *
      * @param archives archives sorted by lowerBound
-     * @return merged components
+     * @return merged groups
      */
     private static List<ArchiveGroup> toArchiveGroups(List<ArchiveMeta> archives)
     {
@@ -236,7 +236,7 @@ public class ClpMySqlSplitProvider
                 cur = startArchiveGroup(a);
             }
             else if (overlaps(cur, a)) {
-                // extend current component
+                // extend current group
                 cur.end = Math.max(cur.end, a.upperBound);
                 cur.count += a.messageCount;
                 cur.members.add(a);

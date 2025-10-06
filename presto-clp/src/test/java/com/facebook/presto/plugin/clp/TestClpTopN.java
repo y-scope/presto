@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.transaction.TransactionId;
+import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.cost.PlanNodeStatsEstimate;
 import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
@@ -31,9 +32,13 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
+import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.TableScanNode;
+import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.sql.planner.assertions.MatchResult;
@@ -41,6 +46,8 @@ import com.facebook.presto.sql.planner.assertions.Matcher;
 import com.facebook.presto.sql.planner.assertions.PlanAssert;
 import com.facebook.presto.sql.planner.assertions.PlanMatchPattern;
 import com.facebook.presto.sql.planner.assertions.SymbolAliases;
+import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.testing.LocalQueryRunner;
@@ -56,6 +63,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -121,7 +129,7 @@ public class TestClpTopN
                 ImmutableMap.of(
                         tableName,
                         ImmutableList.of(
-                                new Pair<>("timestamp", Integer),
+                                new Pair<>("msg.timestamp", Integer),
                                 new Pair<>("city.Name", ClpString),
                                 new Pair<>("city.Region.Id", Integer),
                                 new Pair<>("city.Region.Name", VarString),
@@ -178,56 +186,56 @@ public class TestClpTopN
     public void test()
     {
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp > 120 AND timestamp < 240 ORDER BY timestamp DESC LIMIT 100",
-                "(timestamp > 120 AND timestamp < 240)",
+                "SELECT * FROM test WHERE msg.timestamp > 120 AND msg.timestamp < 240 ORDER BY msg.timestamp DESC LIMIT 100",
+                "(msg.timestamp > 120 AND msg.timestamp < 240)",
                 "(end_timestamp > 120 AND begin_timestamp < 240)",
                 100,
                 DESC,
                 ImmutableSet.of("1", "2", "3"));
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp > 120 AND timestamp < 240 ORDER BY timestamp ASC LIMIT 50",
-                "(timestamp > 120 AND timestamp < 240)",
+                "SELECT * FROM test WHERE msg.timestamp > 120 AND msg.timestamp < 240 ORDER BY msg.timestamp ASC LIMIT 50",
+                "(msg.timestamp > 120 AND msg.timestamp < 240)",
                 "(end_timestamp > 120 AND begin_timestamp < 240)",
                 50,
                 ASC,
                 ImmutableSet.of("1", "2", "3"));
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp >= 180 AND timestamp <= 260 ORDER BY timestamp DESC LIMIT 100",
-                "timestamp >= 180 AND timestamp <= 260",
-                "end_timestamp >= 180 AND begin_timestamp <= 260",
+                "SELECT * FROM test WHERE msg.timestamp >= 180 AND msg.timestamp <= 260 ORDER BY msg.timestamp DESC LIMIT 100",
+                "(msg.timestamp >= 180 AND msg.timestamp <= 260)",
+                "(end_timestamp >= 180 AND begin_timestamp <= 260)",
                 100,
                 DESC,
                 ImmutableSet.of("2", "3"));
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp > 250 AND timestamp < 290 ORDER BY timestamp DESC LIMIT 10",
-                "(timestamp > 250 AND timestamp < 290)",
+                "SELECT * FROM test WHERE msg.timestamp > 250 AND msg.timestamp < 290 ORDER BY msg.timestamp DESC LIMIT 10",
+                "(msg.timestamp > 250 AND msg.timestamp < 290)",
                 "(end_timestamp > 250 AND begin_timestamp < 290)",
                 10,
                 DESC,
                 ImmutableSet.of("3"));
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp > 1000 AND timestamp < 1100 ORDER BY timestamp DESC LIMIT 10",
-                "(timestamp > 1000 AND timestamp < 1100)",
+                "SELECT * FROM test WHERE msg.timestamp > 1000 AND msg.timestamp < 1100 ORDER BY msg.timestamp DESC LIMIT 10",
+                "(msg.timestamp > 1000 AND msg.timestamp < 1100)",
                 "(end_timestamp > 1000 AND begin_timestamp < 1100)",
                 10,
                 DESC,
                 ImmutableSet.of());
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp <= 300 ORDER BY timestamp DESC LIMIT 1000",
-                "timestamp <= 300",
+                "SELECT * FROM test WHERE msg.timestamp <= 300 ORDER BY msg.timestamp DESC LIMIT 1000",
+                "msg.timestamp <= 300",
                 "begin_timestamp <= 300",
                 1000,
                 DESC,
                 ImmutableSet.of("0", "1", "2", "3"));
 
         testTopNQueryPlanAndSplits(
-                "SELECT * FROM test WHERE timestamp <= 400 ORDER BY timestamp DESC LIMIT 100",
-                "timestamp <= 400",
+                "SELECT * FROM test WHERE msg.timestamp <= 400 ORDER BY msg.timestamp DESC LIMIT 100",
+                "msg.timestamp <= 400",
                 "begin_timestamp <= 400",
                 100,
                 DESC,
@@ -245,6 +253,7 @@ public class TestClpTopN
                 WarningCollector.NOOP);
         ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
         PlanNode optimizedPlan = optimizer.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
+        PlanNode optimizedPlanWithUniqueId = freshenIds(optimizedPlan, new PlanNodeIdAllocator());
 
         ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(
                 table,
@@ -259,7 +268,7 @@ public class TestClpTopN
                 session,
                 localQueryRunner.getMetadata(),
                 (node, sourceStats, lookup, s, types) -> PlanNodeStatsEstimate.unknown(),
-                new Plan(optimizedPlan, plan.getTypes(), StatsAndCosts.empty()),
+                new Plan(optimizedPlanWithUniqueId, plan.getTypes(), StatsAndCosts.empty()),
                 anyTree(
                         ClpTableScanMatcher.clpTableScanPattern(
                                 clpTableLayoutHandle,
@@ -267,13 +276,109 @@ public class TestClpTopN
                                         city,
                                         fare,
                                         isHoliday,
-                                        new ClpColumnHandle("timestamp", BIGINT)))));
+                                        new ClpColumnHandle(
+                                                "msg",
+                                                RowType.from(ImmutableList.of(new RowType.Field(Optional.of("timestamp"), BIGINT))))))));
 
         assertEquals(
                 ImmutableSet.copyOf(splitProvider.listSplits(clpTableLayoutHandle)),
                 splitIds.stream()
                         .map(id -> new ClpSplit("/tmp/archives/test/" + id, ARCHIVE, Optional.of(kql)))
                         .collect(ImmutableSet.toImmutableSet()));
+    }
+
+    /**
+     * Recursively rebuilds a query plan tree so that every {@link PlanNode} has a fresh, unique ID.
+     * <p></p>
+     * This utility is mainly for testing, to avoid ID collisions that can occur when
+     * <code>localQueryRunner.createPlan()</code> and a custom optimizer each use separate
+     * {@link PlanNodeIdAllocator}s that start at the same seed, producing duplicate IDs.
+     *
+     * @param root the root of the plan
+     * @param idAlloc the plan node ID allocator
+     * @return the plan with a fresh, unique IDs.
+     */
+    private static PlanNode freshenIds(PlanNode root, PlanNodeIdAllocator idAlloc)
+    {
+        return SimplePlanRewriter.rewriteWith(new SimplePlanRewriter<Void>() {
+            @Override
+            public PlanNode visitOutput(OutputNode node, RewriteContext<Void> ctx)
+            {
+                PlanNode src = ctx.rewrite(node.getSource(), null);
+                return new OutputNode(
+                        node.getSourceLocation(),
+                        idAlloc.getNextId(),
+                        src,
+                        node.getColumnNames(),
+                        node.getOutputVariables());
+            }
+
+            @Override
+            public PlanNode visitExchange(ExchangeNode node, RewriteContext<Void> ctx)
+            {
+                List<PlanNode> newSources = node.getSources().stream()
+                        .map(s -> ctx.rewrite(s, null))
+                        .collect(com.google.common.collect.ImmutableList.toImmutableList());
+
+                return new ExchangeNode(
+                        node.getSourceLocation(),
+                        idAlloc.getNextId(),
+                        node.getType(),
+                        node.getScope(),
+                        node.getPartitioningScheme(),
+                        newSources,
+                        node.getInputs(),
+                        node.isEnsureSourceOrdering(),
+                        node.getOrderingScheme());
+            }
+
+            @Override
+            public PlanNode visitProject(ProjectNode node, RewriteContext<Void> ctx)
+            {
+                PlanNode src = ctx.rewrite(node.getSource(), null);
+                return new ProjectNode(idAlloc.getNextId(), src, node.getAssignments());
+            }
+
+            @Override
+            public PlanNode visitFilter(FilterNode node, RewriteContext<Void> ctx)
+            {
+                PlanNode src = ctx.rewrite(node.getSource(), null);
+                return new FilterNode(node.getSourceLocation(), idAlloc.getNextId(), src, node.getPredicate());
+            }
+
+            @Override
+            public PlanNode visitTopN(TopNNode node, RewriteContext<Void> ctx)
+            {
+                PlanNode src = ctx.rewrite(node.getSource(), null);
+                return new TopNNode(
+                        node.getSourceLocation(),
+                        idAlloc.getNextId(),
+                        src,
+                        node.getCount(),
+                        node.getOrderingScheme(),
+                        node.getStep());
+            }
+
+            @Override
+            public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> ctx)
+            {
+                return new TableScanNode(
+                        node.getSourceLocation(),
+                        idAlloc.getNextId(),
+                        node.getTable(),
+                        node.getOutputVariables(),
+                        node.getAssignments());
+            }
+
+            @Override
+            public PlanNode visitPlan(PlanNode node, RewriteContext<Void> ctx)
+            {
+                List<PlanNode> newChildren = node.getSources().stream()
+                        .map(ch -> ctx.rewrite(ch, null))
+                        .collect(com.google.common.collect.ImmutableList.toImmutableList());
+                return node.replaceChildren(newChildren);
+            }
+        }, root, null);
     }
 
     private static final class ClpTableScanMatcher

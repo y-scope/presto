@@ -1,7 +1,7 @@
 {
   "clp.default.test": [
     {
-      "columnName": "timestamp",
+      "columnName": "msg.timestamp",
       "customOptions": {
         "rangeMapping": {
           "lowerBound": "begin_timestamp",
