@@ -50,8 +50,10 @@ import static org.testng.Assert.fail;
 public class TestClpPushDown
 {
     private static final String TABLE_NAME = "test_pushdown";
-    private static final Long TEST_TS_SECONDS = 1746003005L;
-    private static final Long TEST_TS_NANOSECONDS = 1746003005000000000L;
+    private static final Long TEST_TS_SECONDS_LOWER_BOUND = 1746003005L;
+    private static final Long TEST_TS_NANOSECONDS_LOWER_BOUND = 1746003005000000000L;
+    private static final Long TEST_TS_SECONDS_UPPER_BOUND = 1746003015L;
+    private static final Long TEST_TS_NANOSECONDS_UPPER_BOUND = 1746003015000000000L;
 
     private ClpMockMetadataDatabase mockMetadataDatabase;
     private DistributedQueryRunner queryRunner;
@@ -59,7 +61,9 @@ public class TestClpPushDown
     private DispatchManager dispatchManager;
 
     @BeforeMethod
-    public void setUp() throws Exception {
+    public void setUp()
+                throws Exception
+    {
         mockMetadataDatabase = ClpMockMetadataDatabase
                 .builder()
                 .build();
@@ -98,7 +102,9 @@ public class TestClpPushDown
     }
 
     @AfterMethod
-    public void tearDown() throws InterruptedException {
+    public void tearDown()
+                throws InterruptedException
+    {
         long maxCleanUpTime = 5 * 1000L;    // 5 seconds
         long currentCleanUpTime = 0L;
         while (!queryManager.getQueries().isEmpty() && currentCleanUpTime < maxCleanUpTime) {
@@ -112,23 +118,31 @@ public class TestClpPushDown
 
     public void testTimestampComparisons()
     {
-        testPushDown(format("ts > from_unixtime(%s)", TEST_TS_SECONDS), format("ts > %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts >= from_unixtime(%s)", TEST_TS_SECONDS), format("ts >= %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts < from_unixtime(%s)", TEST_TS_SECONDS), format("ts < %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts <= from_unixtime(%s)", TEST_TS_SECONDS), format("ts <= %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts = from_unixtime(%s)", TEST_TS_SECONDS), format("ts: %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts != from_unixtime(%s)", TEST_TS_SECONDS), format("NOT ts: %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("ts <> from_unixtime(%s)", TEST_TS_SECONDS), format("NOT ts: %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) < ts", TEST_TS_SECONDS), format("ts > %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) <= ts", TEST_TS_SECONDS), format("ts >= %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) > ts", TEST_TS_SECONDS), format("ts < %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) >= ts", TEST_TS_SECONDS), format("ts <= %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) = ts", TEST_TS_SECONDS), format("ts: %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) != ts", TEST_TS_SECONDS), format("NOT ts: %s", TEST_TS_NANOSECONDS));
-        testPushDown(format("from_unixtime(%s) <> ts", TEST_TS_SECONDS), format("NOT ts: %s", TEST_TS_NANOSECONDS));
+        // Test logical binary
+        testPushDown(format("ts > from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("ts > %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts >= from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("ts >= %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts < from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("ts < %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts <= from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("ts <= %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts = from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts != from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("NOT ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("ts <> from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND), format("NOT ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) < ts", TEST_TS_SECONDS_LOWER_BOUND), format("ts > %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) <= ts", TEST_TS_SECONDS_LOWER_BOUND), format("ts >= %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) > ts", TEST_TS_SECONDS_LOWER_BOUND), format("ts < %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) >= ts", TEST_TS_SECONDS_LOWER_BOUND), format("ts <= %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) = ts", TEST_TS_SECONDS_LOWER_BOUND), format("ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) != ts", TEST_TS_SECONDS_LOWER_BOUND), format("NOT ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+        testPushDown(format("from_unixtime(%s) <> ts", TEST_TS_SECONDS_LOWER_BOUND), format("NOT ts: %s", TEST_TS_NANOSECONDS_LOWER_BOUND));
+
+        // Test BETWEEN
+        testPushDown(format("ts >= from_unixtime(%s) AND ts <= from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND, TEST_TS_SECONDS_UPPER_BOUND),
+                format("ts >= %s AND ts <= %s", TEST_TS_NANOSECONDS_LOWER_BOUND, TEST_TS_NANOSECONDS_UPPER_BOUND));
+        testPushDown(format("ts BETWEEN from_unixtime(%s) AND from_unixtime(%s)", TEST_TS_SECONDS_LOWER_BOUND, TEST_TS_SECONDS_UPPER_BOUND),
+                format("ts >= %s AND ts <= %s", TEST_TS_NANOSECONDS_LOWER_BOUND, TEST_TS_NANOSECONDS_UPPER_BOUND));
     }
 
-    private void testPushDown(String filter, String expectedPushDown) {
+    private void testPushDown(String filter, String expectedPushDown)
+    {
         try {
             QueryId id = queryRunner.getCoordinator().getDispatchManager().createQueryId();
             @Language("SQL") String sql = format("SELECT * FROM clp.default.test_pushdown WHERE %s LIMIT 1", filter);
@@ -159,7 +173,8 @@ public class TestClpPushDown
             }
             assertTrue(isPushDownGenerated);
             queryManager.cancelQuery(id);
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             fail(e.getMessage());
         }
     }
