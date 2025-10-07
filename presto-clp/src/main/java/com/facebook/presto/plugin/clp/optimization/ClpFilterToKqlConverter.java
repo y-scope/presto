@@ -554,6 +554,7 @@ public class ClpFilterToKqlConverter
      *
      * @param info parsed SUBSTR call info
      * @param targetString the literal string being compared to
+     * @param isEqual whether the operator is EQUAL or not
      * @return an Optional containing either a ClpExpression with the equivalent KQL query
      */
     private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString, boolean isEqual)
