@@ -54,7 +54,7 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 @Test(singleThreaded = true)
-public class TestClpPushDown
+public class TestClpComputePushDown
 {
     private static final String TABLE_NAME = "test_pushdown";
     private static final Pattern BASE_PTR =
