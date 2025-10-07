@@ -493,7 +493,7 @@ public class ClpFilterToKqlConverter
             RowExpression possibleSubstring,
             RowExpression possibleLiteral)
     {
-        if (!operator.equals(EQUAL)) {
+        if (!operator.equals(EQUAL) && !(operator.equals(NOT_EQUAL))) {
             return Optional.empty();
         }
 
@@ -508,7 +508,7 @@ public class ClpFilterToKqlConverter
         }
 
         String targetString = getLiteralString((ConstantExpression) possibleLiteral);
-        return interpretSubstringEquality(maybeSubstringCall.get(), targetString);
+        return interpretSubstringEquality(maybeSubstringCall.get(), targetString, operator.equals(EQUAL));
     }
 
     /**
@@ -561,8 +561,12 @@ public class ClpFilterToKqlConverter
      * @param targetString the literal string being compared to
      * @return an Optional containing either a ClpExpression with the equivalent KQL query
      */
-    private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString)
+    private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString, boolean isEqual)
     {
+        StringBuilder result = new StringBuilder();
+        if (!isEqual) {
+            result.append("NOT ");
+        }
         if (info.lengthExpression != null) {
             Optional<Integer> maybeStart = parseIntValue(info.startExpression);
             Optional<Integer> maybeLen = parseLengthLiteral(info.lengthExpression, targetString);
@@ -571,7 +575,6 @@ public class ClpFilterToKqlConverter
                 int start = maybeStart.get();
                 int len = maybeLen.get();
                 if (start > 0 && len == targetString.length()) {
-                    StringBuilder result = new StringBuilder();
                     result.append(info.variableName).append(": \"");
                     for (int i = 1; i < start; i++) {
                         result.append("?");
@@ -586,7 +589,6 @@ public class ClpFilterToKqlConverter
             if (maybeStart.isPresent()) {
                 int start = maybeStart.get();
                 if (start > 0) {
-                    StringBuilder result = new StringBuilder();
                     result.append(info.variableName).append(": \"");
                     for (int i = 1; i < start; i++) {
                         result.append("?");
@@ -595,7 +597,8 @@ public class ClpFilterToKqlConverter
                     return Optional.of(new ClpExpression(result.toString()));
                 }
                 if (start == -targetString.length()) {
-                    return Optional.of(new ClpExpression(format("%s: \"*%s\"", info.variableName, targetString)));
+                    result.append(format("%s: \"*%s\"", info.variableName, targetString));
+                    return Optional.of(new ClpExpression(result.toString()));
                 }
             }
         }
