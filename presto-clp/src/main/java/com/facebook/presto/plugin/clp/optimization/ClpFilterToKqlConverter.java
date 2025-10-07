@@ -16,7 +16,6 @@ package com.facebook.presto.plugin.clp.optimization;
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.RowType;
-import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
@@ -58,15 +57,12 @@ import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.RealType.REAL;
 import static com.facebook.presto.common.type.SmallintType.SMALLINT;
-import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.common.type.TimestampType.TIMESTAMP_MICROSECONDS;
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
  * A translator to translate Presto {@link RowExpression}s into:
@@ -260,10 +256,8 @@ public class ClpFilterToKqlConverter
         }
 
         String variable = variableOpt.get();
-        Type lowerBoundType = second.getType();
-        String lowerBound = tryEnsureNanosecondTimestamp(lowerBoundType, getLiteralString((ConstantExpression) second));
-        Type upperBoundType = third.getType();
-        String upperBound = tryEnsureNanosecondTimestamp(upperBoundType, getLiteralString((ConstantExpression) third));
+        String lowerBound = getLiteralString((ConstantExpression) second);
+        String upperBound = getLiteralString((ConstantExpression) third);
         String kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
         String metadataSqlQuery = metadataFilterColumns.contains(variable)
                 ? String.format("\"%s\" >= %s AND \"%s\" <= %s", variable, lowerBound, variable, upperBound)
@@ -446,7 +440,6 @@ public class ClpFilterToKqlConverter
             RowExpression originalNode)
     {
         String metadataSqlQuery = null;
-        literalString = tryEnsureNanosecondTimestamp(literalType, literalString);
         if (operator.equals(EQUAL)) {
             if (literalType instanceof VarcharType) {
                 return new ClpExpression(format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)));
@@ -493,7 +486,7 @@ public class ClpFilterToKqlConverter
             RowExpression possibleSubstring,
             RowExpression possibleLiteral)
     {
-        if (!operator.equals(EQUAL) && !(operator.equals(NOT_EQUAL))) {
+        if (!operator.equals(EQUAL)) {
             return Optional.empty();
         }
 
@@ -508,7 +501,7 @@ public class ClpFilterToKqlConverter
         }
 
         String targetString = getLiteralString((ConstantExpression) possibleLiteral);
-        return interpretSubstringEquality(maybeSubstringCall.get(), targetString, operator.equals(EQUAL));
+        return interpretSubstringEquality(maybeSubstringCall.get(), targetString);
     }
 
     /**
@@ -561,12 +554,8 @@ public class ClpFilterToKqlConverter
      * @param targetString the literal string being compared to
      * @return an Optional containing either a ClpExpression with the equivalent KQL query
      */
-    private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString, boolean isEqual)
+    private Optional<ClpExpression> interpretSubstringEquality(SubstrInfo info, String targetString)
     {
-        StringBuilder result = new StringBuilder();
-        if (!isEqual) {
-            result.append("NOT ");
-        }
         if (info.lengthExpression != null) {
             Optional<Integer> maybeStart = parseIntValue(info.startExpression);
             Optional<Integer> maybeLen = parseLengthLiteral(info.lengthExpression, targetString);
@@ -575,6 +564,7 @@ public class ClpFilterToKqlConverter
                 int start = maybeStart.get();
                 int len = maybeLen.get();
                 if (start > 0 && len == targetString.length()) {
+                    StringBuilder result = new StringBuilder();
                     result.append(info.variableName).append(": \"");
                     for (int i = 1; i < start; i++) {
                         result.append("?");
@@ -589,6 +579,7 @@ public class ClpFilterToKqlConverter
             if (maybeStart.isPresent()) {
                 int start = maybeStart.get();
                 if (start > 0) {
+                    StringBuilder result = new StringBuilder();
                     result.append(info.variableName).append(": \"");
                     for (int i = 1; i < start; i++) {
                         result.append("?");
@@ -597,8 +588,7 @@ public class ClpFilterToKqlConverter
                     return Optional.of(new ClpExpression(result.toString()));
                 }
                 if (start == -targetString.length()) {
-                    result.append(format("%s: \"*%s\"", info.variableName, targetString));
-                    return Optional.of(new ClpExpression(result.toString()));
+                    return Optional.of(new ClpExpression(format("%s: \"*%s\"", info.variableName, targetString)));
                 }
             }
         }
@@ -924,29 +914,7 @@ public class ClpFilterToKqlConverter
                 || type.equals(TINYINT)
                 || type.equals(DOUBLE)
                 || type.equals(REAL)
-                || type.equals(TIMESTAMP)
-                || type.equals(TIMESTAMP_MICROSECONDS)
                 || type instanceof DecimalType;
-    }
-
-    private static String tryEnsureNanosecondTimestamp(Type type, String literalString)
-    {
-        if (type == TIMESTAMP) {
-            return ensureNanosecondTimestamp(TIMESTAMP, literalString);
-        }
-        else if (type == TIMESTAMP_MICROSECONDS) {
-            return ensureNanosecondTimestamp(TIMESTAMP_MICROSECONDS, literalString);
-        }
-        return literalString;
-    }
-
-    private static String ensureNanosecondTimestamp(TimestampType type, String literalString)
-    {
-        long literalNumber = Long.parseLong(literalString);
-        long seconds = type.getEpochSecond(literalNumber);
-        long nanosecondFraction = type.getNanos(literalNumber);
-        long nanoseconds = SECONDS.toNanos(seconds) + nanosecondFraction;
-        return Long.toString(nanoseconds);
     }
 
     private static class SubstrInfo
