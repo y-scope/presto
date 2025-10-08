@@ -27,8 +27,10 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 
 import static com.facebook.presto.plugin.clp.ClpConfig.SplitFilterProviderType;
+import static com.facebook.presto.plugin.clp.ClpConfig.SplitProviderType;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
@@ -127,7 +129,8 @@ public class ClpQueryRunner
                 .put("clp.metadata-db-user", metadataDbUser)
                 .put("clp.metadata-db-password", metadataDbPassword)
                 .put("clp.metadata-table-prefix", metadataDbTablePrefix)
-                .put("clp.split-provider-type", splitFilterProvider.orElse(SplitFilterProviderType.MYSQL.name()));
+                .put("clp.split-provider-type", SplitProviderType.MYSQL.name())
+                .put("clp.split-filter-provider-type", splitFilterProvider.orElse(SplitFilterProviderType.MYSQL.name()));
         splitFilterConfigPath.ifPresent(s -> clpProperties.put("clp.split-filter-config", s));
 
         Map<String, String> clpPropertiesMap = clpProperties.build();
@@ -149,7 +152,7 @@ public class ClpQueryRunner
     public static String createConfigFile(String configuration)
     {
         UUID uuid = UUID.randomUUID();
-        File file = new File(format("/tmp/config-%s", uuid));
+        File file = new File(System.getProperty("java.io.tmpdir"), format("config-%s", uuid));
         try {
             boolean fileCreated = file.createNewFile();
             assertTrue(fileCreated);
@@ -162,7 +165,7 @@ public class ClpQueryRunner
             fail("Cannot create split filter config file");
         }
         try (FileOutputStream fos = new FileOutputStream(file)) {
-            fos.write(configuration.getBytes());
+            fos.write(configuration.getBytes(UTF_8));
         }
         catch (Exception e) {
             fail(e.getMessage());
