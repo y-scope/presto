@@ -130,6 +130,7 @@ public class TestClpComputePushDown
     public void tearDown()
                 throws InterruptedException
     {
+        queryRunner.cancelAllQueries();
         long maxCleanUpTime = 5 * 1000L;    // 5 seconds
         long currentCleanUpTime = 0L;
         while (!queryManager.getQueries().isEmpty() && currentCleanUpTime < maxCleanUpTime) {
@@ -384,10 +385,12 @@ public class TestClpComputePushDown
 
     private void testPushDown(String filter, String expectedPushDown, String expectedRemaining, boolean ignoreSplitFilterPushDown, String expectedSplitFilterPushDown)
     {
+        QueryId originalQueryId = null;
+        QueryId remainingFilterQueryId = null;
         try {
             // We first execute a query using the original filter and look for the FilterNode (for remaining expression)
             // and TableScanNode (for KQL pushdown and split filter pushdown)
-            QueryId originalQueryId = createAndPlanQuery(filter);
+            originalQueryId = createAndPlanQuery(filter);
             String actualPushDown = null;
             String actualSplitFilterPushDown = null;
             RowExpression actualRemainingExpression = null;
@@ -415,7 +418,7 @@ public class TestClpComputePushDown
                 // plan of the original query. To ensure the translation process is the same, we create another query
                 // which only contain the remaining expression as the filter, then we look for the FilterNode and get
                 // the predict as the translated RowExpression of the expectedRemaining.
-                QueryId remainingFilterQueryId = createAndPlanQuery(expectedRemaining);
+                remainingFilterQueryId = createAndPlanQuery(expectedRemaining);
                 Plan remainingFilterPlan = queryManager.getQueryPlan(remainingFilterQueryId);
                 RowExpression expectedRemainingExpression = null;
                 for (Map.Entry<PlanNodeId, PlanNode> entry : remainingFilterPlan.getPlanIdNodeMap().entrySet()) {
@@ -425,12 +428,18 @@ public class TestClpComputePushDown
                     }
                 }
                 equalsIgnoreBase(actualRemainingExpression, expectedRemainingExpression);
-                queryManager.cancelQuery(remainingFilterQueryId);
             }
-            queryManager.cancelQuery(originalQueryId);
         }
         catch (Exception e) {
             fail(e.getMessage());
+        }
+        finally {
+            if (originalQueryId != null) {
+                queryManager.cancelQuery(originalQueryId);
+            }
+            if (remainingFilterQueryId != null) {
+                queryManager.cancelQuery(remainingFilterQueryId);
+            }
         }
     }
 
