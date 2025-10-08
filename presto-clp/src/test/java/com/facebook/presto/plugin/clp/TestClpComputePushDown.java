@@ -39,7 +39,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 
 import static com.facebook.presto.execution.QueryState.RUNNING;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.createConfigFile;
 import static com.facebook.presto.plugin.clp.ClpQueryRunner.createQueryRunner;
+import static com.facebook.presto.plugin.clp.ClpQueryRunner.deleteConfigFile;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Float;
@@ -64,11 +66,13 @@ public class TestClpComputePushDown
     private DistributedQueryRunner queryRunner;
     private SqlQueryManager queryManager;
     private DispatchManager dispatchManager;
+    private String splitFilterConfigFilePath;
 
     @BeforeClass
     public void setUp()
                 throws Exception
     {
+        // Set up metadata database
         mockMetadataDatabase = ClpMockMetadataDatabase
                 .builder()
                 .build();
@@ -92,11 +96,29 @@ public class TestClpComputePushDown
                         Float,
                         Boolean,
                         DateString))));
+        // Set up split filter config
+        String splitFilterConfigJsonString = "{\n" +
+                "  \"clp\": [\n" +
+                "    {\n" +
+                "      \"columnName\": \"fare\",\n" +
+                "      \"customOptions\": {\n" +
+                "        \"rangeMapping\": {\n" +
+                "          \"lowerBound\": \"fare_lb\",\n" +
+                "          \"upperBound\": \"fare_ub\"\n" +
+                "        }\n" +
+                "      },\n" +
+                "      \"required\": false\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}";
+        splitFilterConfigFilePath = createConfigFile(splitFilterConfigJsonString);
         queryRunner = createQueryRunner(
                 mockMetadataDatabase.getUrl(),
                 mockMetadataDatabase.getUsername(),
                 mockMetadataDatabase.getPassword(),
                 mockMetadataDatabase.getTablePrefix(),
+                Optional.empty(),
+                Optional.of(splitFilterConfigFilePath),
                 Optional.of(0),
                 Optional.empty());
         queryManager = (SqlQueryManager) queryRunner.getCoordinator().getQueryManager();
@@ -117,6 +139,7 @@ public class TestClpComputePushDown
         if (null != mockMetadataDatabase) {
             mockMetadataDatabase.teardown();
         }
+        deleteConfigFile(splitFilterConfigFilePath);
     }
 
     @Test
@@ -285,6 +308,43 @@ public class TestClpComputePushDown
     }
 
     @Test
+    public void testSplitFilterPushDown()
+    {
+        // Normal case
+        testPushDown(
+                "(fare > 0 AND city.Name like 'b%')",
+                "(fare > 0.0 AND city.Name: \"b*\")",
+                null,
+                "(fare_ub > 0.0)");
+
+        // With BETWEEN
+        testPushDown(
+                "((fare BETWEEN 0 AND 5) AND city.Name like 'b%')",
+                "(fare >= 0.0 AND fare <= 5.0 AND city.Name: \"b*\")",
+                null,
+                "(fare_ub >= 0.0 AND fare_lb <= 5.0)");
+
+        // The cases of that the metadata filter column exist but cannot be push down
+        testPushDown(
+                "(fare > 0 OR city.Name like 'b%')",
+                "(fare > 0.0 OR city.Name: \"b*\")",
+                null,
+                null);
+        testPushDown(
+                "(fare > 0 AND city.Name like 'b%') OR city.Region.Id = 1",
+                "((city.Region.id: 1 OR fare > 0.0) AND (city.Region.id: 1 OR city.Name: \"b*\"))",
+                null,
+                null);
+
+        // Complicated case
+        testPushDown(
+                "fare = 0 AND (city.Name like 'b%' OR city.Region.Id = 1)",
+                "(fare: 0.0 AND (city.Name: \"b*\" OR city.Region.id: 1))",
+                null,
+                "((fare_lb <= 0.0 AND fare_ub >= 0.0))");
+    }
+
+    @Test
     public void testClpWildcardUdf()
     {
         testPushDown("CLP_WILDCARD_STRING_COLUMN() = 'Beijing'", "*: \"Beijing\"", null);
@@ -314,11 +374,22 @@ public class TestClpComputePushDown
 
     private void testPushDown(String filter, String expectedPushDown, String expectedRemaining)
     {
+        testPushDown(filter, expectedPushDown, expectedRemaining, true, null);
+    }
+
+    private void testPushDown(String filter, String expectedPushDown, String expectedRemaining, String expectedSplitFilterPushDown)
+    {
+        testPushDown(filter, expectedPushDown, expectedRemaining, false, expectedSplitFilterPushDown);
+    }
+
+    private void testPushDown(String filter, String expectedPushDown, String expectedRemaining, boolean ignoreSplitFilterPushDown, String expectedSplitFilterPushDown)
+    {
         try {
             // We first execute a query using the original filter and look for the FilterNode (for remaining expression)
             // and TableScanNode (for KQL pushdown and split filter pushdown)
             QueryId originalQueryId = createAndPlanQuery(filter);
             String actualPushDown = null;
+            String actualSplitFilterPushDown = null;
             RowExpression actualRemainingExpression = null;
             Plan originalQueryPlan = queryManager.getQueryPlan(originalQueryId);
             for (Map.Entry<PlanNodeId, PlanNode> entry : originalQueryPlan.getPlanIdNodeMap().entrySet()) {
@@ -330,9 +401,13 @@ public class TestClpComputePushDown
                 clpTableLayoutHandle = tryGetClpTableLayoutHandleFromTableScanNode(entry.getValue());
                 if (clpTableLayoutHandle != null && actualPushDown == null) {
                     actualPushDown = clpTableLayoutHandle.getKqlQuery().orElse(null);
+                    actualSplitFilterPushDown = clpTableLayoutHandle.getMetadataSql().orElse(null);
                 }
             }
             assertEquals(actualPushDown, expectedPushDown);
+            if (!ignoreSplitFilterPushDown) {
+                assertEquals(actualSplitFilterPushDown, expectedSplitFilterPushDown);
+            }
             if (expectedRemaining != null) {
                 assertNotNull(actualRemainingExpression);
                 // Since the remaining expression cannot be simply compared by given String, we have to first convert
