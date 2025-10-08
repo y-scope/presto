@@ -354,6 +354,9 @@ public class TestClpComputePushDown
                 }
                 equalsIgnoreBase(actualRemainingExpression, expectedRemainingExpression);
             }
+            else {
+                assertNull(actualRemainingExpression);
+            }
         }
         catch (Exception e) {
             fail(e.getMessage());
