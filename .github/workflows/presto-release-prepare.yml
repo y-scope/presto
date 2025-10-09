@@ -1,4 +1,4 @@
-name: Presto Stable Release - Prepare
+name: YScope Presto - CLP Connector Stable Release - Prepare
 
 on:
   workflow_dispatch:
