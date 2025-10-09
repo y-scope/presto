@@ -18,8 +18,8 @@ env:
   JAVA_VERSION: ${{ vars.JAVA_VERSION || '17.0.13' }}
   JAVA_DISTRIBUTION: ${{ vars.JAVA_DISTRIBUTION || 'temurin' }}
   MAVEN_OPTS: ${{ vars.MAVEN_OPTS }}
-  GIT_CI_USER: ${{ vars.GIT_CI_USER || 'prestodb-ci' }}
-  GIT_CI_EMAIL: ${{ vars.GIT_CI_EMAIL || 'ci@lists.prestodb.io' }}
+  GIT_CI_USER: ${{ github.actor }}
+  GIT_CI_EMAIL: "${{ github.actor }}@users.noreply.github.com"
 
 jobs:
   prepare-release-branch:
@@ -143,4 +143,4 @@ jobs:
           JVM_OPTS: ${{ env.MAVEN_OPTS }}
         run: |
           echo "In case this job failed, please delete the release notes branch(e.g. release-notes-0.292) in repository ${{ github.repository }}, and re-run the job"
-          ./src/release/release-notes.sh ${{ github.repository_owner }} ${{ secrets.PRESTODB_CI_TOKEN }}
+          ./src/release/release-notes.sh ${{ github.actor }} ${{ secrets.GITHUB_TOKEN }}
