@@ -142,5 +142,6 @@ jobs:
         env:
           JVM_OPTS: ${{ env.MAVEN_OPTS }}
         run: |
+          echo "JAVA_TOOL_OPTIONS=--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED" >> $GITHUB_ENV
           echo "In case this job failed, please delete the release notes branch(e.g. release-notes-0.292) in repository ${{ github.repository }}, and re-run the job"
           ./src/release/release-notes.sh ${{ github.actor }} ${{ secrets.GITHUB_TOKEN }}
