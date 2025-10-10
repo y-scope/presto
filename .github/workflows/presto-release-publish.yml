@@ -31,20 +31,14 @@ on:
         type: boolean
         default: true
         required: false
-      dependency_image:
-        description: 'prestissimo dependency image(e.g., ghcr.io/y-scope/prestissimo-worker:dev)'
-        required: false
-        default: ''
-      tag_image_as_latest:
-        description: 'Tag the published images as latest'
-        type: boolean
-        default: true
-        required: false
       publish_docs:
         description: 'Publish docs'
         type: boolean
         default: true
         required: false
+
+permissions:
+  contents: write
 
 env:
   JAVA_VERSION: ${{ vars.JAVA_VERSION || '17' }}
@@ -233,7 +227,7 @@ jobs:
         with:
           build-args: |-
             JMX_PROMETHEUS_JAVA_AGENT_VERSION=0.20.0
-            PRESTO_VERSION=0.293
+            PRESTO_VERSION=${{ env.RELEASE_TAG }}
           context: "./docker"
           file: "./docker/Dockerfile"
           push: >-
