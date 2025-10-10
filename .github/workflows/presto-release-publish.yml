@@ -11,9 +11,6 @@ on:
         type: boolean
         default: true
         required: false
-      release-notes-commit:
-        description: 'Commit SHA of release notes(required when publish_release_tag is checked)'
-        required: false
       publish_maven:
         description: 'Publish maven artifacts'
         type: boolean
@@ -58,7 +55,6 @@ env:
   IMAGE_NAME: presto-native
   RELEASE_BRANCH: release-${{ inputs.RELEASE_VERSION }}
   RELEASE_TAG: ${{ inputs.RELEASE_VERSION }}
-  RELEASE_NOTES_COMMIT: ${{ inputs.release-notes-commit }}
   GIT_CI_USER: ${{ github.actor }}
   GIT_CI_EMAIL: "${{ github.actor }}@users.noreply.github.com"
   MAVEN_AUTO_PUBLISH: ${{ vars.MAVEN_AUTO_PUBLISH || 'true' }}
@@ -83,11 +79,6 @@ jobs:
           git config --global user.email "${{ env.GIT_CI_EMAIL }}"
           git config --global user.name "${{ env.GIT_CI_USER }}"
           git config pull.rebase false
-
-      - name: Cherry-pick release notes
-        if: ${{ github.event.inputs.release-notes-commit != '' }}
-        run: |
-          git cherry-pick ${{ env.RELEASE_NOTES_COMMIT }}
 
       - name: Delete existing release tag
         run: |

@@ -8,11 +8,6 @@ on:
         type: boolean
         default: true
         required: false
-      prepare_release_notes:
-        description: 'Prepare release notes pull request'
-        type: boolean
-        default: true
-        required: false
 
 env:
   JAVA_VERSION: ${{ vars.JAVA_VERSION || '17.0.13' }}
@@ -102,45 +97,3 @@ jobs:
           echo "commits on branch ${{ github.ref_name }}"
           git ls -5
           git push origin ${{ github.ref_name }}
-
-  prepare-release-notes:
-    needs: prepare-release-branch
-    if: (!failure() && !cancelled()) && github.event.inputs.prepare_release_notes == 'true'
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout presto source
-        uses: actions/checkout@v4
-        with:
-          fetch-tags: true
-          show-progress: false
-          fetch-depth: 0
-
-      - name: Set up JDK ${{ env.JAVA_DISTRIBUTION }}/${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-
-      - name: Configure git
-        run: |
-          git config --global --add safe.directory ${{github.workspace}}
-          git config --global user.email "${{ env.GIT_CI_EMAIL }}"
-          git config --global user.name "${{ env.GIT_CI_USER }}"
-          git config pull.rebase false
-
-      - name: Add git upstream
-        run: |
-          git remote add upstream ${{ github.server_url }}/${{ github.repository }}.git
-          git fetch upstream --tags
-          git remote -v
-
-      - name: Create release notes pull request
-        env:
-          JVM_OPTS: ${{ env.MAVEN_OPTS }} --add-opens java.base/java.lang=ALL-UNNAMED
-        run: |
-          echo "In case this job failed, please delete the release notes branch(e.g. release-notes-0.292) in repository ${{ github.repository }}, and re-run the job"
-          ./src/release/release-notes.sh ${{ github.actor }} ${{ secrets.GITHUB_TOKEN }}
