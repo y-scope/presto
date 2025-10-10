@@ -37,9 +37,6 @@ on:
         default: true
         required: false
 
-permissions:
-  contents: write
-
 env:
   JAVA_VERSION: ${{ vars.JAVA_VERSION || '17' }}
   JAVA_DISTRIBUTION: ${{ vars.JAVA_DISTRIBUTION || 'temurin' }}
@@ -155,8 +152,7 @@ jobs:
     environment: release
     timeout-minutes: 150
     permissions:
-      packages: write
-      contents: read
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -173,7 +169,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Presto ${{ env.RELEASE_TAG }}
+          name: YScope Presto - CLP Connector ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
             Release tag: ${{ env.RELEASE_TAG }}
