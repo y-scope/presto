@@ -89,12 +89,10 @@ jobs:
           echo "Creating PR for branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
           NEXT_PRESTO_RELEASE_VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate \
             -Dexpression=project.version -q -ntp -DforceStdout | tail -n 1)
-          echo "NEXT_PRESTO_RELEASE_VERSION=$NEXT_PRESTO_RELEASE_VERSION" >> $GITHUB_ENV
-          echo "NEXT_PRESTO_RELEASE_VERSION=$NEXT_PRESTO_RELEASE_VERSION"
           gh pr create \
             --base release-0.293-clp-connector \
             --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
-            --title "feat: Bump version to ${{ env.NEXT_PRESTO_RELEASE_VERSION }} for next development cycle." \
+            --title "feat: Bump version to $NEXT_PRESTO_RELEASE_VERSION for next development cycle." \
             --body "Automated pull request to bump the project version for the next development cycle."
           git tag ${{ env.PRESTO_RELEASE_VERSION }}
 
