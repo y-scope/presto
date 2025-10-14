@@ -88,8 +88,9 @@ jobs:
           git push origin release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
           echo "Creating PR for branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
           gh pr create \
-            --base y-scope:release-0.293-clp-connector \
-            --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
+            --repo y-scope/presto \
+            --base release-0.293-clp-connector \
+            --head "$(gh api user -q .login):release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
             --title "feat: Bump the version ${{ env.PRESTO_RELEASE_VERSION }} for release." \
             --body "Automated release branch for bumping the old version ${{ env.PRESTO_RELEASE_VERSION }} created by Maven Release Plugin."
 
