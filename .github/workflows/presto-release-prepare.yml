@@ -96,6 +96,7 @@ jobs:
             --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
             --title "feat: Bump version to ${{ env.NEXT_PRESTO_RELEASE_VERSION }} for next development cycle." \
             --body "Automated pull request to bump the project version for the next development cycle."
+          git tag ${{ env.PRESTO_RELEASE_VERSION }}
 
       - name: Push release tag, and branch
         run: |
