@@ -90,7 +90,7 @@ jobs:
           gh pr create \
             --base release-0.293-clp-connector \
             --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
-            --title "feat: Bump version to `$NEXT_PRESTO_RELEASE_VERSION` for next development cycle." \
+            --title "feat: Bump version to \`$NEXT_PRESTO_RELEASE_VERSION\` for next development cycle." \
             --body "Automated pull request to bump the project version for the next development cycle."
 
       - name: Push release tag, and branch
