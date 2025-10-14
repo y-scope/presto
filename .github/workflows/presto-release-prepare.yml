@@ -23,6 +23,7 @@ jobs:
     environment: release
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout presto source
@@ -68,6 +69,8 @@ jobs:
           echo "PRESTO_RELEASE_VERSION=$PRESTO_RELEASE_VERSION"
 
       - name: Prepare release tag and commits and push the preparation PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "In case this job failed, please delete the branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}, and re-run the job"
           git reset --hard
@@ -76,17 +79,14 @@ jobs:
             -DautoVersionSubmodules \
             -DupdateBranchVersions=true \
             -DupdateWorkingCopyVersions=false \
-            -DreleaseVersion=${{ env.PRESTO_RELEASE_VERSION }}
-          git switch -c release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
-          unset MAVEN_CONFIG && ./mvnw release:prepare --batch-mode \
-            -DskipTests \
-            -DautoVersionSubmodules \
             -DdevelopmentVersion=${{ env.PRESTO_RELEASE_VERSION }} \
             -DreleaseVersion=${{ env.PRESTO_RELEASE_VERSION }}
+          git switch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
           grep -m 2 "<version>" pom.xml
-          echo "commits on branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
+          echo "Pushing branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
           git ls -5
           git push origin release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
+          echo "Creating PR for branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
           gh pr create \
             --base y-scope:release-0.293-clp-connector
             --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
