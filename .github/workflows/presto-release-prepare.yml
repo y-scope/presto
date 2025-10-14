@@ -67,19 +67,33 @@ jobs:
           echo "PRESTO_RELEASE_VERSION=$PRESTO_RELEASE_VERSION" >> $GITHUB_ENV
           echo "PRESTO_RELEASE_VERSION=$PRESTO_RELEASE_VERSION"
 
-      - name: Prepare release tag and commits
+      - name: Prepare release tag and commits and push the preparation PR
         run: |
+          echo "In case this job failed, please delete the branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}, and re-run the job"
           git reset --hard
+          unset MAVEN_CONFIG && ./mvnw release:branch \
+            -DbranchName=release-preparation-${{ env.PRESTO_RELEASE_VERSION }} \
+            -DautoVersionSubmodules \
+            -DupdateBranchVersions=true \
+            -DupdateWorkingCopyVersions=false \
+            -DreleaseVersion=${{ env.PRESTO_RELEASE_VERSION }}
+          git switch -c release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
           unset MAVEN_CONFIG && ./mvnw release:prepare --batch-mode \
             -DskipTests \
             -DautoVersionSubmodules \
             -DdevelopmentVersion=${{ env.PRESTO_RELEASE_VERSION }} \
             -DreleaseVersion=${{ env.PRESTO_RELEASE_VERSION }}
           grep -m 2 "<version>" pom.xml
-          echo "commits on branch ${{ github.ref_name }}"
+          echo "commits on branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
           git ls -5
+          git push origin release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
+          gh pr create \
+            --base y-scope:release-0.293-clp-connector
+            --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
+            --title "feat: Bump the version ${{ env.PRESTO_RELEASE_VERSION }} for release." \
+            --body "Automated release branch for bumping the old version ${{ env.PRESTO_RELEASE_VERSION }} created by Maven Release Plugin."
 
-      - name: Push release tag, branch and commits
+      - name: Push release tag, and branch
         run: |
           echo "In case this job failed, please delete the tag ${{ env.PRESTO_RELEASE_VERSION }} and the branch release-${{ env.PRESTO_RELEASE_VERSION }}, and re-run the job"
           git checkout ${{ env.PRESTO_RELEASE_VERSION }}
@@ -91,9 +105,3 @@ jobs:
           git push origin release-${{ env.PRESTO_RELEASE_VERSION }} --tags
           echo -e "\nPushed release tag to: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.PRESTO_RELEASE_VERSION }}"
           echo "Pushed release branch to: ${{ github.server_url }}/${{ github.repository }}/tree/release-${{ env.PRESTO_RELEASE_VERSION }}"
-
-          echo "Pushing to branch ${{ github.ref_name }}"
-          git checkout ${{ github.ref_name }}
-          echo "commits on branch ${{ github.ref_name }}"
-          git ls -5
-          git push origin ${{ github.ref_name }}
