@@ -19,6 +19,7 @@ import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 
 public final class ClpFunctions
 {
@@ -96,5 +97,13 @@ public final class ClpFunctions
     public static boolean clpWildcardBoolColumn()
     {
         throw new UnsupportedOperationException("CLP_WILDCARD_BOOL_COLUMN is a placeholder function without implementation.");
+    }
+
+    @ScalarFunction(value = "CLP_GET_JSON_STRING", deterministic = false)
+    @Description("Converts an entire log record into a JSON string.")
+    @SqlType(StandardTypes.VARCHAR)
+    public static Slice clpGetJSONString()
+    {
+        throw new UnsupportedOperationException("CLP_GET_JSON_STRING is a placeholder function without implementation.");
     }
 }
