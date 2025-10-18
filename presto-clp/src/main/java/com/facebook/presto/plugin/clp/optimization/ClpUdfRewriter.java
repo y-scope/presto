@@ -165,8 +165,10 @@ public final class ClpUdfRewriter
                 String functionName = functionManager.getFunctionMetadata(call.getFunctionHandle()).getName().getObjectName().toUpperCase();
 
                 if (inProjectNode && functionName.equals("CLP_GET_JSON_STRING")) {
-                    VariableReferenceExpression newValue =
-                            new VariableReferenceExpression(expression.getSourceLocation(), JSON_STRING_PLACEHOLDER, expression.getType());
+                    VariableReferenceExpression newValue = variableAllocator.newVariable(
+                            expression.getSourceLocation(),
+                            JSON_STRING_PLACEHOLDER,
+                            call.getType());
                     ClpColumnHandle targetHandle = new ClpColumnHandle(JSON_STRING_PLACEHOLDER, call.getType());
 
                     globalColumnVarMap.put(targetHandle, newValue);

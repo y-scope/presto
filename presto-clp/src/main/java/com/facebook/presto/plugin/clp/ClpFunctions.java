@@ -19,7 +19,6 @@ import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 
 public final class ClpFunctions
 {
