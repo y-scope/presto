@@ -57,7 +57,7 @@ jobs:
         with:
           images: "ghcr.io/${{github.repository}}/prestissimo-worker-dev-env"
           tags: |-
-            type=raw,value=dev
+            type=raw,value=test
             type=raw,value=${{steps.deps-hash.outputs.hash}}
 
       - name: "Build and push dependency image"
@@ -66,9 +66,7 @@ jobs:
         with:
           context: "./presto-native-execution"
           file: "./presto-native-execution/scripts/dockerfiles/ubuntu-22.04-dependency.dockerfile"
-          push: >-
-            ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+          push: "${{github.event_name != 'pull_request'}}"
           tags: "${{steps.metadata-deps-image.outputs.tags}}"
           labels: "${{steps.metadata-deps-image.outputs.labels}}"
           load: "${{github.event_name == 'pull_request'}}"
@@ -80,7 +78,7 @@ jobs:
         uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
         with:
           images: "ghcr.io/${{github.repository}}/prestissimo-worker"
-          tags: "type=raw,value=dev"
+          tags: "type=raw,value=test"
 
       - name: "Get number of cores"
         id: "get-cores"
@@ -100,8 +98,6 @@ jobs:
             OSNAME=ubuntu
           context: "./presto-native-execution"
           file: "./presto-native-execution/scripts/dockerfiles/prestissimo-runtime.dockerfile"
-          push: >-
-            ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+          push: "${{github.event_name != 'pull_request'}}"
           tags: "${{steps.metadata-runtime-image.outputs.tags}}"
           labels: "${{steps.metadata-runtime-image.outputs.labels}}"
