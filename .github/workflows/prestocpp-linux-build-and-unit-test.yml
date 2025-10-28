@@ -97,7 +97,7 @@ jobs:
 
   prestocpp-linux-presto-e2e-tests:
     needs: prestocpp-linux-build-for-test
-    runs-on: ubuntu-22.04
+    runs-on: yscope-gh-runner
     container:
       image: prestodb/presto-native-dependency:0.293-20250522140509-484b00e
     env:

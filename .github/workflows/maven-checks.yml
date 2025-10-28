@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ 8.0.442, 17.0.13 ]
-    runs-on: self-hosted
+    runs-on: yscope-gh-runner
     timeout-minutes: 45
     steps:
       - name: Free Disk Space

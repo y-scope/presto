@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   prestocpp-format-and-header-check:
-    runs-on: self-hosted
+    runs-on: yscope-gh-runner
     container:
       image: public.ecr.aws/oss-presto/velox-dev:check
     steps:
