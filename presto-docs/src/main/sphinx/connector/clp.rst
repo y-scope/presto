@@ -325,15 +325,16 @@ CLP Functions
 *************
 
 Semi-structured logs can have many potential keys, which can lead to very wide Presto tables. To keep table metadata
-concise and still preserve access to dynamic fields, the connector provides two sets of functions that are specific to
+concise and still preserve access to dynamic fields, the connector provides three sets of functions that are specific to
 the CLP connector. These functions are not part of standard Presto SQL.
 
 - JSON path functions (e.g., ``CLP_GET_STRING``)
 - Wildcard column matching functions for use in filter predicates (e.g., ``CLP_WILDCARD_STRING_COLUMN``)
+- A function for retrieving the entire row in JSON format (i.e., ``CLP_GET_JSON_STRING``)
 
-There is **no performance penalty** when using these functions. During query optimization, the connector rewrites these
-functions into references to concrete schema-backed columns or valid symbols in KQL queries. This avoids additional
-parsing overhead and delivers performance comparable to querying standard columns.
+For the first two sets of functions, there is **no performance overhead**. During query optimization, the connector
+rewrites these functions into references to concrete schema-backed columns or valid symbols in KQL queries. This avoids
+unnecessary parsing overhead and delivers performance comparable to querying standard columns.
 
 Path-based Functions
 ====================
@@ -438,6 +439,40 @@ Examples
    SELECT *
    FROM clp.default.table_2
    WHERE CLP_WILDCARD_INT_COLUMN() = 1;
+
+JSON String Function
+====================
+
+The ``CLP_GET_JSON_STRING``` function provides a convenient way to retrieve the entire log record—including both
+schema-backed and dynamic fields—as a single JSON string. This enables users to inspect, debug, or export complete
+records in their raw JSON form.
+
+Similar to the path-based and wildcard functions, this function is rewritten during query optimization to a special
+internal column. During query execution, this column is serialized into a JSON string that represents the full record.
+
+.. function:: CLP_GET_JSON_STRING() -> varchar
+
+   Returns the full log record as a JSON string, preserving all schema-backed and dynamic fields.
+
+.. note::
+
+   This function can only be used in the ``SELECT``` list to retrieve the complete JSON representation of each record.
+   It cannot be used within filter predicates (``WHERE`` clause) or as an argument to other functions.
+
+Examples
+--------
+
+.. code-block:: sql
+
+   -- Retrieve each record as a JSON string
+   SELECT CLP_GET_JSON_STRING()
+   FROM clp.default.table_1
+   LIMIT 10;
+
+   -- Retrieve JSON along with selected fields
+   SELECT timestamp, CLP_GET_JSON_STRING()
+   FROM clp.default.table_1
+   WHERE CLP_WILDCARD_STRING_COLUMN() = 'error';
 
 ***********
 SQL support
