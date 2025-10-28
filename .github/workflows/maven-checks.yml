@@ -68,7 +68,7 @@ jobs:
   presto-coordinator-image:
     name: "presto-coordinator-image"
     needs: "maven-checks"
-    runs-on: "ubuntu-22.04"
+    runs-on: "yscope-gh-runner"
     steps:
       - uses: "actions/checkout@v4"
         with:

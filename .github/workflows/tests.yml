@@ -41,7 +41,7 @@ jobs:
             - '!presto-docs/**'
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: yscope-gh-runner
     needs: changes
     strategy:
       fail-fast: false
