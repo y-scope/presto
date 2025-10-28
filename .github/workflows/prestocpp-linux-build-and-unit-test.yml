@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   prestocpp-linux-build-for-test:
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
     container:
       image: prestodb/presto-native-dependency:0.293-20250522140509-484b00e
     env:
