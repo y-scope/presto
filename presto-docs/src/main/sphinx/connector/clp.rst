@@ -328,18 +328,14 @@ Semi-structured logs can have many potential keys, which can lead to very wide P
 concise and still preserve access to dynamic fields, the connector provides two sets of functions that are specific to
 the CLP connector. These functions are not part of standard Presto SQL.
 
-To enable access to dynamic or less common fields not present in the exposed schema, CLP provides two set of functions
-to help users query flexible log schemas while keeping the table metadata definition concise. These functions are only
-available in the CLP connector and are not part of standard Presto SQL.
-
 - JSON path functions (e.g., ``CLP_GET_STRING``)
 - Wildcard column matching functions for use in filter predicates (e.g., ``CLP_WILDCARD_STRING_COLUMN``)
 
 There is **no performance penalty** when using these functions. During query optimization, the connector rewrites these
-functions to references to concrete schema-backed columns or valid symbols in KQL queries. This avoids additional
+functions into references to concrete schema-backed columns or valid symbols in KQL queries. This avoids additional
 parsing overhead and delivers performance comparable to querying standard columns.
 
-Path-Based Functions
+Path-based Functions
 ====================
 
 .. function:: CLP_GET_STRING(varchar) -> varchar
@@ -349,7 +345,7 @@ Path-Based Functions
 
 .. function:: CLP_GET_BIGINT(varchar) -> bigint
 
-    Returns the integer value at the given JSON path, where the column type is ``Integer``, Returns a Presto ``BIGINT``.
+    Returns the integer value at the given JSON path, where the column type is ``Integer``. Returns a Presto ``BIGINT``.
 
 .. function:: CLP_GET_DOUBLE(varchar) -> double
 
