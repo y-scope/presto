@@ -350,7 +350,7 @@ Path-based Functions
 
 .. function:: CLP_GET_DOUBLE(varchar) -> double
 
-    Returns the double value at the given JSON path, where the column type is ``Float``.  Returns a Presto ``DOUBLE``.
+    Returns the double value at the given JSON path, where the column type is ``Float``. Returns a Presto ``DOUBLE``.
 
 .. function:: CLP_GET_BOOL(varchar) -> boolean
 
@@ -372,11 +372,11 @@ Examples
 
 .. code-block:: sql
 
-    SELECT CLP_GET_STRING(msg.author) AS author
+    SELECT CLP_GET_STRING('msg.author') AS author
     FROM clp.default.table_1
-    WHERE CLP_GET_INT('msg.timestamp') > 1620000000;
+    WHERE CLP_GET_BIGINT('msg.timestamp') > 1620000000;
 
-    SELECT CLP_GET_STRING_ARRAY(msg.tags) AS tags
+    SELECT CLP_GET_STRING_ARRAY('msg.tags') AS tags
     FROM clp.default.table_2
     WHERE CLP_GET_BOOL('msg.is_active') = true;
 
