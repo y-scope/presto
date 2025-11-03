@@ -32,6 +32,7 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
@@ -259,10 +260,32 @@ public class ClpFilterToKqlConverter
         String lowerBound = getLiteralString((ConstantExpression) second);
         String upperBound = getLiteralString((ConstantExpression) third);
         String kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
-        String metadataSqlQuery = metadataFilterColumns.contains(variable)
-                ? String.format("\"%s\" >= %s AND \"%s\" <= %s", variable, lowerBound, variable, upperBound)
-                : null;
-        return new ClpExpression(kql, metadataSqlQuery);
+        if (metadataFilterColumns.contains(variable)) {
+            VariableReferenceExpression varExpr =
+                    new VariableReferenceExpression(first.getSourceLocation(), variable, first.getType());
+            ConstantExpression lower = (ConstantExpression) second;
+            ConstantExpression upper = (ConstantExpression) third;
+
+            // Build expression: (var >= lower) AND (var <= upper)
+            RowExpression lowerBoundExpr = new CallExpression(
+                    GREATER_THAN_OR_EQUAL.name(),
+                    standardFunctionResolution.comparisonFunction(GREATER_THAN_OR_EQUAL, varExpr.getType(), lower.getType()),
+                    BOOLEAN,
+                    ImmutableList.of(varExpr, lower));
+            RowExpression upperBoundExpr = new CallExpression(
+                    LESS_THAN_OR_EQUAL.name(),
+                    standardFunctionResolution.comparisonFunction(LESS_THAN_OR_EQUAL, varExpr.getType(), upper.getType()),
+                    BOOLEAN,
+                    ImmutableList.of(varExpr, upper));
+            RowExpression metadataExpr = new SpecialFormExpression(
+                    AND,
+                    BOOLEAN,
+                    lowerBoundExpr,
+                    upperBoundExpr);
+
+            return new ClpExpression(kql, metadataExpr);
+        }
+        return new ClpExpression(kql);
     }
 
     /**

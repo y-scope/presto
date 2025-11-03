@@ -31,9 +31,9 @@ public class ClpExpression
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
 
-    // Optional SQL string extracted from the query plan, which is only made of up of columns in
+    // Optional SQL expression extracted from the query plan, which is only made of up of columns in
     // CLP's metadata database.
-    private final Optional<String> metadataSqlQuery;
+    private final Optional<String> metadataExpression;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
@@ -41,7 +41,7 @@ public class ClpExpression
     public ClpExpression(String pushDownExpression, String metadataSqlQuery, RowExpression remainingExpression)
     {
         this.pushDownExpression = Optional.ofNullable(pushDownExpression);
-        this.metadataSqlQuery = Optional.ofNullable(metadataSqlQuery);
+        this.metadataExpression = Optional.ofNullable(metadataSqlQuery);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
@@ -92,7 +92,7 @@ public class ClpExpression
 
     public Optional<String> getMetadataSqlQuery()
     {
-        return metadataSqlQuery;
+        return metadataExpression;
     }
 
     public Optional<RowExpression> getRemainingExpression()
