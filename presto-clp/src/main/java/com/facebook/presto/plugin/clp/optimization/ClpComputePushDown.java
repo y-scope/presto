@@ -14,9 +14,9 @@
 package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.airlift.log.Logger;
-import com.facebook.presto.plugin.clp.ClpExpression;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
@@ -50,13 +50,13 @@ public class ClpComputePushDown
     private static final Logger log = Logger.get(ClpComputePushDown.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpSplitFilterProvider splitFilterProvider;
+    private final ClpSplitMetadataConfig metadataConfig;
 
-    public ClpComputePushDown(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitFilterProvider splitFilterProvider)
+    public ClpComputePushDown(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitMetadataConfig metadataConfig)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.splitFilterProvider = requireNonNull(splitFilterProvider, "splitFilterProvider is null");
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
     }
 
     @Override
@@ -112,7 +112,6 @@ public class ClpComputePushDown
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
 
-            String tableScope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
 
             ClpExpression clpExpression = filterNode.getPredicate().accept(
@@ -120,16 +119,16 @@ public class ClpComputePushDown
                             functionResolution,
                             functionManager,
                             assignments,
-                            splitFilterProvider.getColumnNames(tableScope)),
+                            metadataConfig.getMetadataColumns(clpTableHandle.getSchemaTableName()).keySet()),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
-            Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
+            Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
             // Perform required metadata filter checks before handling the KQL query (if kqlQuery
             // isn't present, we'll return early, skipping subsequent checks).
             splitFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), metadataSqlQuery.orElse(""));
-            boolean hasMetadataFilter = metadataSqlQuery.isPresent() && !metadataSqlQuery.get().isEmpty();
+            boolean hasMetadataFilter = metadataSqlQuery.isPresent();
             if (hasMetadataFilter) {
                 metadataSqlQuery = Optional.of(splitFilterProvider.remapSplitFilterPushDownExpression(tableScope, metadataSqlQuery.get()));
                 log.debug("Metadata SQL query: %s", metadataSqlQuery.get());

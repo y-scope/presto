@@ -13,190 +13,155 @@
  */
 package com.facebook.presto.plugin.clp.split;
 
-import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpConfig;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableMap;
 
-import java.io.File;
+import javax.inject.Inject;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_FILTER_CONFIG_NOT_FOUND;
 import static java.util.Objects.requireNonNull;
 
 public class ClpSplitMetadataConfig
 {
-    /** Metadata column definition */
+    private final Map<String, TableConfig> tableConfigs = new HashMap<>();
+
     public static class MetaColumn {
-        public String type;           // STRING, DATE, BIGINT
-        public String exposedAs;      // optional logical name
-        public Filter filter;         // optional filter config
-        public String name;           // original column name, assigned during load
+        public final String name;
+        public final String type;
+        public final String exposedAs;
+        public final String description;
+        public final String asRangeBoundOf; // optional
+        public final String boundType;      // "lower" or "upper"
 
-        public static class Filter {
-            public Boolean allowDirectFilter;   // default true
-            public String asRangeBoundOf;       // optional: maps to data column
-            public String boundType;            // lower/upper
-        }
-
-        public String getExposedName() {
-            return exposedAs != null ? exposedAs : name;
+        public MetaColumn(String name, JsonNode node) {
+            this.name = name;
+            this.type = node.path("type").asText();
+            this.exposedAs = node.path("exposedAs").asText(name);
+            this.description = node.path("description").asText(null);
+            JsonNode filter = node.path("filter");
+            this.asRangeBoundOf = filter.path("asRangeBoundOf").isMissingNode() ? null : filter.path("asRangeBoundOf").asText();
+            this.boundType = filter.path("boundType").isMissingNode() ? null : filter.path("boundType").asText();
         }
     }
 
-    /** Filter rule (required filters, etc.) */
     public static class FilterRule {
-        public String column;
-        public Boolean required;    // default false
-        public String reason;
+        public final String column;
+        public final boolean required;
+        public final String reason;
+
+        public FilterRule(JsonNode node) {
+            this.column = node.path("column").asText();
+            this.required = node.path("required").asBoolean(false);
+            this.reason = node.path("reason").asText(null);
+        }
     }
 
-    /** Per-dataset configuration */
     public static class TableConfig {
-        public String inherits;
-        public Map<String, MetaColumn> metaColumns = new HashMap<>();
-        public List<FilterRule> filterRules = new ArrayList<>();
+        public final Map<String, MetaColumn> metaColumns = new HashMap<>();
+        public final List<FilterRule> filterRules = new ArrayList<>();
     }
 
-    private final Map<String, TableConfig> rawConfigs = new HashMap<>();
-    private final Map<String, TableConfig> resolvedConfigs = new HashMap<>();
-
-    public ClpSplitMetadataConfig(ClpConfig config) throws Exception {
+    @Inject
+    public ClpSplitMetadataConfig(ClpConfig config) {
         requireNonNull(config, "config is null");
 
-        if (null == config.getSplitFilterConfig()) {
-            return;
-        }
-
         ObjectMapper mapper = new ObjectMapper();
-        Map<String, TableConfig> map = mapper.readValue(new File(config.getSplitFilterConfig()), new TypeReference<>() {});
-        rawConfigs.putAll(map);
-        validateInheritance();
-    }
+        JsonNode root;
+        try {
+            root = mapper.readTree(Files.readAllBytes(Paths.get(config.getSplitFilterConfig())));
+        }
+        catch (IOException e) {
+            throw new PrestoException(CLP_SPLIT_FILTER_CONFIG_NOT_FOUND, "Failed to open split filter config file", e);
+        }
 
-    /** Detect cycles in inheritance */
-    private void validateInheritance() {
-        for (String key : rawConfigs.keySet()) {
-            Set<String> visited = new HashSet<>();
-            String current = key;
-            while (rawConfigs.get(current).inherits != null) {
-                current = rawConfigs.get(current).inherits;
-                if (visited.contains(current)) {
-                    throw new RuntimeException("Cycle detected in inheritance: " + key);
+        for (Iterator<String> it = root.fieldNames(); it.hasNext();) {
+            String namespace = it.next();
+            JsonNode tableNode = root.get(namespace);
+
+            TableConfig cfg = new TableConfig();
+            if (tableNode.has("metaColumns")) {
+                for (Iterator<String> m = tableNode.get("metaColumns").fieldNames(); m.hasNext();) {
+                    String colName = m.next();
+                    cfg.metaColumns.put(colName, new MetaColumn(colName, tableNode.get("metaColumns").get(colName)));
                 }
-                visited.add(current);
             }
+            if (tableNode.has("filterRules")) {
+                for (JsonNode rule : tableNode.get("filterRules")) {
+                    cfg.filterRules.add(new FilterRule(rule));
+                }
+            }
+            tableConfigs.put(namespace, cfg);
         }
     }
 
-    /** Resolve dataset config with nested inheritance */
-    public TableConfig getConfig(String dataset) {
-        if (resolvedConfigs.containsKey(dataset)) {
-            return resolvedConfigs.get(dataset);
+    public Map<String, String> getMetadataColumns(SchemaTableName name) {
+        TableConfig cfg = getTableConfig(name);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            result.put(c.exposedAs, c.type);
         }
+        return result;
+    }
 
-        TableConfig config = rawConfigs.get(dataset);
-        if (config == null) {
-            // fallback to parent/grandparent by dataset name
-            int lastDot = dataset.lastIndexOf('.');
-            if (lastDot > 0) {
-                return getConfig(dataset.substring(0, lastDot));
+    public Map<String, String> getExposedToOriginalMapping(SchemaTableName name) {
+        TableConfig cfg = getTableConfig(name);
+        Map<String, String> mapping = new HashMap<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            mapping.put(c.exposedAs, c.name);
+        }
+        return mapping;
+    }
+
+
+    public Map<String, Map<String, String>> getDataColumnRangeMapping(SchemaTableName name) {
+        TableConfig cfg = getTableConfig(name);
+        Map<String, Map<String, String>> mapping = new HashMap<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null && c.boundType != null) {
+                mapping
+                        .computeIfAbsent(c.asRangeBoundOf, k -> new HashMap<>())
+                        .put(c.boundType, c.name);
             }
-            throw new RuntimeException("Dataset config not found: " + dataset);
         }
+        return mapping;
+    }
 
+    private TableConfig getTableConfig(SchemaTableName name) {
         TableConfig merged = new TableConfig();
-        if (config.inherits != null) {
-            TableConfig parent = getConfig(config.inherits);
-            merged.metaColumns.putAll(parent.metaColumns);
-            merged.filterRules.addAll(parent.filterRules);
+
+        List<String> namespaces = new ArrayList<>();
+        namespaces.add("");
+        namespaces.add(name.getSchemaName());
+        namespaces.add(name.getSchemaName() + "." + name.getTableName());
+
+        for (String ns : namespaces) {
+            TableConfig cfg = tableConfigs.get(ns);
+            if (cfg != null) {
+                merged.metaColumns.putAll(cfg.metaColumns);
+
+                for (FilterRule rule : cfg.filterRules) {
+                    boolean exists = merged.filterRules.stream()
+                            .anyMatch(r -> r.column.equals(rule.column));
+                    if (!exists) {
+                        merged.filterRules.add(rule);
+                    }
+                }
+            }
         }
 
-        // Override child metaColumns and filterRules
-        merged.metaColumns.putAll(config.metaColumns);
-        merged.filterRules.addAll(config.filterRules);
-
-        // Set default allowDirectFilter = true if not specified
-        merged.metaColumns.values().forEach(mc -> {
-            mc.name = mc.name == null ? getKeyForMeta(mc, config) : mc.name;
-            if (mc.filter == null) mc.filter = new MetaColumn.Filter();
-            if (mc.filter.allowDirectFilter == null) mc.filter.allowDirectFilter = true;
-        });
-
-        resolvedConfigs.put(dataset, merged);
         return merged;
-    }
-
-    // Helper to assign original name
-    private String getKeyForMeta(MetaColumn mc, TableConfig datasetConfig) {
-        for (Map.Entry<String, MetaColumn> e : datasetConfig.metaColumns.entrySet()) {
-            if (e.getValue() == mc) return e.getKey();
-        }
-        return null;
-    }
-
-    /** Convert metadata columns to Presto types with exposed names */
-    public Map<String, Type> resolveMetadataSchema(String dataset) {
-        TableConfig config = getConfig(dataset);
-        Map<String, String> schema = new LinkedHashMap<>();
-        for (MetaColumn mc : config.metaColumns.values()) {
-            String prestoType;
-            switch (mc.type.toUpperCase()) {
-                case "STRING": prestoType = "VARCHAR"; break;
-                case "DATE": prestoType = "DATE"; break;
-                case "BIGINT": prestoType = "BIGINT"; break;
-                default: prestoType = "VARCHAR"; break;
-            }
-            schema.put(mc.getExposedName(), prestoType);
-        }
-        return schema;
-    }
-
-    /** Generate metadata filter SQL */
-    public String generateMetadataFilterSql(String dataset, Map<String, Object> filters) {
-        TableConfig config = getConfig(dataset);
-        List<String> conditions = new ArrayList<>();
-        Set<String> requiredColumns = new HashSet<>();
-        for (FilterRule rule : config.filterRules) {
-            if (Boolean.TRUE.equals(rule.required)) requiredColumns.add(rule.column);
-        }
-
-        for (Map.Entry<String, Object> e : filters.entrySet()) {
-            String col = e.getKey();
-            Object val = e.getValue();
-
-            // Translate msg.timestamp -> begin_timestamp / end_timestamp
-            MetaColumn begin = null, end = null;
-            for (MetaColumn mc : config.metaColumns.values()) {
-                if (mc.filter != null && col.equals(mc.filter.asRangeBoundOf)) {
-                    if ("lower".equals(mc.filter.boundType)) begin = mc;
-                    if ("upper".equals(mc.filter.boundType)) end = mc;
-                }
-            }
-            if (begin != null && end != null && val instanceof List && ((List<?>) val).size() == 2) {
-                Object lowerVal = ((List<?>) val).get(0);
-                Object upperVal = ((List<?>) val).get(1);
-                conditions.add(begin.name + " >= " + lowerVal);
-                conditions.add(end.name + " <= " + upperVal);
-                requiredColumns.remove(col);
-            } else {
-                // direct filter on metadata
-                if (config.metaColumns.containsKey(col)) {
-                    conditions.add(col + " = '" + val + "'");
-                    requiredColumns.remove(col);
-                }
-            }
-        }
-
-        if (!requiredColumns.isEmpty()) {
-            throw new RuntimeException("Required filters missing: " + requiredColumns);
-        }
-
-        return String.join(" AND ", conditions);
     }
 }

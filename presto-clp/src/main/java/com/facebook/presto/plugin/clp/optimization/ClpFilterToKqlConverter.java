@@ -19,7 +19,6 @@ import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
-import com.facebook.presto.plugin.clp.ClpExpression;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.FunctionHandle;
@@ -61,6 +60,7 @@ import static com.facebook.presto.common.type.SmallintType.SMALLINT;
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
+import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.OR;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -310,8 +310,8 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
         String notPushDownExpression = "NOT " + expression.getPushDownExpression().get();
-        if (expression.getMetadataSqlQuery().isPresent()) {
-            return new ClpExpression(notPushDownExpression, "NOT " + expression.getMetadataSqlQuery());
+        if (expression.getMetadataExpression().isPresent()) {
+            return new ClpExpression(notPushDownExpression, node);
         }
         else {
             return new ClpExpression(notPushDownExpression);
@@ -462,35 +462,27 @@ public class ClpFilterToKqlConverter
             Type literalType,
             RowExpression originalNode)
     {
-        String metadataSqlQuery = null;
+        boolean isVarchar = literalType instanceof VarcharType;
+        boolean isMetadataColumn = metadataFilterColumns.contains(variableName);
+        String formattedLiteral = isVarchar
+                ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
+                : literalString;
+
+        String expression = null;
         if (operator.equals(EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                return new ClpExpression(format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)));
-            }
-            else {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("\"%s\" = %s", variableName, literalString);
-                }
-                return new ClpExpression(format("%s: %s", variableName, literalString), metadataSqlQuery);
-            }
+            expression = format("%s: %s", variableName, formattedLiteral);
         }
         else if (operator.equals(NOT_EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                return new ClpExpression(format("NOT %s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)));
-            }
-            else {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("NOT \"%s\" = %s", variableName, literalString);
-                }
-                return new ClpExpression(format("NOT %s: %s", variableName, literalString), metadataSqlQuery);
-            }
+            expression = format("NOT %s: %s", variableName, formattedLiteral);
         }
-        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
-            if (metadataFilterColumns.contains(variableName)) {
-                metadataSqlQuery = format("\"%s\" %s %s", variableName, operator.getOperator(), literalString);
-            }
-            return new ClpExpression(format("%s %s %s", variableName, operator.getOperator(), literalString), metadataSqlQuery);
+        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !isVarchar) {
+            expression = format("%s %s %s", variableName, operator.getOperator(), literalString);
         }
+
+        if (expression != null) {
+            return new ClpExpression(expression, isMetadataColumn ? originalNode : null);
+        }
+
         return new ClpExpression(originalNode);
     }
 
@@ -688,49 +680,49 @@ public class ClpFilterToKqlConverter
      */
     private ClpExpression handleAnd(SpecialFormExpression node)
     {
-        StringBuilder metadataQueryBuilder = new StringBuilder();
-        metadataQueryBuilder.append("(");
-        StringBuilder queryBuilder = new StringBuilder();
-        queryBuilder.append("(");
+        List<String> pushdownKql = new ArrayList<>();
         List<RowExpression> remainingExpressions = new ArrayList<>();
-        boolean hasMetadataSql = false;
-        boolean hasPushDownExpression = false;
+        List<RowExpression> metadataExpressions = new ArrayList<>();
+
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
             if (expression.getPushDownExpression().isPresent()) {
-                hasPushDownExpression = true;
-                queryBuilder.append(expression.getPushDownExpression().get());
-                queryBuilder.append(" AND ");
-                if (expression.getMetadataSqlQuery().isPresent()) {
-                    hasMetadataSql = true;
-                    metadataQueryBuilder.append(expression.getMetadataSqlQuery().get());
-                    metadataQueryBuilder.append(" AND ");
-                }
+                pushdownKql.add(expression.getPushDownExpression().get());
+                expression.getMetadataExpression().ifPresent(metadataExpressions::add);
             }
-            if (expression.getRemainingExpression().isPresent()) {
-                remainingExpressions.add(expression.getRemainingExpression().get());
-            }
+            expression.getRemainingExpression().ifPresent(remainingExpressions::add);
         }
-        if (!hasPushDownExpression) {
+        if (pushdownKql.isEmpty()) {
             return new ClpExpression(node);
         }
-        else if (!remainingExpressions.isEmpty()) {
-            if (remainingExpressions.size() == 1) {
-                return new ClpExpression(
-                        queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                        hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null,
-                        remainingExpressions.get(0));
-            }
-            else {
-                return new ClpExpression(
-                        queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                        hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null,
-                        new SpecialFormExpression(node.getSourceLocation(), AND, BOOLEAN, remainingExpressions));
-            }
+
+        String combinedKql = "(" + String.join(" AND ", pushdownKql) + ")";
+        RowExpression combinedMetadataExpression = null;
+
+        if (metadataExpressions.size() == 1) {
+            combinedMetadataExpression = metadataExpressions.get(0);
         }
-        // Remove the last " AND " from the query
-        return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null);
+        else if (metadataExpressions.size() > 1) {
+            combinedMetadataExpression = new SpecialFormExpression(
+                    node.getSourceLocation(),
+                    AND,
+                    BOOLEAN,
+                    metadataExpressions);
+        }
+
+        RowExpression combinedRemainingExpression = null;
+        if (remainingExpressions.size() == 1) {
+            combinedRemainingExpression = remainingExpressions.get(0);
+        }
+        else if (remainingExpressions.size() > 1) {
+            combinedRemainingExpression = new SpecialFormExpression(
+                    node.getSourceLocation(),
+                    AND,
+                    BOOLEAN,
+                    remainingExpressions);
+        }
+
+        return new ClpExpression(combinedKql, combinedMetadataExpression, combinedRemainingExpression);
     }
 
     /**
@@ -747,12 +739,11 @@ public class ClpFilterToKqlConverter
      */
     private ClpExpression handleOr(SpecialFormExpression node)
     {
-        StringBuilder metadataQueryBuilder = new StringBuilder();
-        metadataQueryBuilder.append("(");
-        StringBuilder queryBuilder = new StringBuilder();
-        queryBuilder.append("(");
+        List<String> pushdownKql = new ArrayList<>();
+        List<RowExpression> metadataExpressions = new ArrayList<>();
+
         boolean allPushedDown = true;
-        boolean hasAllMetadataSql = true;
+        boolean allHaveMetadataExpression = true;
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
             // Note: It is possible in the future that an expression cannot be pushed down as a KQL query, but can be
@@ -761,23 +752,37 @@ public class ClpFilterToKqlConverter
                 allPushedDown = false;
                 continue;
             }
-            queryBuilder.append(expression.getPushDownExpression().get());
-            queryBuilder.append(" OR ");
-            if (hasAllMetadataSql && expression.getMetadataSqlQuery().isPresent()) {
-                metadataQueryBuilder.append(expression.getMetadataSqlQuery().get());
-                metadataQueryBuilder.append(" OR ");
+
+            pushdownKql.add(expression.getPushDownExpression().get());
+            if (allHaveMetadataExpression && expression.getMetadataExpression().isPresent()) {
+                metadataExpressions.add(expression.getMetadataExpression().get());
             }
             else {
-                hasAllMetadataSql = false;
+                allHaveMetadataExpression = false;
             }
         }
-        if (allPushedDown) {
-            // Remove the last " OR " from the query
-            return new ClpExpression(
-                    queryBuilder.substring(0, queryBuilder.length() - 4) + ")",
-                    hasAllMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 4) + ")" : null);
+
+        if (!allPushedDown) {
+            return new ClpExpression(node);
         }
-        return new ClpExpression(node);
+
+        String combinedKql = "(" + String.join(" OR ", pushdownKql) + ")";
+
+        RowExpression combinedMetadataExpression = null;
+        if (allHaveMetadataExpression && !metadataExpressions.isEmpty()) {
+            if (metadataExpressions.size() == 1) {
+                combinedMetadataExpression = metadataExpressions.get(0);
+            }
+            else {
+                combinedMetadataExpression = new SpecialFormExpression(
+                        node.getSourceLocation(),
+                        OR,
+                        BOOLEAN,
+                        metadataExpressions);
+            }
+        }
+
+        return new ClpExpression(combinedKql, combinedMetadataExpression);
     }
 
     /**

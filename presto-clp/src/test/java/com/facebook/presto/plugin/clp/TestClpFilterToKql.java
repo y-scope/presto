@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.plugin.clp.optimization.ClpExpression;
 import com.facebook.presto.plugin.clp.optimization.ClpFilterToKqlConverter;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.relation.RowExpression;
@@ -315,11 +316,11 @@ public class TestClpFilterToKql
         ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
         testFilter(clpExpression, expectedKql, null, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
-            assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
-            assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
+            assertTrue(clpExpression.getMetadataExpression().isPresent());
+            assertEquals(clpExpression.getMetadataExpression().get(), expectedMetadataSqlQuery);
         }
         else {
-            assertFalse(clpExpression.getMetadataSqlQuery().isPresent());
+            assertFalse(clpExpression.getMetadataExpression().isPresent());
         }
     }
 

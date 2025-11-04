@@ -34,7 +34,6 @@ public class ClpConfig
     private long metadataExpireInterval = 600;
 
     private String splitFilterConfig;
-    private SplitFilterProviderType splitFilterProviderType = SplitFilterProviderType.MYSQL;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public boolean isPolymorphicTypeEnabled()
@@ -163,18 +162,6 @@ public class ClpConfig
         return this;
     }
 
-    public SplitFilterProviderType getSplitFilterProviderType()
-    {
-        return splitFilterProviderType;
-    }
-
-    @Config("clp.split-filter-provider-type")
-    public ClpConfig setSplitFilterProviderType(SplitFilterProviderType splitFilterProviderType)
-    {
-        this.splitFilterProviderType = splitFilterProviderType;
-        return this;
-    }
-
     public SplitProviderType getSplitProviderType()
     {
         return splitProviderType;
@@ -188,11 +175,6 @@ public class ClpConfig
     }
 
     public enum MetadataProviderType
-    {
-        MYSQL
-    }
-
-    public enum SplitFilterProviderType
     {
         MYSQL
     }
