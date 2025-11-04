@@ -365,7 +365,7 @@ Path-based Functions
 
    - JSON paths must be **constant string literals**; variables are not supported.
    - Wildcards (e.g., ``msg.*.ts``) are **not supported**.
-   - If a path is invalid or missing, the function returns ``NULL`` rather than raising an error.
+   - If a path is invalid or missing in a given record, the function returns ``NULL`` rather than raising an error.
 
 Examples
 --------
@@ -455,9 +455,9 @@ internal column. During query execution, this column is serialized into a JSON s
    Returns the full log record as a JSON string, preserving all schema-backed and dynamic fields.
 
 .. note::
-
-   This function can only be used in the ``SELECT``` list to retrieve the complete JSON representation of each record.
-   It cannot be used within filter predicates (``WHERE`` clause) or as an argument to other functions.
+   This function can only be used in the list of projected columns in a ``SELECT``` clause to retrieve the complete
+   JSON representation of each record. It cannot be used within filter predicates (``WHERE`` clause) or as an argument
+   to other functions.
 
 Examples
 --------
