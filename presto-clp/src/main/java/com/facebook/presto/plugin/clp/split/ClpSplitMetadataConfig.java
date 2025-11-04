@@ -28,8 +28,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_FILTER_CONFIG_NOT_FOUND;
 import static java.util.Objects.requireNonNull;
@@ -116,6 +118,11 @@ public class ClpSplitMetadataConfig
         return result;
     }
 
+    public List<FilterRule> getFilterRules(SchemaTableName name) {
+        TableConfig cfg = getTableConfig(name);
+        return cfg.filterRules;
+    }
+
     public Map<String, String> getExposedToOriginalMapping(SchemaTableName name) {
         TableConfig cfg = getTableConfig(name);
         Map<String, String> mapping = new HashMap<>();
@@ -125,6 +132,16 @@ public class ClpSplitMetadataConfig
         return mapping;
     }
 
+    public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name) {
+        TableConfig cfg = getTableConfig(name);
+        Set<String> result = new LinkedHashSet<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null) {
+                result.add(c.asRangeBoundOf);
+            }
+        }
+        return result;
+    }
 
     public Map<String, Map<String, String>> getDataColumnRangeMapping(SchemaTableName name) {
         TableConfig cfg = getTableConfig(name);

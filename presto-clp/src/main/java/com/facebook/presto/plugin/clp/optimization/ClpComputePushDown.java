@@ -17,11 +17,11 @@ import com.facebook.airlift.log.Logger;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_SPLIT_FILTER_NOT_VALID;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -52,7 +53,10 @@ public class ClpComputePushDown
     private final StandardFunctionResolution functionResolution;
     private final ClpSplitMetadataConfig metadataConfig;
 
-    public ClpComputePushDown(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitMetadataConfig metadataConfig)
+    public ClpComputePushDown(
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig metadataConfig)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
@@ -63,27 +67,17 @@ public class ClpComputePushDown
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
         Rewriter rewriter = new Rewriter(idAllocator);
-        PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
-
-        // Throw exception if any required split filters are missing
-        if (!rewriter.tableScopeSet.isEmpty() && !rewriter.hasVisitedFilter) {
-            splitFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, "");
-        }
-        return optimizedPlanNode;
+        return rewriteWith(rewriter, maxSubplan);
     }
 
     private class Rewriter
             extends ConnectorPlanRewriter<Void>
     {
         private final PlanNodeIdAllocator idAllocator;
-        private final Set<String> tableScopeSet;
-        private boolean hasVisitedFilter;
 
         public Rewriter(PlanNodeIdAllocator idAllocator)
         {
             this.idAllocator = idAllocator;
-            hasVisitedFilter = false;
-            tableScopeSet = new HashSet<>();
         }
 
         @Override
@@ -91,7 +85,10 @@ public class ClpComputePushDown
         {
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            tableScopeSet.add(format("%s.%s", CONNECTOR_NAME, clpTableHandle.getSchemaTableName()));
+            if (!metadataConfig.getFilterRules(clpTableHandle.getSchemaTableName()).isEmpty()) {
+                throw new PrestoException(CLP_MANDATORY_SPLIT_FILTER_NOT_VALID, "required filters must be specified");
+            }
+
             return super.visitTableScan(node, context);
         }
 
@@ -107,8 +104,6 @@ public class ClpComputePushDown
 
         private PlanNode processFilter(FilterNode filterNode, TableScanNode tableScanNode)
         {
-            hasVisitedFilter = true;
-
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
 
