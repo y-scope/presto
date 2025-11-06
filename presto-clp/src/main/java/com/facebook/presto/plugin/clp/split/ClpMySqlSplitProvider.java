@@ -18,6 +18,9 @@ import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.function.FunctionMetadataManager;
+import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
@@ -31,6 +34,7 @@ import java.util.List;
 
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 
 public class ClpMySqlSplitProvider
         implements ClpSplitProvider
@@ -47,9 +51,16 @@ public class ClpMySqlSplitProvider
     private static final Logger log = Logger.get(ClpMySqlSplitProvider.class);
 
     private final ClpConfig config;
+    private final FunctionMetadataManager functionManager;
+    private final StandardFunctionResolution functionResolution;
+    private final ClpSplitMetadataConfig metadataConfig;
 
     @Inject
-    public ClpMySqlSplitProvider(ClpConfig config)
+    public ClpMySqlSplitProvider(
+            ClpConfig config,
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig metadataConfig)
     {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -59,6 +70,9 @@ public class ClpMySqlSplitProvider
             throw new RuntimeException("MySQL JDBC driver not found", e);
         }
         this.config = config;
+        this.functionManager = functionManager;
+        this.functionResolution = functionResolution;
+        this.metadataConfig = metadataConfig;
     }
 
     @Override
@@ -70,8 +84,18 @@ public class ClpMySqlSplitProvider
         String tableName = clpTableHandle.getSchemaTableName().getTableName();
         String archivePathQuery = format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
 
-        if (clpTableLayoutHandle.getMetadataSql().isPresent()) {
-            String metadataFilterQuery = clpTableLayoutHandle.getMetadataSql().get();
+        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+
+            ClpMySqlSplitMetadataExpressionConverter converter =
+                    new ClpMySqlSplitMetadataExpressionConverter(
+                            functionManager,
+                            functionResolution,
+                            metadataConfig.getExposedToOriginalMapping(schemaTableName),
+                            metadataConfig.getDataColumnRangeMapping(schemaTableName),
+                            metadataConfig.getRequiredColumns(schemaTableName)
+            );
+            String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression().get());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
         log.debug("Query for archive: %s", archivePathQuery);

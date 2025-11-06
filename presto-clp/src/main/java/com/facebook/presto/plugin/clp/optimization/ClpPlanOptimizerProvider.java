@@ -29,14 +29,12 @@ public class ClpPlanOptimizerProvider
 {
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpSplitFilterProvider splitFilterProvider;
 
     @Inject
-    public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitFilterProvider splitFilterProvider)
+    public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution)
     {
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
-        this.splitFilterProvider = splitFilterProvider;
     }
 
     @Override
@@ -48,6 +46,6 @@ public class ClpPlanOptimizerProvider
     @Override
     public Set<ConnectorPlanOptimizer> getPhysicalPlanOptimizers()
     {
-        return ImmutableSet.of(new ClpComputePushDown(functionManager, functionResolution, splitFilterProvider));
+        return ImmutableSet.of(new ClpComputePushDown(functionManager, functionResolution));
     }
 }

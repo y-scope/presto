@@ -417,6 +417,7 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     leftPushDownExpression.get(),    // variable
                     rightPushDownExpression.get(),   // literal
+                    left,                            // constant
                     operator,
                     rightType,
                     node);
@@ -426,6 +427,7 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     rightPushDownExpression.get(),   // variable
                     leftPushDownExpression.get(),    // literal
+                    right,                           // constant
                     newOperator,
                     leftType,
                     node);
@@ -449,6 +451,7 @@ public class ClpFilterToKqlConverter
      *
      * @param variableName name of the variable
      * @param literalString string representation of the literal
+     * @param constant the original ConstantExpression of literalString
      * @param operator the comparison operator
      * @param literalType the type of the literal
      * @param originalNode the original RowExpression node
@@ -458,6 +461,7 @@ public class ClpFilterToKqlConverter
     private ClpExpression buildClpExpression(
             String variableName,
             String literalString,
+            RowExpression constant,
             OperatorType operator,
             Type literalType,
             RowExpression originalNode)
@@ -468,22 +472,33 @@ public class ClpFilterToKqlConverter
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
 
-        String expression = null;
+        String pushDownExpression = null;
         if (operator.equals(EQUAL)) {
-            expression = format("%s: %s", variableName, formattedLiteral);
+            pushDownExpression = format("%s: %s", variableName, formattedLiteral);
         }
         else if (operator.equals(NOT_EQUAL)) {
-            expression = format("NOT %s: %s", variableName, formattedLiteral);
+            pushDownExpression = format("NOT %s: %s", variableName, formattedLiteral);
         }
         else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !isVarchar) {
-            expression = format("%s %s %s", variableName, operator.getOperator(), literalString);
+            pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), literalString);
         }
 
-        if (expression != null) {
-            return new ClpExpression(expression, isMetadataColumn ? originalNode : null);
+        if (pushDownExpression == null) {
+            return new ClpExpression(originalNode);
         }
 
-        return new ClpExpression(originalNode);
+        CallExpression metadataExpression = null;
+        if (isMetadataColumn) {
+            metadataExpression = new CallExpression(
+                    operator.name(),
+                    standardFunctionResolution.comparisonFunction(operator, literalType, literalType),
+                    BOOLEAN,
+                    ImmutableList.of(
+                            new VariableReferenceExpression(Optional.empty(), variableName, literalType),
+                            constant));
+        }
+
+        return new ClpExpression(pushDownExpression, metadataExpression);
     }
 
     /**

@@ -118,9 +118,16 @@ public class ClpSplitMetadataConfig
         return result;
     }
 
-    public List<FilterRule> getFilterRules(SchemaTableName name) {
+    public Set<String> getRequiredColumns(SchemaTableName name)
+    {
         TableConfig cfg = getTableConfig(name);
-        return cfg.filterRules;
+        Set<String> requiredColumns = new LinkedHashSet<>();
+        for (FilterRule rule : cfg.filterRules) {
+            if (rule.required) {
+                requiredColumns.add(rule.column);
+            }
+        }
+        return requiredColumns;
     }
 
     public Map<String, String> getExposedToOriginalMapping(SchemaTableName name) {
@@ -148,8 +155,7 @@ public class ClpSplitMetadataConfig
         Map<String, Map<String, String>> mapping = new HashMap<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
             if (c.asRangeBoundOf != null && c.boundType != null) {
-                mapping
-                        .computeIfAbsent(c.asRangeBoundOf, k -> new HashMap<>())
+                mapping.computeIfAbsent(c.asRangeBoundOf, k -> new HashMap<>())
                         .put(c.boundType, c.name);
             }
         }
