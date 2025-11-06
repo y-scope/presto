@@ -156,16 +156,13 @@ public class ClpMySqlSplitMetadataExpressionConverter
             case GREATER_THAN_OR_EQUAL:
                 // "col >= 5" → "upper_col >= 5"
                 return format("%s %s %s", upper, operator.getOperator(), literal);
-
             case LESS_THAN:
             case LESS_THAN_OR_EQUAL:
                 // "col <= 5" → "lower_col <= 5"
                 return format("%s %s %s", lower, operator.getOperator(), literal);
-
             case EQUAL:
                 // "col = 5" → "(lower_col <= 5 AND upper_col >= 5)"
                 return format("(%s <= %s AND %s >= %s)", lower, literal, upper, literal);
-
             default:
                 return null;
         }

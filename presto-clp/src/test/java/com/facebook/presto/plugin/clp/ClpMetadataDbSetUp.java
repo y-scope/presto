@@ -18,6 +18,7 @@ import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.math3.util.Pair;
 
@@ -169,13 +170,13 @@ public final class ClpMetadataDbSetUp
             fail(e.getMessage());
         }
 
-        return new ClpMySqlSplitProvider(
-                new ClpConfig()
-                        .setPolymorphicTypeEnabled(true)
-                        .setMetadataDbUrl(metadataDbUrl)
-                        .setMetadataDbUser(METADATA_DB_USER)
-                        .setMetadataDbPassword(METADATA_DB_PASSWORD)
-                        .setMetadataTablePrefix(METADATA_DB_TABLE_PREFIX));
+        ClpConfig config = new ClpConfig()
+                .setPolymorphicTypeEnabled(true)
+                .setMetadataDbUrl(metadataDbUrl)
+                .setMetadataDbUser(METADATA_DB_USER)
+                .setMetadataDbPassword(METADATA_DB_PASSWORD)
+                .setMetadataTablePrefix(METADATA_DB_TABLE_PREFIX);
+        return new ClpMySqlSplitProvider(config, new ClpSplitMetadataConfig(config));
     }
 
     public static void tearDown(DbHandle dbHandle)

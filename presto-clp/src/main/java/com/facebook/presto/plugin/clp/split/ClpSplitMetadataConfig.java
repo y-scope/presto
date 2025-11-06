@@ -80,10 +80,14 @@ public class ClpSplitMetadataConfig
     public ClpSplitMetadataConfig(ClpConfig config) {
         requireNonNull(config, "config is null");
 
+        if (null == config.getSplitMetadataConfigPath()) {
+            return;
+        }
+
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root;
         try {
-            root = mapper.readTree(Files.readAllBytes(Paths.get(config.getSplitFilterConfig())));
+            root = mapper.readTree(Files.readAllBytes(Paths.get(config.getSplitMetadataConfigPath())));
         }
         catch (IOException e) {
             throw new PrestoException(CLP_SPLIT_FILTER_CONFIG_NOT_FOUND, "Failed to open split filter config file", e);

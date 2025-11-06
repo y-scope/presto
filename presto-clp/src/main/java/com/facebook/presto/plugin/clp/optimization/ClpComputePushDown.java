@@ -22,6 +22,7 @@ import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -84,7 +85,7 @@ public class ClpComputePushDown
         {
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            if (!metadataConfig.getFilterRules(clpTableHandle.getSchemaTableName()).isEmpty()) {
+            if (!metadataConfig.getRequiredColumns(clpTableHandle.getSchemaTableName()).isEmpty()) {
                 throw new PrestoException(CLP_MANDATORY_SPLIT_FILTER_NOT_VALID, "required filters must be specified");
             }
 
@@ -107,33 +108,27 @@ public class ClpComputePushDown
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
 
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
-
+            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+            ImmutableSet.Builder<String> metadataFilterColumns = ImmutableSet.builder();
+            metadataFilterColumns.addAll(metadataConfig.getMetadataColumns(schemaTableName).keySet());
+            metadataFilterColumns.addAll(metadataConfig.getDataColumnsWithRangeBounds(schemaTableName));
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataConfig.getMetadataColumns(clpTableHandle.getSchemaTableName()).keySet()),
+                            metadataFilterColumns.build()),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
-            // Perform required metadata filter checks before handling the KQL query (if kqlQuery
-            // isn't present, we'll return early, skipping subsequent checks).
-            splitFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), metadataSqlQuery.orElse(""));
-            boolean hasMetadataFilter = metadataSqlQuery.isPresent();
-            if (hasMetadataFilter) {
-                metadataSqlQuery = Optional.of(splitFilterProvider.remapSplitFilterPushDownExpression(tableScope, metadataSqlQuery.get()));
-                log.debug("Metadata SQL query: %s", metadataSqlQuery.get());
-            }
-
-            if (kqlQuery.isPresent() || hasMetadataFilter) {
+            if (kqlQuery.isPresent() || metadataExpression.isPresent()) {
                 if (kqlQuery.isPresent()) {
                     log.debug("KQL query: %s", kqlQuery.get());
                 }
 
-                ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataSqlQuery);
+                ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataExpression);
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,

@@ -42,9 +42,9 @@ public class TestClpSplitFilterConfigCommon
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
     {
-        URL resource = getClass().getClassLoader().getResource("test-mysql-split-filter.json");
+        URL resource = getClass().getClassLoader().getResource("test-mysql-split-metadata.json");
         if (resource == null) {
-            throw new FileNotFoundException("test-mysql-split-filter.json not found in resources");
+            throw new FileNotFoundException("test-mysql-split-metadata.json not found in resources");
         }
 
         filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
@@ -54,7 +54,7 @@ public class TestClpSplitFilterConfigCommon
     public void checkRequiredFilters()
     {
         ClpConfig config = new ClpConfig();
-        config.setSplitFilterConfig(filterConfigPath);
+        config.setSplitMetadataConfig(filterConfigPath);
         ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         Set<String> testTableScopeSet = ImmutableSet.of(format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1")));
         assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
@@ -69,7 +69,7 @@ public class TestClpSplitFilterConfigCommon
     public void getFilterNames()
     {
         ClpConfig config = new ClpConfig();
-        config.setSplitFilterConfig(filterConfigPath);
+        config.setSplitMetadataConfig(filterConfigPath);
         ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         Set<String> catalogFilterNames = filterProvider.getColumnNames("clp");
         assertEquals(ImmutableSet.of("level"), catalogFilterNames);
@@ -91,7 +91,7 @@ public class TestClpSplitFilterConfigCommon
         assertTrue(filterProvider.getColumnNames("abc.opq.xyz").isEmpty());
 
         // Invalid config
-        config.setSplitFilterConfig(randomUUID().toString());
+        config.setSplitMetadataConfig(randomUUID().toString());
         assertThrows(PrestoException.class, () -> new ClpMySqlSplitFilterProvider(config));
     }
 }

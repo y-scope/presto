@@ -21,10 +21,11 @@ import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
+import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
 import com.facebook.presto.plugin.clp.optimization.ClpUdfRewriter;
-import com.facebook.presto.plugin.clp.split.filter.ClpMySqlSplitFilterProvider;
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
@@ -90,44 +91,49 @@ public class TestClpUdfRewriter
             .setSchema(ClpMetadata.DEFAULT_SCHEMA_NAME)
             .build();
 
+    private ClpMockMetadataDatabase mockMetadataDatabase;
     private ClpMetadataDbSetUp.DbHandle dbHandle;
     ClpTableHandle table;
 
     private LocalQueryRunner localQueryRunner;
     private FunctionAndTypeManager functionAndTypeManager;
     private FunctionResolution functionResolution;
-    private ClpSplitFilterProvider splitFilterProvider;
+    private ClpSplitMetadataConfig splitMetadataConfig;
     private PlanNodeIdAllocator planNodeIdAllocator;
     private VariableAllocator variableAllocator;
 
     @BeforeMethod
     public void setUp()
     {
-        dbHandle = getDbHandle("metadata_query_testdb");
         final String tableName = "test";
-        final String tablePath = ARCHIVES_STORAGE_DIRECTORY_BASE + tableName;
-        table = new ClpTableHandle(new SchemaTableName("default", tableName), tablePath);
-
-        setupMetadata(dbHandle,
-                ImmutableMap.of(
-                        tableName,
+        mockMetadataDatabase = ClpMockMetadataDatabase.builder().build();
+        mockMetadataDatabase.addTableToDatasetsTableIfNotExist(ImmutableList.of(tableName));
+        mockMetadataDatabase.addColumnMetadata(ImmutableMap.of(
+                tableName,
+                new ColumnMetadataTableRows(
                         ImmutableList.of(
-                                new Pair<>("city.Name", ClpString),
-                                new Pair<>("city.Region.Id", Integer),
-                                new Pair<>("city.Region.Name", VarString),
-                                new Pair<>("fare", Float),
-                                new Pair<>("isHoliday", Boolean))));
+                                "city.Name",
+                                "city.Region.Id",
+                                "city.Region.Name",
+                                "fare",
+                                "isHoliday"),
+                        ImmutableList.of(
+                                ClpString,
+                                Integer,
+                                VarString,
+                                Float,
+                                Boolean))));
 
         localQueryRunner = new LocalQueryRunner(defaultSession);
         localQueryRunner.createCatalog("clp", new ClpConnectorFactory(), ImmutableMap.of(
-                "clp.metadata-db-url", format(METADATA_DB_URL_TEMPLATE, dbHandle.getDbPath()),
-                "clp.metadata-db-user", METADATA_DB_USER,
-                "clp.metadata-db-password", METADATA_DB_PASSWORD,
-                "clp.metadata-table-prefix", METADATA_DB_TABLE_PREFIX));
+                "clp.metadata-db-url", mockMetadataDatabase.getUrl(),
+                "clp.metadata-db-user", mockMetadataDatabase.getUsername(),
+                "clp.metadata-db-password", mockMetadataDatabase.getPassword(),
+                "clp.metadata-table-prefix", mockMetadataDatabase.getTablePrefix()));
         localQueryRunner.getMetadata().registerBuiltInFunctions(extractFunctions(new ClpPlugin().getFunctions()));
         functionAndTypeManager = localQueryRunner.getMetadata().getFunctionAndTypeManager();
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
-        splitFilterProvider = new ClpMySqlSplitFilterProvider(new ClpConfig());
+        splitMetadataConfig = new ClpSplitMetadataConfig(new ClpConfig());
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
     }
@@ -152,7 +158,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -191,7 +197,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -240,7 +246,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(

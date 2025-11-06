@@ -1,0 +1,41 @@
+{
+  "": {
+    "metaColumns": {
+      "level": {
+        "type": "STRING"
+      }
+    }
+  },
+  "clp.default": {
+    "metaColumns": {
+      "author": {
+        "type": "STRING"
+      }
+    }
+  },
+  "clp.default.table_1": {
+    "metaColumns": {
+      "begin_timestamp": {
+        "type": "STRING",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "lower"
+        }
+      },
+      "end_timestamp": {
+        "type": "STRING",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "upper"
+        }
+      }
+    },
+    "filterRules": [
+      {
+        "column": "msg.timestamp",
+        "required": true,
+        "reason": "Full scan would be too expensive without timestamp filtering."
+      }
+    ]
+  }
+}

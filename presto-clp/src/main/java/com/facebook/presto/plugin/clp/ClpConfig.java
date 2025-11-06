@@ -33,7 +33,7 @@ public class ClpConfig
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
 
-    private String splitFilterConfig;
+    private String splitFilterConfigPath;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public boolean isPolymorphicTypeEnabled()
@@ -150,15 +150,15 @@ public class ClpConfig
         return this;
     }
 
-    public String getSplitFilterConfig()
+    public String getSplitMetadataConfigPath()
     {
-        return splitFilterConfig;
+        return splitFilterConfigPath;
     }
 
-    @Config("clp.split-filter-config")
-    public ClpConfig setSplitFilterConfig(String splitFilterConfig)
+    @Config("clp.split-metadata-config-path")
+    public ClpConfig setSplitMetadataConfigPath(String splitMetadataConfigPath)
     {
-        this.splitFilterConfig = splitFilterConfig;
+        this.splitFilterConfigPath = splitMetadataConfigPath;
         return this;
     }
 

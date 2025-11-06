@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
 import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableList;
@@ -36,6 +37,7 @@ import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
 public class TestClpSplit
+        extends TestClpQueryBase
 {
     private ClpMockMetadataDatabase mockMetadataDatabase;
     private ClpSplitProvider clpSplitProvider;
@@ -80,7 +82,11 @@ public class TestClpSplit
                 .setMetadataDbUser(mockMetadataDatabase.getUsername())
                 .setMetadataDbPassword(mockMetadataDatabase.getPassword())
                 .setMetadataTablePrefix(mockMetadataDatabase.getTablePrefix());
-        clpSplitProvider = new ClpMySqlSplitProvider(config);
+        clpSplitProvider = new ClpMySqlSplitProvider(
+                config,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(config));
     }
 
     @AfterMethod
@@ -140,7 +146,7 @@ public class TestClpSplit
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),
-                metadataSql);
+                metadataSql.map(sql -> getRowExpression(sql, new SessionHolder())));
         List<String> expectedSplitPaths = expectedSplitIndexes.stream()
                 .map(expectedSplitIndex -> format("%s/%s", tablePath, entry.getValue().getIds().get(expectedSplitIndex)))
                 .collect(toImmutableList());
