@@ -14,6 +14,9 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.DecimalType;
+import com.facebook.presto.common.type.Decimals;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpErrorCode;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.FunctionHandle;
@@ -28,6 +31,8 @@ import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import io.airlift.slice.Slice;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -86,6 +91,11 @@ public class ClpMySqlSplitMetadataExpressionConverter
         Optional<OperatorType> operatorTypeOptional = functionMetadata.getOperatorType();
         if (operatorTypeOptional.isPresent()) {
             OperatorType operatorType = operatorTypeOptional.get();
+            if (operatorType == OperatorType.NEGATION) {
+                String value = node.getArguments().get(0).accept(this, null);
+                return "-" + value;
+            }
+
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
                 String variableName = node.getArguments().get(0).accept(this, null);
                 String literalString = node.getArguments().get(1).accept(this, null);
@@ -123,8 +133,21 @@ public class ClpMySqlSplitMetadataExpressionConverter
     public String visitConstant(ConstantExpression node, Void context)
     {
         Object value = node.getValue();
+        Type type = node.getType();
         if (value instanceof Slice) {
+            if (type instanceof DecimalType) {
+                DecimalType decimalType = (DecimalType) type;
+                BigInteger unscaled = Decimals.decodeUnscaledValue((Slice) value);
+                BigDecimal decimalValue = new BigDecimal(unscaled, decimalType.getScale());
+                return decimalValue.toPlainString();
+            }
             return "'" + ((Slice) value).toStringUtf8().replace("'", "''") + "'";
+        }
+
+        if (type instanceof DecimalType && value instanceof Long) {
+            DecimalType decimalType = (DecimalType) type;
+            BigDecimal decimalValue = new BigDecimal(BigInteger.valueOf((Long) value), decimalType.getScale());
+            return decimalValue.toPlainString();
         }
 
         return value.toString();
@@ -163,7 +186,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
                 return format("%s %s %s", lower, operator.getOperator(), literal);
             case EQUAL:
                 // "col = 5" → "(lower_col <= 5 AND upper_col >= 5)"
-                return format("(%s <= %s AND %s >= %s)", lower, literal, upper, literal);
+                return format("(%s <= %s) AND (%s >= %s)", lower, literal, upper, literal);
             default:
                 return null;
         }

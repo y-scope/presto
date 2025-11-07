@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.type.DecimalType;
+import com.facebook.presto.common.type.Decimals;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
@@ -35,6 +36,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -199,10 +202,25 @@ public class ClpFilterToKqlConverter
      */
     private String getLiteralString(ConstantExpression literal)
     {
-        if (literal.getValue() instanceof Slice) {
-            return ((Slice) literal.getValue()).toStringUtf8();
+        Object value = literal.getValue();
+        Type type = literal.getType();
+        if (value instanceof Slice) {
+            if (type instanceof DecimalType) {
+                DecimalType decimalType = (DecimalType) type;
+                BigInteger unscaled = Decimals.decodeUnscaledValue((Slice) value);
+                BigDecimal decimalValue = new BigDecimal(unscaled, decimalType.getScale());
+                return decimalValue.toPlainString();
+            }
+            return "'" + ((Slice) value).toStringUtf8().replace("'", "''") + "'";
         }
-        return literal.toString();
+
+        if (type instanceof DecimalType && value instanceof Long) {
+            DecimalType decimalType = (DecimalType) type;
+            BigDecimal decimalValue = new BigDecimal(BigInteger.valueOf((Long) value), decimalType.getScale());
+            return decimalValue.toPlainString();
+        }
+
+        return value.toString();
     }
 
     /**

@@ -19,6 +19,7 @@ import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.AfterMethod;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
@@ -40,6 +42,7 @@ public class TestClpSplit
 {
     private ClpMockMetadataDatabase mockMetadataDatabase;
     private ClpSplitProvider clpSplitProvider;
+    private TypeProvider typeProvider;
     private Map<String, ArchivesTableRows> tableSplits;
 
     @BeforeMethod
@@ -86,6 +89,7 @@ public class TestClpSplit
                 functionAndTypeManager,
                 standardFunctionResolution,
                 new ClpSplitMetadataConfig(config, functionAndTypeManager));
+        typeProvider = TypeProvider.viewOf(ImmutableMap.of("begin_timestamp", BIGINT, "end_timestamp", BIGINT));
     }
 
     @AfterMethod
@@ -146,7 +150,7 @@ public class TestClpSplit
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),
-                metadataSql.map(sql -> getRowExpression(sql, new SessionHolder())));
+                metadataSql.map(sql -> getRowExpression(sql, typeProvider, new SessionHolder())));
         List<String> expectedSplitPaths = expectedSplitIndexes.stream()
                 .map(expectedSplitIndex -> format("%s/%s", tablePath, entry.getValue().getIds().get(expectedSplitIndex)))
                 .collect(toImmutableList());
