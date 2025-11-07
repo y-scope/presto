@@ -228,7 +228,7 @@ public class TestClpFilterToKql
     }
 
     @Test
-    public void testMetadataSqlGeneration()
+    public void testMetadataExpressionGeneration()
     {
         SessionHolder sessionHolder = new SessionHolder();
         Set<String> testMetadataFilterColumns = ImmutableSet.of("fare");

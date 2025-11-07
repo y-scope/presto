@@ -39,11 +39,31 @@ import java.util.Set;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_CONFIG_NOT_FOUND;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A class that loads and manages split-level metadata configuration.
+ * <p></p>
+ * The configuration file defines metadata columns and filtering rules that can be applied in query
+ * planning to prune irrelevant splits based on metadata (e.g., timestamps, partitions, etc.).
+ * <p></p>
+ * The configuration supports a hierarchical namespace structure:
+ * <ul>
+ *     <li>Global defaults under an empty string key ("").</li>
+ *     <li>Schema-level overrides under the schema name (e.g., <code>"logs"</code>).</li>
+ *     <li>Table-level overrides under the full name (e.g., <code>"logs.events"</code>}).</li>
+ * </ul>
+ * <p></p>
+ * Configurations from broader scopes are merged with more specific ones, with table-level
+ * definitions overriding schema-level and global definitions.
+ */
 public class ClpSplitMetadataConfig
 {
     private final Map<String, TableConfig> tableConfigs = new HashMap<>();
     private final TypeManager typeManager;
 
+    /**
+     * Represents a metadata column entry defined in the split metadata configuration file. Each
+     * {@link MetaColumn} corresponds to one metadata column that can be exposed in query filters.
+     */
     public static class MetaColumn
     {
         public final String name;
@@ -65,6 +85,11 @@ public class ClpSplitMetadataConfig
         }
     }
 
+    /**
+     * Represents a rule that defines how a metadata column or a data column should be used in
+     * filtering. A rule may indicate that a column is required for query pruning and include an
+     * explanation of why it is necessary.
+     */
     public static class FilterRule
     {
         public final String column;
@@ -124,6 +149,13 @@ public class ClpSplitMetadataConfig
         }
     }
 
+    /**
+     * Returns the mapping of exposed metadata column names to their Presto {@link Type}s for the
+     * given table.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a map from exposed column name → type
+     */
     public Map<String, Type> getMetadataColumns(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
@@ -134,6 +166,12 @@ public class ClpSplitMetadataConfig
         return result;
     }
 
+    /**
+     * Returns the set of metadata columns marked as required in the configuration.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a set of column names that are required for filtering
+     */
     public Set<String> getRequiredColumns(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
@@ -146,6 +184,12 @@ public class ClpSplitMetadataConfig
         return requiredColumns;
     }
 
+    /**
+     * Returns a mapping of exposed metadata column names to their original internal names.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a map from exposed column name → original column name
+     */
     public Map<String, String> getExposedToOriginalMapping(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
@@ -156,6 +200,13 @@ public class ClpSplitMetadataConfig
         return mapping;
     }
 
+    /**
+     * Returns the set of data column names that have associated range bounds defined in the
+     * metadata configuration.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a set of data column names that have range bounds
+     */
     public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
@@ -168,6 +219,15 @@ public class ClpSplitMetadataConfig
         return result;
     }
 
+    /**
+     * Returns a mapping from data column names to their associated range bound metadata columns.
+     * <p>
+     * Each entry maps a data column name to another map with keys {@code "lower"} and/or
+     * {@code "upper"}, representing the metadata column names that define those bounds.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a nested mapping from data column name → ("lower"/"upper" → metadata column name)
+     */
     public Map<String, Map<String, String>> getDataColumnRangeMapping(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
@@ -181,6 +241,13 @@ public class ClpSplitMetadataConfig
         return mapping;
     }
 
+    /**
+     * Merges and returns the effective {@link TableConfig} for the given table, taking into account
+     * the hierarchical configuration structure: global → schema → table.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return the merged table configuration
+     */
     private TableConfig getTableConfig(SchemaTableName name)
     {
         TableConfig merged = new TableConfig();

@@ -44,6 +44,19 @@ import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_N
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A converter that converts Presto {@link RowExpression} trees representing metadata predicates
+ * into SQL filter strings that can be pushed down to MySQL for split-level metadata filtering.
+ * <p></p>
+ * The converter:
+ * <ul>
+ *   <li>Handles standard logical and comparison operators (AND, OR, =, >, >=, <, <=, IS NULL).</li>
+ *   <li>Supports range-bound rewriting for data columns that have metadata columns representing
+ *       lower and upper bounds.</li>
+ *   <li>Tracks required columns and throws an exception if any are missing in the filter
+ *       expression.</li>
+ * </ul>
+ */
 public class ClpMySqlSplitMetadataExpressionConverter
         implements RowExpressionVisitor<String, Void>
 {
@@ -68,6 +81,16 @@ public class ClpMySqlSplitMetadataExpressionConverter
         this.requiredColumns = requiredColumns;
     }
 
+    /**
+     * Converts the given {@link RowExpression} into an equivalent SQL WHERE clause string.
+     * <p></p>
+     * After conversion, validates that all required columns were referenced in the expression. If
+     * any required columns are missing, a {@link PrestoException} is thrown.
+     *
+     * @param expression the row expression to convert
+     * @return a SQL string representing the equivalent predicate
+     * @throws PrestoException if required columns are missing from the expression
+     */
     public String transform(RowExpression expression)
     {
         String sql = expression.accept(this, null);
@@ -161,6 +184,23 @@ public class ClpMySqlSplitMetadataExpressionConverter
         return exposedToOriginal.getOrDefault(exposed, exposed);
     }
 
+    /**
+     * Rewrites a comparison operator involving a data column into an equivalent expression using
+     * its associated range-bound metadata columns (if configured).
+     * <p></p>
+     * Examples:
+     * <ul>
+     *   <li><code>col >= 5</code> → <code>upper_col >= 5</code></li>
+     *   <li><code>col <= 5</code> → <code>lower_col <= 5</code></li>
+     *   <li><code>col = 5</code> → <code>(lower_col <= 5) AND (upper_col >= 5)</code></li>
+     * </ul>
+     * Returns <code>null</code> if no rewrite is applicable.
+     *
+     * @param variableName the name of the column being compared
+     * @param operator     the comparison operator
+     * @param literal      the literal value as a SQL string
+     * @return a rewritten SQL expression string, or <code>null</code> if no rewrite applies
+     */
     private String rewriteComparisonWithBounds(String variableName, OperatorType operator, String literal)
     {
         String original = exposedToOriginal.getOrDefault(variableName, variableName);
@@ -171,24 +211,33 @@ public class ClpMySqlSplitMetadataExpressionConverter
 
         String lower = bounds.get("lower");
         String upper = bounds.get("upper");
-        if (lower == null || upper == null) {
-            return null;
-        }
 
         switch (operator) {
             case GREATER_THAN:
             case GREATER_THAN_OR_EQUAL:
-                // "col >= 5" → "upper_col >= 5"
-                return format("%s %s %s", upper, operator.getOperator(), literal);
+                if (upper != null) {
+                    return format("%s %s %s", upper, operator.getOperator(), literal);
+                }
+                break;
             case LESS_THAN:
             case LESS_THAN_OR_EQUAL:
-                // "col <= 5" → "lower_col <= 5"
-                return format("%s %s %s", lower, operator.getOperator(), literal);
+                if (lower != null) {
+                    return format("%s %s %s", lower, operator.getOperator(), literal);
+                }
+                break;
             case EQUAL:
-                // "col = 5" → "(lower_col <= 5 AND upper_col >= 5)"
-                return format("(%s <= %s) AND (%s >= %s)", lower, literal, upper, literal);
+                if (lower != null && upper != null) {
+                    return format("(%s <= %s) AND (%s >= %s)", lower, literal, upper, literal);
+                } else if (lower != null) {
+                    return format("%s <= %s", lower, literal);
+                } else if (upper != null) {
+                    return format("%s >= %s", upper, literal);
+                }
+                break;
             default:
-                return null;
+                break;
         }
+
+        return null;
     }
 }
