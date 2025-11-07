@@ -40,7 +40,7 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
-public class TestClpSplitMetadataConfigCommon
+public class TestClpSplitMetadataConfig
         extends TestClpQueryBase
 {
     private String splitMetadataConfigPath;
