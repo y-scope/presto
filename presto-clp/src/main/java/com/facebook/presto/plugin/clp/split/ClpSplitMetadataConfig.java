@@ -40,7 +40,8 @@ public class ClpSplitMetadataConfig
 {
     private final Map<String, TableConfig> tableConfigs = new HashMap<>();
 
-    public static class MetaColumn {
+    public static class MetaColumn
+    {
         public final String name;
         public final String type;
         public final String exposedAs;
@@ -48,7 +49,8 @@ public class ClpSplitMetadataConfig
         public final String asRangeBoundOf; // optional
         public final String boundType;      // "lower" or "upper"
 
-        public MetaColumn(String name, JsonNode node) {
+        public MetaColumn(String name, JsonNode node)
+        {
             this.name = name;
             this.type = node.path("type").asText();
             this.exposedAs = node.path("exposedAs").asText(name);
@@ -59,25 +61,29 @@ public class ClpSplitMetadataConfig
         }
     }
 
-    public static class FilterRule {
+    public static class FilterRule
+    {
         public final String column;
         public final boolean required;
         public final String reason;
 
-        public FilterRule(JsonNode node) {
+        public FilterRule(JsonNode node)
+        {
             this.column = node.path("column").asText();
             this.required = node.path("required").asBoolean(false);
             this.reason = node.path("reason").asText(null);
         }
     }
 
-    public static class TableConfig {
+    public static class TableConfig
+    {
         public final Map<String, MetaColumn> metaColumns = new HashMap<>();
         public final List<FilterRule> filterRules = new ArrayList<>();
     }
 
     @Inject
-    public ClpSplitMetadataConfig(ClpConfig config) {
+    public ClpSplitMetadataConfig(ClpConfig config)
+    {
         requireNonNull(config, "config is null");
 
         if (null == config.getSplitMetadataConfigPath()) {
@@ -93,13 +99,13 @@ public class ClpSplitMetadataConfig
             throw new PrestoException(CLP_SPLIT_FILTER_CONFIG_NOT_FOUND, "Failed to open split filter config file", e);
         }
 
-        for (Iterator<String> it = root.fieldNames(); it.hasNext();) {
+        for (Iterator<String> it = root.fieldNames(); it.hasNext(); ) {
             String namespace = it.next();
             JsonNode tableNode = root.get(namespace);
 
             TableConfig cfg = new TableConfig();
             if (tableNode.has("metaColumns")) {
-                for (Iterator<String> m = tableNode.get("metaColumns").fieldNames(); m.hasNext();) {
+                for (Iterator<String> m = tableNode.get("metaColumns").fieldNames(); m.hasNext(); ) {
                     String colName = m.next();
                     cfg.metaColumns.put(colName, new MetaColumn(colName, tableNode.get("metaColumns").get(colName)));
                 }
@@ -113,7 +119,8 @@ public class ClpSplitMetadataConfig
         }
     }
 
-    public Map<String, String> getMetadataColumns(SchemaTableName name) {
+    public Map<String, String> getMetadataColumns(SchemaTableName name)
+    {
         TableConfig cfg = getTableConfig(name);
         Map<String, String> result = new LinkedHashMap<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
@@ -134,7 +141,8 @@ public class ClpSplitMetadataConfig
         return requiredColumns;
     }
 
-    public Map<String, String> getExposedToOriginalMapping(SchemaTableName name) {
+    public Map<String, String> getExposedToOriginalMapping(SchemaTableName name)
+    {
         TableConfig cfg = getTableConfig(name);
         Map<String, String> mapping = new HashMap<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
@@ -143,7 +151,8 @@ public class ClpSplitMetadataConfig
         return mapping;
     }
 
-    public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name) {
+    public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name)
+    {
         TableConfig cfg = getTableConfig(name);
         Set<String> result = new LinkedHashSet<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
@@ -154,7 +163,8 @@ public class ClpSplitMetadataConfig
         return result;
     }
 
-    public Map<String, Map<String, String>> getDataColumnRangeMapping(SchemaTableName name) {
+    public Map<String, Map<String, String>> getDataColumnRangeMapping(SchemaTableName name)
+    {
         TableConfig cfg = getTableConfig(name);
         Map<String, Map<String, String>> mapping = new HashMap<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
@@ -166,7 +176,8 @@ public class ClpSplitMetadataConfig
         return mapping;
     }
 
-    private TableConfig getTableConfig(SchemaTableName name) {
+    private TableConfig getTableConfig(SchemaTableName name)
+    {
         TableConfig merged = new TableConfig();
 
         List<String> namespaces = new ArrayList<>();

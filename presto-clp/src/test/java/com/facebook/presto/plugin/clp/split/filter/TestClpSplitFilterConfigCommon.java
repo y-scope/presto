@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp.split.filter;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableSet;
@@ -35,9 +36,9 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
-public class TestClpSplitFilterConfigCommon
+public class TestClpSplitMetadataConfigCommon
 {
-    private String filterConfigPath;
+    private String splitMetadataConfigPath;
 
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
@@ -47,15 +48,15 @@ public class TestClpSplitFilterConfigCommon
             throw new FileNotFoundException("test-mysql-split-metadata.json not found in resources");
         }
 
-        filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
+        splitMetadataConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
     }
 
     @Test
     public void checkRequiredFilters()
     {
         ClpConfig config = new ClpConfig();
-        config.setSplitMetadataConfig(filterConfigPath);
-        ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
+        config.setSplitMetadataConfigPath(splitMetadataConfigPath);
+        ClpSplitMetadataConfig filterProvider = new ClpSplitMetadataConfig(config);
         Set<String> testTableScopeSet = ImmutableSet.of(format("%s.%s", CONNECTOR_NAME, new SchemaTableName("default", "table_1")));
         assertThrows(PrestoException.class, () -> filterProvider.checkContainsRequiredFilters(
                 testTableScopeSet,
@@ -69,7 +70,7 @@ public class TestClpSplitFilterConfigCommon
     public void getFilterNames()
     {
         ClpConfig config = new ClpConfig();
-        config.setSplitMetadataConfig(filterConfigPath);
+        config.setSplitMetadataConfig(splitMetadataConfigPath);
         ClpMySqlSplitFilterProvider filterProvider = new ClpMySqlSplitFilterProvider(config);
         Set<String> catalogFilterNames = filterProvider.getColumnNames("clp");
         assertEquals(ImmutableSet.of("level"), catalogFilterNames);

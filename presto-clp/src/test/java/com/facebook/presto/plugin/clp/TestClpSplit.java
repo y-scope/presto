@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
@@ -141,8 +140,9 @@ public class TestClpSplit
             Optional<String> metadataSql,
             List<Integer> expectedSplitIndexes)
     {
+        final String storageBase = "/tmp/archives/";
         String tableName = entry.getKey();
-        String tablePath = ARCHIVES_STORAGE_DIRECTORY_BASE + tableName;
+        String tablePath = storageBase + tableName;
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),

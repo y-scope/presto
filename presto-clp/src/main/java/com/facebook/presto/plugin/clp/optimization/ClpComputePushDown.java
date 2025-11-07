@@ -35,14 +35,11 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_SPLIT_FILTER_NOT_VALID;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class ClpComputePushDown

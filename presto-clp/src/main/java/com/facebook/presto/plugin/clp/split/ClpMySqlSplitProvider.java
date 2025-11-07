@@ -34,7 +34,6 @@ import java.util.List;
 
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static java.lang.String.format;
-import static java.util.Objects.requireNonNull;
 
 public class ClpMySqlSplitProvider
         implements ClpSplitProvider
@@ -93,8 +92,7 @@ public class ClpMySqlSplitProvider
                             functionResolution,
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             metadataConfig.getDataColumnRangeMapping(schemaTableName),
-                            metadataConfig.getRequiredColumns(schemaTableName)
-            );
+                            metadataConfig.getRequiredColumns(schemaTableName));
             String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression().get());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }

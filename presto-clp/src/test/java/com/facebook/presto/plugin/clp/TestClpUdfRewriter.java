@@ -27,7 +27,6 @@ import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
 import com.facebook.presto.plugin.clp.optimization.ClpUdfRewriter;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
-import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.plan.PlanNode;
@@ -46,7 +45,6 @@ import com.facebook.presto.testing.LocalQueryRunner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.math3.util.Pair;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -61,13 +59,6 @@ import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_URL_TEMPLATE;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMetadata;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Float;
@@ -80,7 +71,6 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.filter
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
-import static java.lang.String.format;
 
 @Test(singleThreaded = true)
 public class TestClpUdfRewriter
@@ -92,7 +82,6 @@ public class TestClpUdfRewriter
             .build();
 
     private ClpMockMetadataDatabase mockMetadataDatabase;
-    private ClpMetadataDbSetUp.DbHandle dbHandle;
     ClpTableHandle table;
 
     private LocalQueryRunner localQueryRunner;
@@ -142,7 +131,9 @@ public class TestClpUdfRewriter
     public void tearDown()
     {
         localQueryRunner.close();
-        ClpMetadataDbSetUp.tearDown(dbHandle);
+        if (null != mockMetadataDatabase) {
+            mockMetadataDatabase.teardown();
+        }
     }
 
     @Test

@@ -32,7 +32,7 @@ import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
 public class TestClpMySqlSplitMetadataConfig
-    extends TestClpQueryBase
+        extends TestClpQueryBase
 {
     private String splitMetadataConfigPath;
 
@@ -54,7 +54,7 @@ public class TestClpMySqlSplitMetadataConfig
         config.setSplitMetadataConfigPath(splitMetadataConfigPath);
         ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config);
 
-        final SchemaTableName schemaTableName = new SchemaTableName("default",  "table_1");
+        final SchemaTableName schemaTableName = new SchemaTableName("default", "table_1");
         ClpMySqlSplitMetadataExpressionConverter converter = new ClpMySqlSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
