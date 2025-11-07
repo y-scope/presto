@@ -20,6 +20,7 @@ import com.facebook.presto.plugin.clp.split.ClpMySqlSplitMetadataExpressionConve
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.BeforeMethod;
@@ -72,11 +73,13 @@ public class TestClpSplitMetadataConfigCommon
                 splitMetadataConfig.getExposedToOriginalMapping(schemaTableName),
                 splitMetadataConfig.getDataColumnRangeMapping(schemaTableName),
                 splitMetadataConfig.getRequiredColumns(schemaTableName));
-        converter.transform(getRowExpression("(\"level\" >= 1 AND \"level\" <= 3)", sessionHolder));
-        assertThrows(PrestoException.class, ()
-                -> converter.transform(getRowExpression("(\"level\" >= 1 AND \"level\" <= 3)", sessionHolder)));
 
-        converter.transform(getRowExpression("(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)", sessionHolder));
+        TypeProvider typeProvider = TypeProvider.viewOf(ImmutableMap.of("level", BIGINT, "msg.timestamp", BIGINT));
+        assertThrows(PrestoException.class, ()
+                -> converter.transform(getRowExpression("(\"level\" >= 1 AND \"level\" <= 3)", typeProvider, sessionHolder)));
+
+        converter.transform(
+                getRowExpression("(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)", typeProvider, sessionHolder));
     }
 
     @Test
@@ -87,12 +90,12 @@ public class TestClpSplitMetadataConfigCommon
         ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         Map<String, Type> columns = splitMetadataConfig.getMetadataColumns(new SchemaTableName("other", "test"));
-        assertEquals(ImmutableMap.of("level", VARCHAR), columns);
+        assertEquals(ImmutableMap.of("level", BIGINT), columns);
         columns = splitMetadataConfig.getMetadataColumns(new SchemaTableName("default", "table_2"));
-        assertEquals(ImmutableMap.of("level", VARCHAR, "author", VARCHAR), columns);
+        assertEquals(ImmutableMap.of("level", BIGINT, "author", VARCHAR), columns);
         columns = splitMetadataConfig.getMetadataColumns(new SchemaTableName("default", "table_1"));
         assertEquals(columns, ImmutableMap.of(
-                "level", VARCHAR,
+                "level", BIGINT,
                 "author", VARCHAR,
                 "begin_timestamp", BIGINT,
                 "end_timestamp", BIGINT,

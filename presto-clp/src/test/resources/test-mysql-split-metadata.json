@@ -2,18 +2,18 @@
   "": {
     "metaColumns": {
       "level": {
-        "type": "VARCHAR"
+        "type": "BIGINT"
       }
     }
   },
-  "clp.default": {
+  "default": {
     "metaColumns": {
       "author": {
         "type": "VARCHAR"
       }
     }
   },
-  "clp.default.table_1": {
+  "default.table_1": {
     "metaColumns": {
       "begin_timestamp": {
         "type": "BIGINT",

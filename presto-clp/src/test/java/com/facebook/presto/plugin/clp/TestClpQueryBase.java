@@ -115,6 +115,11 @@ public class TestClpQueryBase
         return SqlToRowExpressionTranslator.translate(expression, expressionTypes, ImmutableMap.of(), functionAndTypeManager, session);
     }
 
+    protected RowExpression getRowExpression(String sqlExpression, TypeProvider typeProvider, SessionHolder sessionHolder)
+    {
+        return toRowExpression(expression(sqlExpression), typeProvider, sessionHolder.getSession());
+    }
+
     protected RowExpression getRowExpression(String sqlExpression, SessionHolder sessionHolder)
     {
         return toRowExpression(expression(sqlExpression), typeProvider, sessionHolder.getSession());
