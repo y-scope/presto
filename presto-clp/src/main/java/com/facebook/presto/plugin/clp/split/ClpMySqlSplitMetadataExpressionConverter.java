@@ -228,9 +228,11 @@ public class ClpMySqlSplitMetadataExpressionConverter
             case EQUAL:
                 if (lower != null && upper != null) {
                     return format("(%s <= %s) AND (%s >= %s)", lower, literal, upper, literal);
-                } else if (lower != null) {
+                }
+                else if (lower != null) {
                     return format("%s <= %s", lower, literal);
-                } else if (upper != null) {
+                }
+                else if (upper != null) {
                     return format("%s >= %s", upper, literal);
                 }
                 break;

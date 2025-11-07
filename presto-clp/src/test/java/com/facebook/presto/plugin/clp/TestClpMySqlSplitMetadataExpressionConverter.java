@@ -11,12 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.split.filter;
+package com.facebook.presto.plugin.clp;
 
-import com.facebook.presto.plugin.clp.ClpConfig;
-import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitMetadataExpressionConverter;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableMap;
@@ -32,12 +31,14 @@ import java.nio.file.Paths;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
 
 @Test(singleThreaded = true)
-public class TestClpMySqlSplitMetadataConfig
+public class TestClpMySqlSplitMetadataExpressionConverter
         extends TestClpQueryBase
 {
     private TypeProvider typeProvider;
+    private ClpSplitMetadataConfig splitMetadataConfig;
     private ClpMySqlSplitMetadataExpressionConverter converter;
 
     @BeforeMethod
@@ -53,7 +54,7 @@ public class TestClpMySqlSplitMetadataConfig
 
         ClpConfig config = new ClpConfig();
         config.setSplitMetadataConfigPath(Paths.get(resource.toURI()).toAbsolutePath().toString());
-        ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
+        splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         SchemaTableName schemaTableName = new SchemaTableName("default", "table_1");
         converter = new ClpMySqlSplitMetadataExpressionConverter(
@@ -62,6 +63,27 @@ public class TestClpMySqlSplitMetadataConfig
                 splitMetadataConfig.getExposedToOriginalMapping(schemaTableName),
                 splitMetadataConfig.getDataColumnRangeMapping(schemaTableName),
                 splitMetadataConfig.getRequiredColumns(schemaTableName));
+    }
+
+    @Test
+    public void checkRequiredColumns()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+        SchemaTableName schemaTableName = new SchemaTableName("default", "table_1");
+
+        ClpMySqlSplitMetadataExpressionConverter converter = new ClpMySqlSplitMetadataExpressionConverter(
+                functionAndTypeManager,
+                standardFunctionResolution,
+                splitMetadataConfig.getExposedToOriginalMapping(schemaTableName),
+                splitMetadataConfig.getDataColumnRangeMapping(schemaTableName),
+                splitMetadataConfig.getRequiredColumns(schemaTableName));
+
+        TypeProvider typeProvider = TypeProvider.viewOf(ImmutableMap.of("level", BIGINT, "msg.timestamp", BIGINT));
+        assertThrows(PrestoException.class, ()
+                -> converter.transform(getRowExpression("(\"level\" >= 1 AND \"level\" <= 3)", typeProvider, sessionHolder)));
+
+        converter.transform(
+                getRowExpression("(\"msg.timestamp\" > 1234 AND \"msg.timestamp\" < 5678)", typeProvider, sessionHolder));
     }
 
     @Test

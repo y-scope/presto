@@ -11,11 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp.split.filter;
+package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.plugin.clp.ClpConfig;
-import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpMySqlSplitMetadataExpressionConverter;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.PrestoException;
@@ -59,7 +57,7 @@ public class TestClpSplitMetadataConfigCommon
     }
 
     @Test
-    public void checkRequiredFilters()
+    public void checkRequiredColumns()
     {
         SessionHolder sessionHolder = new SessionHolder();
         ClpConfig config = new ClpConfig();
@@ -83,7 +81,7 @@ public class TestClpSplitMetadataConfigCommon
     }
 
     @Test
-    public void getFilterNames()
+    public void getMetadataColumnNames()
     {
         ClpConfig config = new ClpConfig();
         config.setSplitMetadataConfigPath(splitMetadataConfigPath);
@@ -106,7 +104,7 @@ public class TestClpSplitMetadataConfigCommon
     }
 
     @Test
-    public void handleEmptyAndInvalidSplitFilterConfig()
+    public void handleEmptyAndInvalidSplitMetadataConfig()
     {
         ClpConfig config = new ClpConfig();
 
