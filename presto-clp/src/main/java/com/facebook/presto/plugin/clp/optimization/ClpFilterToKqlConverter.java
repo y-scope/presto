@@ -211,7 +211,7 @@ public class ClpFilterToKqlConverter
                 BigDecimal decimalValue = new BigDecimal(unscaled, decimalType.getScale());
                 return decimalValue.toPlainString();
             }
-            return "'" + ((Slice) value).toStringUtf8().replace("'", "''") + "'";
+            return ((Slice) value).toStringUtf8();
         }
 
         if (type instanceof DecimalType && value instanceof Long) {
@@ -435,9 +435,9 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     leftPushDownExpression.get(),    // variable
                     rightPushDownExpression.get(),   // literal
-                    left,                            // constant
+                    right,                           // constant
                     operator,
-                    rightType,
+                    leftType,
                     node);
         }
         else if (leftIsConstant) {
@@ -445,9 +445,9 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     rightPushDownExpression.get(),   // variable
                     leftPushDownExpression.get(),    // literal
-                    right,                           // constant
+                    left,                            // constant
                     newOperator,
-                    leftType,
+                    rightType,
                     node);
         }
         // fallback
@@ -471,8 +471,8 @@ public class ClpFilterToKqlConverter
      * @param literalString string representation of the literal
      * @param constant the original ConstantExpression of literalString
      * @param operator the comparison operator
-     * @param literalType the type of the literal
-     * @param originalNode the original RowExpression node
+     * @param variableType the type of the variable
+     * @param originalNode the original CallExpression node
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
@@ -481,10 +481,10 @@ public class ClpFilterToKqlConverter
             String literalString,
             RowExpression constant,
             OperatorType operator,
-            Type literalType,
-            RowExpression originalNode)
+            Type variableType,
+            CallExpression originalNode)
     {
-        boolean isVarchar = literalType instanceof VarcharType;
+        boolean isVarchar = constant.getType() instanceof VarcharType;
         boolean isMetadataColumn = metadataFilterColumns.contains(variableName);
         String formattedLiteral = isVarchar
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
@@ -509,10 +509,10 @@ public class ClpFilterToKqlConverter
         if (isMetadataColumn) {
             metadataExpression = new CallExpression(
                     operator.name(),
-                    standardFunctionResolution.comparisonFunction(operator, literalType, literalType),
+                    originalNode.getFunctionHandle(),
                     BOOLEAN,
                     ImmutableList.of(
-                            new VariableReferenceExpression(Optional.empty(), variableName, literalType),
+                            new VariableReferenceExpression(Optional.empty(), variableName, variableType),
                             constant));
         }
 

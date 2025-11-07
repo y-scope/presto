@@ -317,7 +317,7 @@ public class TestClpFilterToKql
         testFilter(clpExpression, expectedKql, null, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
             assertTrue(clpExpression.getMetadataExpression().isPresent());
-            assertEquals(clpExpression.getMetadataExpression().get(), expectedMetadataSqlQuery);
+            assertEquals(clpExpression.getMetadataExpression().get(), getRowExpression(expectedMetadataSqlQuery, sessionHolder));
         }
         else {
             assertFalse(clpExpression.getMetadataExpression().isPresent());

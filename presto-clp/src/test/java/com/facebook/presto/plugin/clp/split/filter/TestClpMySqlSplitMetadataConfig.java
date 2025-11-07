@@ -37,7 +37,6 @@ import static org.testng.Assert.assertEquals;
 public class TestClpMySqlSplitMetadataConfig
         extends TestClpQueryBase
 {
-    private String splitMetadataConfigPath;
     private TypeProvider typeProvider;
     private ClpMySqlSplitMetadataExpressionConverter converter;
 
@@ -49,12 +48,11 @@ public class TestClpMySqlSplitMetadataConfig
             throw new FileNotFoundException("test-mysql-split-metadata.json not found in resources");
         }
 
-        splitMetadataConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
         typeProvider = TypeProvider.viewOf(
-                ImmutableMap.of("msg.timestamp", BIGINT,"begin_timestamp", BIGINT, "end_timestamp", BIGINT));
+                ImmutableMap.of("msg.timestamp", BIGINT, "begin_timestamp", BIGINT, "end_timestamp", BIGINT));
 
         ClpConfig config = new ClpConfig();
-        config.setSplitMetadataConfigPath(splitMetadataConfigPath);
+        config.setSplitMetadataConfigPath(Paths.get(resource.toURI()).toAbsolutePath().toString());
         ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         SchemaTableName schemaTableName = new SchemaTableName("default", "table_1");
@@ -82,7 +80,8 @@ public class TestClpMySqlSplitMetadataConfig
         testRange("-1.234e-3", "-5.678E-3", -0.001234, -0.005678);
     }
 
-    private <T> void testRange(T lowerBound, T upperBound) {
+    private <T> void testRange(T lowerBound, T upperBound)
+    {
         testRange(lowerBound, upperBound, lowerBound, upperBound);
     }
 
