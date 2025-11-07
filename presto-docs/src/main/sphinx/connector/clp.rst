@@ -273,21 +273,6 @@ The code block shows an example of split metadata config file:
   - The filter rule for ``msg.timestamp`` is marked as **required**, ensuring that queries without timestamp constraints
     are rejected.
 
-Merging Behavior
-----------------
-
-When resolving configuration for a specific table:
-
-1. The connector merges definitions from matching namespaces in this order:
-
-   - ``""`` (global)
-   - ``schema``
-   - ``schema.table``
-
-2. Later (more specific) namespaces **override** or **extend** parent configurations.
-
-3. Duplicate filter rules are deduplicated by ``column`` name.
-
 Supported SQL Expressions
 =========================
 
