@@ -52,7 +52,7 @@ public class TestClpMySqlSplitMetadataConfig
     {
         ClpConfig config = new ClpConfig();
         config.setSplitMetadataConfigPath(splitMetadataConfigPath);
-        ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config);
+        ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         final SchemaTableName schemaTableName = new SchemaTableName("default", "table_1");
         ClpMySqlSplitMetadataExpressionConverter converter = new ClpMySqlSplitMetadataExpressionConverter(

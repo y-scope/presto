@@ -85,7 +85,7 @@ public class TestClpSplit
                 config,
                 functionAndTypeManager,
                 standardFunctionResolution,
-                new ClpSplitMetadataConfig(config));
+                new ClpSplitMetadataConfig(config, functionAndTypeManager));
     }
 
     @AfterMethod

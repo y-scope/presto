@@ -122,7 +122,7 @@ public class TestClpUdfRewriter
         localQueryRunner.getMetadata().registerBuiltInFunctions(extractFunctions(new ClpPlugin().getFunctions()));
         functionAndTypeManager = localQueryRunner.getMetadata().getFunctionAndTypeManager();
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
-        splitMetadataConfig = new ClpSplitMetadataConfig(new ClpConfig());
+        splitMetadataConfig = new ClpSplitMetadataConfig(new ClpConfig(), functionAndTypeManager);
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
     }

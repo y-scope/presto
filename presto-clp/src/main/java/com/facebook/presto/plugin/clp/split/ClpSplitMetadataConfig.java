@@ -13,6 +13,9 @@
  */
 package com.facebook.presto.plugin.clp.split;
 
+import com.facebook.presto.common.type.Type;
+import com.facebook.presto.common.type.TypeManager;
+import com.facebook.presto.common.type.TypeSignature;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
@@ -39,6 +42,7 @@ import static java.util.Objects.requireNonNull;
 public class ClpSplitMetadataConfig
 {
     private final Map<String, TableConfig> tableConfigs = new HashMap<>();
+    private final TypeManager typeManager;
 
     public static class MetaColumn
     {
@@ -82,9 +86,10 @@ public class ClpSplitMetadataConfig
     }
 
     @Inject
-    public ClpSplitMetadataConfig(ClpConfig config)
+    public ClpSplitMetadataConfig(ClpConfig config, TypeManager typeManager)
     {
         requireNonNull(config, "config is null");
+        this.typeManager = requireNonNull(typeManager, "typeManager is null");
 
         if (null == config.getSplitMetadataConfigPath()) {
             return;
@@ -119,12 +124,12 @@ public class ClpSplitMetadataConfig
         }
     }
 
-    public Map<String, String> getMetadataColumns(SchemaTableName name)
+    public Map<String, Type> getMetadataColumns(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
-        Map<String, String> result = new LinkedHashMap<>();
+        Map<String, Type> result = new LinkedHashMap<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
-            result.put(c.exposedAs, c.type);
+            result.put(c.exposedAs, typeManager.getType(TypeSignature.parseTypeSignature(c.type)));
         }
         return result;
     }
