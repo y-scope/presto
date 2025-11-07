@@ -78,8 +78,8 @@ Property Name                        Description                                
 ``clp.metadata-refresh-interval``    Specifies how frequently metadata is refreshed from the source, in       60
                                      seconds. Set this to a lower value for frequently changing datasets or
                                      to a higher value to reduce load.
-``clp.split-filter-config``          The absolute path to an optional split filter config file. See the
-                                     :ref:`Split Filter Config File<split-filter-config-file>` section for
+``clp.split-metadata-config-path``   The absolute path to an optional split metadata config file. See the
+                                     :ref:`Split Metadata Config File<split-metadata-config-file>` section for
                                      details.
 ``clp.split-filter-provider-type``   Specifies the split filter provider type. Currently, the only supported  ``mysql``
                                      type is a MySQL database, which is also used by the CLP package to
@@ -103,16 +103,86 @@ If you prefer to use a different source--or the same source with a custom implem
 implementations of the ``ClpMetadataProvider`` and ``ClpSplitProvider`` interfaces, and configure the connector
 accordingly.
 
-.. _split-filter-config-file:
+.. _split-metadata-config-file:
 
-***************************
-Split Filter Config File
-***************************
+**************************
+Split Metadata Config File
+**************************
 
-The split filter config file allows you to configure the set of columns that can be used to filter out irrelevant
-splits (CLP archives) when querying CLP's metadata database. This can significantly improve performance by reducing the
-amount of data that needs to be scanned. For a given query, the connector will translate any supported filter predicates
-that involve the configured columns into a query against CLP's metadata database.
+The split metadata config file allows you to configure the set of metadata columns that can be used in ``WHERE`` clause
+to filter out irrelevant splits (CLP archives) when querying CLP's metadata database. This can significantly improve
+performance by reducing the amount of data that needs to be scanned. For a given query, the connector will translate
+any supported filter predicates that involve the configured columns into a query against CLP's metadata database.
+
+Structure Overview
+==================
+
+The configuration is a JSON object where each top-level key represents a namespace. Each namespace defines metadata and
+filtering behavior for one or more tables.
+
+A *namespace* can be one of the following:
+
+- An empty string ``""`` (applies globally to all schemas and tables)
+- A schema name (applies to all tables in the schema)
+- A schema and table name delimited by ``"."`` (applies only to that table)
+
+Rules are **merged hierarchically**, with more specific namespaces overriding or extending parent ones.
+
+
+Namespace Configuration Format
+==============================
+
+Each namespace maps to an object containing the following fields:
+
+- ``metaColumns``: an object defining metadata columns for this namespace.
+- ``filterRules``: an array specifying filters that must or can be used in queries.
+
+Meta Columns
+------------
+
+Each entry under ``metaColumns`` describes a single metadata column. Metadata columns represent attributes of data
+splits, such as file path, partition date, or timestamp range.
+
+Supported fields:
+
+- ``type``: string, the Presto type of the metadata column (e.g., ``STRING``, ``DATE``, ``LONG``)
+- ``exposedAs``: string, optional, the name exposed to queries (defaults to the original column name)
+- ``description``: string, optional, human-readable description
+- ``filter.asRangeBoundOf``: string, optional, the data column name this metadata column bounds
+- ``filter.boundType``: string, optional, must be ``"lower"`` or ``"upper"``, indicates bound type
+
+Example::
+
+    "metaColumns": {
+      "partition_date": {
+        "type": "DATE",
+        "exposedAs": "partition_date",
+        "description": "Logical partition of the data file"
+      },
+      "$ir_path": {
+        "type": "STRING",
+        "exposedAs": "tpath",
+        "description": "Internal file path"
+      },
+      "begin_timestamp": {
+        "type": "LONG",
+        "description": "Start of the timestamp range for the file",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "lower"
+        }
+      },
+      "end_timestamp": {
+        "type": "LONG",
+        "description": "End of the timestamp range for the file",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "upper"
+        }
+      }
+    }
+
+
 
 The configuration is a JSON object where each key under the root represents a :ref:`scope<scopes>` and each scope maps
 to an array of :ref:`filter configs<filter-configs>`.
@@ -124,9 +194,9 @@ Scopes
 
 A *scope* can be one of the following:
 
-- A catalog name
-- A fully-qualified schema name
-- A fully-qualified table name
+- An empty string
+- A schema name
+- A name with schema name and table name delimited by ".".
 
 Filter configs under a particular scope will apply to all child scopes. For example, filter configs at the schema level
 will apply to all tables within that schema.
