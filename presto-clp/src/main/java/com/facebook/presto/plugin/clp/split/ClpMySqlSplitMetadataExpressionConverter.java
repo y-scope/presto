@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.common.function.OperatorType.IS_DISTINCT_FROM;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
@@ -68,7 +69,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
         Set<String> missing = new HashSet<>(requiredColumns);
         missing.removeAll(seenRequired);
         if (!missing.isEmpty()) {
-            throw new IllegalStateException("Missing required filter columns: " + missing);
+            throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "Missing required filter columns: " + missing);
         }
         return sql;
     }

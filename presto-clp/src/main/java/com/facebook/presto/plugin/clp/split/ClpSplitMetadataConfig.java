@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_FILTER_CONFIG_NOT_FOUND;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_CONFIG_NOT_FOUND;
 import static java.util.Objects.requireNonNull;
 
 public class ClpSplitMetadataConfig
@@ -101,7 +101,7 @@ public class ClpSplitMetadataConfig
             root = mapper.readTree(Files.readAllBytes(Paths.get(config.getSplitMetadataConfigPath())));
         }
         catch (IOException e) {
-            throw new PrestoException(CLP_SPLIT_FILTER_CONFIG_NOT_FOUND, "Failed to open split filter config file", e);
+            throw new PrestoException(CLP_SPLIT_METADATA_CONFIG_NOT_FOUND, "Failed to open split metadata config file", e);
         }
 
         for (Iterator<String> it = root.fieldNames(); it.hasNext(); ) {

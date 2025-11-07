@@ -2,32 +2,35 @@
   "": {
     "metaColumns": {
       "level": {
-        "type": "STRING"
+        "type": "VARCHAR"
       }
     }
   },
   "clp.default": {
     "metaColumns": {
       "author": {
-        "type": "STRING"
+        "type": "VARCHAR"
       }
     }
   },
   "clp.default.table_1": {
     "metaColumns": {
       "begin_timestamp": {
-        "type": "STRING",
+        "type": "BIGINT",
         "filter": {
           "asRangeBoundOf": "msg.timestamp",
           "boundType": "lower"
         }
       },
       "end_timestamp": {
-        "type": "STRING",
+        "type": "BIGINT",
         "filter": {
           "asRangeBoundOf": "msg.timestamp",
           "boundType": "upper"
         }
+      },
+      "file_name": {
+        "type": "VARCHAR"
       }
     },
     "filterRules": [

@@ -38,7 +38,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_SPLIT_FILTER_NOT_VALID;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.util.Objects.requireNonNull;
 
@@ -83,7 +83,7 @@ public class ClpComputePushDown
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             if (!metadataConfig.getRequiredColumns(clpTableHandle.getSchemaTableName()).isEmpty()) {
-                throw new PrestoException(CLP_MANDATORY_SPLIT_FILTER_NOT_VALID, "required filters must be specified");
+                throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "required filters must be specified");
             }
 
             return super.visitTableScan(node, context);
