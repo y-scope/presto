@@ -131,8 +131,8 @@ When resolving configuration for a specific table:
 1. The connector merges definitions from matching namespaces in this order:
 
    - ``""`` (global)
-   - ``schema``
-   - ``schema.table``
+   - ``"schema"``
+   - ``"schema.table"``
 
 2. Later (more specific) namespaces **override** or **extend** parent configurations.
 
