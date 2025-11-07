@@ -27,6 +27,7 @@ import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
 import com.facebook.presto.plugin.clp.optimization.ClpUdfRewriter;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.plan.PlanNode;
@@ -95,6 +96,7 @@ public class TestClpUdfRewriter
     public void setUp()
     {
         final String tableName = "test";
+        table = new ClpTableHandle(new SchemaTableName("default", tableName), "test");
         mockMetadataDatabase = ClpMockMetadataDatabase.builder().build();
         mockMetadataDatabase.addTableToDatasetsTableIfNotExist(ImmutableList.of(tableName));
         mockMetadataDatabase.addColumnMetadata(ImmutableMap.of(
