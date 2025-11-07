@@ -126,8 +126,17 @@ A *namespace* can be one of the following:
 - A schema name (applies to all tables in the schema)
 - A schema and table name delimited by ``"."`` (applies only to that table)
 
-Rules are **merged hierarchically**, with more specific namespaces overriding or extending parent ones.
+When resolving configuration for a specific table:
 
+1. The connector merges definitions from matching namespaces in this order:
+
+   - ``""`` (global)
+   - ``schema``
+   - ``schema.table``
+
+2. Later (more specific) namespaces **override** or **extend** parent configurations.
+
+3. Duplicate filter rules are deduplicated by ``column`` name.
 
 Namespace Configuration Format
 ==============================
@@ -141,11 +150,12 @@ Meta Columns
 ------------
 
 Each entry under ``metaColumns`` describes a single metadata column. Metadata columns represent attributes of data
-splits, such as file path, partition date, or timestamp range.
+splits, such as file path, partition date, or timestamp range. The key of each entry is the column name used to filter
+splits (e.g. in a metadata filter SQL query). However, we can expose a different name to Presto.
 
 Supported fields:
 
-- ``type``: string, the Presto type of the metadata column (e.g., ``STRING``, ``DATE``, ``LONG``)
+- ``type``: string, the Presto type of the metadata column (e.g., ``VARCHAR``, ``DATE``, ``BIGINT``)
 - ``exposedAs``: string, optional, the name exposed to queries (defaults to the original column name)
 - ``description``: string, optional, human-readable description
 - ``filter.asRangeBoundOf``: string, optional, the data column name this metadata column bounds
@@ -182,111 +192,101 @@ Example::
       }
     }
 
+Filter Rules
+------------
 
+Each entry in ``filterRules`` specifies a data column or a metadata column that must or can appear in query filters.
+These rules ensure that queries contain sufficient constraints for efficient split selection.
 
-The configuration is a JSON object where each key under the root represents a :ref:`scope<scopes>` and each scope maps
-to an array of :ref:`filter configs<filter-configs>`.
+Supported fields:
 
-.. _scopes:
+- ``column``: string, the name of the data column or metadata column (as seen by Presto)
+- ``required``: boolean, optional, whether this column **must** appear in query filters (default: ``false``)
+- ``reason``: string, optional, explanation of why the column is required
 
-Scopes
-======
+Example::
 
-A *scope* can be one of the following:
+    "filterRules": [
+      {
+        "column": "msg.timestamp",
+        "required": true,
+        "reason": "Full scan would be too expensive without timestamp filtering."
+      }
+    ]
 
-- An empty string
-- A schema name
-- A name with schema name and table name delimited by ".".
+Complete Example
+----------------
 
-Filter configs under a particular scope will apply to all child scopes. For example, filter configs at the schema level
-will apply to all tables within that schema.
-
-.. _filter-configs:
-
-Filter Configs
-==============
-
-Each filter config indicates how a *data column*---i.e., a column in the Presto table---should be mapped to one or
-more *metadata columns*---i.e., columns in CLP's metadata database.
-
-For example, an integer data column (e.g., ``timestamp``), may be remapped to a pair of metadata columns that represent
-the range of possible values (e.g., ``begin_timestamp`` and ``end_timestamp``) of the data column within a split.
-
-Each filter config has the following options:
-
-- ``columnName``: The data column's name.
-
-- ``customOptions`` *(optional)*: Custom options for a split filter provider. Options for the default split filter
-  provider (``ClpMySqlSplitFilterProvider``) are :ref:`below<clp-mysql-split-filter-provider-config>`.
-
-- ``required`` *(optional, defaults to false)*: Whether the filter **must** be present in the generated metadata query.
-  If a required filter is missing or cannot be added to the metadata query, the original query will be rejected.
-
-.. _clp-mysql-split-filter-provider-config:
-
-ClpMySqlSplitFilterProvider-Specific Filter Config
------------------------------------------------
-
-For ``ClpMySqlSplitFilterProvider``, the ``customOptions`` option of the filter config has the following sub-options:
-
-- ``rangeMapping`` *(optional)*: an object with the following properties:
-
-  .. note:: This option is only valid if the column has a numeric type.
-
-  - ``lowerBound``: The metadata column that represents the lower bound of values in a split for the data column.
-  - ``upperBound``: The metadata column that represents the upper bound of values in a split for the data column.
-
-Filter Config Example
----------------------
-
-The code block shows an example filter config file:
+The code block shows an example of split metadata config file:
 
 .. code-block:: json
 
     {
-      "clp": [
-        {
-          "columnName": "level"
-        }
-      ],
-      "clp.default": [
-        {
-          "columnName": "author"
-        }
-      ],
-      "clp.default.table_1": [
-        {
-          "columnName": "msg.timestamp",
-          "customOptions": {
-            "rangeMapping": {
-              "lowerBound": "begin_timestamp",
-              "upperBound": "end_timestamp"
-            }
-          },
-          "required": true
+      "": {
+        "metaColumns": {
+          "global_meta": {
+            "type": "STRING",
+            "description": "Global metadata column"
+          }
         },
-        {
-          "columnName": "file_name"
-        }
-      ]
+        "filterRules": []
+      },
+      "default": {
+        "metaColumns": {
+          "partition_date": {
+            "type": "DATE",
+            "exposedAs": "partition_date",
+            "description": "Logical partition of the data file"
+          }
+        },
+      },
+      "default.table_1": {
+        "metaColumns": {
+          "begin_timestamp": {
+            "type": "LONG",
+            "filter": { "asRangeBoundOf": "msg.timestamp", "boundType": "lower" }
+          },
+          "end_timestamp": {
+            "type": "LONG",
+            "filter": { "asRangeBoundOf": "msg.timestamp", "boundType": "upper" }
+          }
+        },
+        "filterRules": [
+          {
+            "column": "msg.timestamp",
+            "required": true,
+            "reason": "Full scan would be too expensive without timestamp filtering."
+          }
+        ]
+      }
     }
 
-- The first key-value pair adds the following filter configs for all schemas and tables under the ``clp`` catalog:
+- The empty string namespace ``""`` defines **global metadata** that applies to all schemas and tables. In this case,
+  ``global_meta`` column is available everywhere.
 
-  - The column ``level`` is used as-is without remapping.
+- The schema namespace ``"default"`` defines metadata columns and filters for **all tables in the `default` schema**.
+  - ``partition_date`` is exposed as ``partition_date`` for query usage.
 
-- The second key-value pair adds the following filter configs for all tables under the ``clp.default`` schema:
+- The table-specific namespace ``"default.table_1"`` defines metadata and filter rules for a **single table**:
+  - ``begin_timestamp`` and ``end_timestamp`` map to the data column ``msg.timestamp`` as lower and upper bounds.
+    This enables range-based filtering on timestamp values when generating split queries.
+  - The filter rule for ``msg.timestamp`` is marked as **required**, ensuring that queries without timestamp constraints
+    are rejected.
 
-  - The column ``author`` is used as-is without remapping.
+Merging Behavior
+----------------
 
-- The third key-value pair adds two filter configs for the table ``clp.default.table_1``:
+When resolving configuration for a specific table:
 
-  - The column ``msg.timestamp`` is remapped via a ``rangeMapping`` to the metadata columns ``begin_timestamp`` and
-    ``end_timestamp``, and is required to exist in every query.
-  - The column ``file_name`` is used as-is without remapping.
+1. The connector merges definitions from matching namespaces in this order:
 
-If you prefer to use a different format for ``customOptions``, you can provide your own implementation of the
-``ClpSplitFilterProvider`` interface, and configure the connector accordingly.
+   - ``""`` (global)
+   - ``schema``
+   - ``schema.table``
+
+2. Later (more specific) namespaces **override** or **extend** parent configurations.
+
+3. Duplicate filter rules are deduplicated by ``column`` name.
 
 Supported SQL Expressions
 =========================
