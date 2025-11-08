@@ -277,7 +277,7 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(

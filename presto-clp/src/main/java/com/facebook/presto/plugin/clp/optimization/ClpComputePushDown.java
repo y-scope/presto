@@ -33,7 +33,6 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
 import java.util.Optional;
@@ -106,15 +105,13 @@ public class ClpComputePushDown
 
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-            ImmutableSet.Builder<String> metadataFilterColumns = ImmutableSet.builder();
-            metadataFilterColumns.addAll(metadataConfig.getMetadataColumns(schemaTableName).keySet());
-            metadataFilterColumns.addAll(metadataConfig.getDataColumnsWithRangeBounds(schemaTableName));
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataFilterColumns.build()),
+                            metadataConfig.getMetadataColumns(schemaTableName).keySet(),
+                            metadataConfig.getDataColumnsWithRangeBounds(schemaTableName)),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
