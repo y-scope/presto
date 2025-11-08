@@ -93,6 +93,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
      */
     public String transform(RowExpression expression)
     {
+        seenRequired.clear();
         String sql = expression.accept(this, null);
         Set<String> missing = new HashSet<>(requiredColumns);
         missing.removeAll(seenRequired);
