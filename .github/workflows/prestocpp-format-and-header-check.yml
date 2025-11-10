@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   prestocpp-format-and-header-check:
-    runs-on: y-scope/Default
+    runs-on:
+      group: Default
     container:
       image: public.ecr.aws/oss-presto/velox-dev:check
     steps:
