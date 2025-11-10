@@ -24,7 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         java: [ 8.0.442, 17.0.13 ]
-    runs-on: ubuntu-latest
+    runs-on:
+      group: Default
     timeout-minutes: 45
     steps:
       - name: Free Disk Space
@@ -68,7 +69,8 @@ jobs:
   presto-coordinator-image:
     name: "presto-coordinator-image"
     needs: "maven-checks"
-    runs-on: "ubuntu-22.04"
+    runs-on:
+      group: Default
     steps:
       - uses: "actions/checkout@v4"
         with:
