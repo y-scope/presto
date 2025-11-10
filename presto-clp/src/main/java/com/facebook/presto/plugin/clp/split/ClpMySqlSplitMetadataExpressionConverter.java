@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 
 import static com.facebook.presto.common.function.OperatorType.IS_DISTINCT_FROM;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
@@ -108,7 +109,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         FunctionHandle functionHandle = node.getFunctionHandle();
         if (functionResolution.isNotFunction(functionHandle)) {
-            return format("NOT " + node.getArguments().get(0).accept(this, null));
+            return format("NOT (%s)", node.getArguments().get(0).accept(this, null));
         }
 
         FunctionMetadata functionMetadata = functionManager.getFunctionMetadata(node.getFunctionHandle());
@@ -133,7 +134,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
             }
         }
 
-        throw new PrestoException(ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unsupported metadata query" + node);
+        throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unsupported metadata query: " + node);
     }
 
     @Override
@@ -149,7 +150,8 @@ public class ClpMySqlSplitMetadataExpressionConverter
             case IS_NULL:
                 return "(" + node.getArguments().get(0).accept(this, context) + " IS NULL)";
             default:
-                throw new PrestoException(ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unsupported metadata query" + node);
+                throw new PrestoException(
+                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "Unsupported metadata query: " + node);
         }
     }
 
