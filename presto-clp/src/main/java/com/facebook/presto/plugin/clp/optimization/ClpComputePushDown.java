@@ -117,10 +117,13 @@ public class ClpComputePushDown
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
 
+            if (!metadataExpression.isPresent() &&
+                    !metadataConfig.getRequiredColumns(clpTableHandle.getSchemaTableName()).isEmpty()) {
+                throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "required filters must be specified");
+            }
+
             if (kqlQuery.isPresent() || metadataExpression.isPresent()) {
-                if (kqlQuery.isPresent()) {
-                    log.debug("KQL query: %s", kqlQuery.get());
-                }
+                kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(clpTableHandle, kqlQuery, metadataExpression);
                 TableHandle newTableHandle = new TableHandle(

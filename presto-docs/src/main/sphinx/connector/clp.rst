@@ -195,8 +195,9 @@ Example::
 Filter Rules
 ------------
 
-Each entry in ``filterRules`` specifies a data column or a metadata column that must or can appear in query filters.
-These rules ensure that queries contain sufficient constraints for efficient split selection.
+Each entry in ``filterRules`` specifies either a data column that has a range mapping to a metadata column or a metadata
+column that must appear in query filters. These rules ensure that queries contain sufficient constraints for efficient
+split selection.
 
 Supported fields:
 
