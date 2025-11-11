@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   prestocpp-linux-build-for-test:
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: baker
     container:
       image: prestodb/presto-native-dependency:0.293-20250522140509-484b00e
     env:
@@ -97,7 +98,8 @@ jobs:
 
   prestocpp-linux-presto-e2e-tests:
     needs: prestocpp-linux-build-for-test
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: baker
     container:
       image: prestodb/presto-native-dependency:0.293-20250522140509-484b00e
     env:
@@ -172,7 +174,8 @@ jobs:
 
   prestocpp-linux-presto-native-tests:
     needs: prestocpp-linux-build-for-test
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: baker
     strategy:
       fail-fast: false
       matrix:
@@ -248,7 +251,8 @@ jobs:
 
   prestocpp-linux-presto-sidecar-tests:
     needs: prestocpp-linux-build-for-test
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: baker
     container:
       image: prestodb/presto-native-dependency:0.293-20250522140509-484b00e
     env:
