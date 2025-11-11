@@ -1,0 +1,30 @@
+name: Test NPM Availability
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-npm:
+    runs-on: [self-hosted]
+    steps:
+      - name: Check system info
+        run: |
+          echo "=== Runner Information ==="
+          echo "Hostname: $(hostname)"
+          echo "OS: $(uname -a)"
+          echo "User: $(whoami)"
+
+      - name: Check npm and node versions
+        run: |
+          echo "=== NPM and Node Versions ==="
+          which npm || echo "npm not found in PATH"
+          npm --version || echo "npm command failed"
+          which node || echo "node not found in PATH"
+          node --version || echo "node command failed"
+
+      - name: List installed packages
+        run: |
+          echo "=== Checking for npm in common locations ==="
+          ls -la /usr/bin/npm 2>/dev/null || echo "/usr/bin/npm not found"
+          ls -la /usr/local/bin/npm 2>/dev/null || echo "/usr/local/bin/npm not found"
+          which -a npm 2>/dev/null || echo "npm not in PATH"
