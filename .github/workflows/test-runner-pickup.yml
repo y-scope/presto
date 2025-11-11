@@ -8,7 +8,7 @@ on:
 
 jobs:
   simple-test:
-    runs-on: [self-hosted]
+    runs-on: Default
     steps:
       - name: Echo test
         run: |

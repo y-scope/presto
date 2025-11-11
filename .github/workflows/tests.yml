@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: [self-hosted]
+    runs-on: Default
     # Required permissions
     permissions:
       pull-requests: read
@@ -41,7 +41,7 @@ jobs:
             - '!presto-docs/**'
 
   test:
-    runs-on: [self-hosted]
+    runs-on: Default
     needs: changes
     strategy:
       fail-fast: false
