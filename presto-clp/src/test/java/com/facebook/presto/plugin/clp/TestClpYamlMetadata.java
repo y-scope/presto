@@ -37,19 +37,31 @@ import static org.testng.Assert.assertEquals;
 public class TestClpYamlMetadata
 {
     private static final String PINOT_BROKER_URL = "http://localhost:8099";
-    private static final String METADATA_YAML_PATH = "/home/xiaochong-dev/presto-e2e/pinot/tables-schema.yaml";
     private static final String TABLE_NAME = "cockroachdb";
     private ClpMetadata metadata;
     private ClpSplitProvider clpSplitProvider;
 
     @BeforeTest
-    public void setUp()
+    public void setUp() throws Exception
     {
+        // Load test resources from classpath
+        java.net.URL cockroachdbSchemaResource = getClass().getClassLoader().getResource("test-cockroachdb-schema.yaml");
+        if (cockroachdbSchemaResource == null) {
+            throw new IllegalStateException("test-cockroachdb-schema.yaml not found in test resources");
+        }
+        String cockroachdbSchemaPath = java.nio.file.Paths.get(cockroachdbSchemaResource.toURI()).toString();
+
+        // Create a temporary tables-schema.yaml file with the absolute path
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("clp-test");
+        java.nio.file.Path tempTablesSchema = tempDir.resolve("tables-schema.yaml");
+        String yamlContent = String.format("clp:\n  default:\n    %s: %s\n", TABLE_NAME, cockroachdbSchemaPath);
+        java.nio.file.Files.write(tempTablesSchema, yamlContent.getBytes());
+
         ClpConfig config = new ClpConfig()
                 .setPolymorphicTypeEnabled(true)
                 .setMetadataDbUrl(PINOT_BROKER_URL)
                 .setMetadataProviderType(YAML)
-                .setMetadataYamlPath(METADATA_YAML_PATH);
+                .setMetadataYamlPath(tempTablesSchema.toString());
         ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config);
         metadata = new ClpMetadata(config, metadataProvider);
         clpSplitProvider = new ClpPinotSplitProvider(config);

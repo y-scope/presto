@@ -1,0 +1,5 @@
+# Test metadata file for ClpYamlMetadataProvider
+# Maps tables to their schema definition files
+clp:
+  default:
+    cockroachdb: test-cockroachdb-schema.yaml
