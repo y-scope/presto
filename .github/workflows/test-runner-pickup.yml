@@ -1,0 +1,18 @@
+name: Test Runner Pickup
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci-test
+
+jobs:
+  simple-test:
+    runs-on: [self-hosted]
+    steps:
+      - name: Echo test
+        run: |
+          echo "Runner picked up the job!"
+          echo "Hostname: $(hostname)"
+          echo "Date: $(date)"
+          echo "User: $(whoami)"
