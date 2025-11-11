@@ -24,8 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ 8.0.442, 17.0.13 ]
-    runs-on:
-      group: baker
+    runs-on: [self-hosted]
     timeout-minutes: 45
     steps:
       - name: Free Disk Space
@@ -69,8 +68,7 @@ jobs:
   presto-coordinator-image:
     name: "presto-coordinator-image"
     needs: "maven-checks"
-    runs-on:
-      group: baker
+    runs-on: [self-hosted]
     steps:
       - uses: "actions/checkout@v4"
         with:
