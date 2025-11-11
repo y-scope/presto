@@ -18,6 +18,7 @@ import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
@@ -32,6 +33,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static java.lang.String.format;
 
@@ -83,9 +85,8 @@ public class ClpMySqlSplitProvider
         String tableName = clpTableHandle.getSchemaTableName().getTableName();
         String archivePathQuery = format(SQL_SELECT_ARCHIVES_TEMPLATE, config.getMetadataTablePrefix(), tableName);
 
+        SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
-            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-
             ClpMySqlSplitMetadataExpressionConverter converter =
                     new ClpMySqlSplitMetadataExpressionConverter(
                             functionManager,
@@ -95,6 +96,9 @@ public class ClpMySqlSplitProvider
                             metadataConfig.getRequiredColumns(schemaTableName));
             String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression().get());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
+        }
+        else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
+            throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");
         }
         log.debug("Query for archive: %s", archivePathQuery);
 

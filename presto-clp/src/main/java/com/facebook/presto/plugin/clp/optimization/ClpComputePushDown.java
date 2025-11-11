@@ -21,7 +21,6 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
-import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -37,7 +36,6 @@ import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.util.Objects.requireNonNull;
 
@@ -77,18 +75,6 @@ public class ClpComputePushDown
         }
 
         @Override
-        public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
-        {
-            TableHandle tableHandle = node.getTable();
-            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            if (!metadataConfig.getRequiredColumns(clpTableHandle.getSchemaTableName()).isEmpty()) {
-                throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "required filters must be specified");
-            }
-
-            return super.visitTableScan(node, context);
-        }
-
-        @Override
         public PlanNode visitFilter(FilterNode node, RewriteContext<Void> context)
         {
             if (!(node.getSource() instanceof TableScanNode)) {
@@ -116,11 +102,6 @@ public class ClpComputePushDown
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
-
-            if (!metadataExpression.isPresent() &&
-                    !metadataConfig.getRequiredColumns(clpTableHandle.getSchemaTableName()).isEmpty()) {
-                throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "required filters must be specified");
-            }
 
             if (kqlQuery.isPresent() || metadataExpression.isPresent()) {
                 kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
