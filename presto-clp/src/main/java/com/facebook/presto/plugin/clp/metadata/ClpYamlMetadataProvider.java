@@ -222,10 +222,21 @@ public class ClpYamlMetadataProvider
             for (Map.Entry<String, Object> schemaEntry : ((Map<String, Object>) schemaObj).entrySet()) {
                 String tableName = schemaEntry.getKey();
                 String tableSchemaYamlPath = schemaEntry.getValue().toString();
+
+                // Resolve relative paths relative to the directory containing tables-schema.yaml
+                Path resolvedPath = Paths.get(tableSchemaYamlPath);
+                if (!resolvedPath.isAbsolute()) {
+                    // If relative, resolve it relative to the parent directory of tables-schema.yaml
+                    Path parentDir = tablesSchemaPath.getParent();
+                    if (parentDir != null) {
+                        resolvedPath = parentDir.resolve(tableSchemaYamlPath).normalize();
+                    }
+                }
+
                 // The splits' absolute paths will be stored in Pinot metadata database
                 SchemaTableName schemaTableName = new SchemaTableName(schemaName, tableName);
                 tableHandlesBuilder.add(new ClpTableHandle(schemaTableName, ""));
-                tableToYamlPathBuilder.put(tableName, tableSchemaYamlPath);
+                tableToYamlPathBuilder.put(tableName, resolvedPath.toString());
             }
 
             // Thread-safe update of the schema-specific table map

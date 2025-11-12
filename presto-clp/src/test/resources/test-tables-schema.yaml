@@ -1,12 +1,12 @@
 # Test metadata file for ClpYamlMetadataProvider
 # Maps tables to their schema definition files
 # Tests multiple schemas with duplicate table names (orders appears in both schema1 and schema2)
-# NOTE: Paths will be replaced with absolute paths at test runtime by TestClpYamlMetadata.setUp()
+# Relative paths are resolved relative to this file's directory at runtime
 clp:
   default:
-    cockroachdb: ${COCKROACHDB_SCHEMA_PATH}
+    cockroachdb: test-cockroachdb-schema.yaml
   schema1:
-    orders: ${ORDERS_SCHEMA1_PATH}
-    users: ${USERS_SCHEMA1_PATH}
+    orders: test-orders-schema1.yaml
+    users: test-users-schema1.yaml
   schema2:
-    orders: ${ORDERS_SCHEMA2_PATH}
+    orders: test-orders-schema2.yaml

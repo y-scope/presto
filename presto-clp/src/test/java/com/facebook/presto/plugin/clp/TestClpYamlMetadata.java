@@ -48,54 +48,22 @@ public class TestClpYamlMetadata
     public void setUp() throws Exception
     {
         // Load test resources from classpath
+        // ClpYamlMetadataProvider now supports relative paths, so we can use the resource file directly
         java.net.URL tablesSchemaResource = getClass().getClassLoader().getResource("test-tables-schema.yaml");
-        java.net.URL cockroachdbSchemaResource = getClass().getClassLoader().getResource("test-cockroachdb-schema.yaml");
-        java.net.URL ordersSchema1Resource = getClass().getClassLoader().getResource("test-orders-schema1.yaml");
-        java.net.URL ordersSchema2Resource = getClass().getClassLoader().getResource("test-orders-schema2.yaml");
-        java.net.URL usersSchema1Resource = getClass().getClassLoader().getResource("test-users-schema1.yaml");
 
         if (tablesSchemaResource == null) {
             throw new IllegalStateException("test-tables-schema.yaml not found in test resources");
         }
-        if (cockroachdbSchemaResource == null) {
-            throw new IllegalStateException("test-cockroachdb-schema.yaml not found in test resources");
-        }
-        if (ordersSchema1Resource == null) {
-            throw new IllegalStateException("test-orders-schema1.yaml not found in test resources");
-        }
-        if (ordersSchema2Resource == null) {
-            throw new IllegalStateException("test-orders-schema2.yaml not found in test resources");
-        }
-        if (usersSchema1Resource == null) {
-            throw new IllegalStateException("test-users-schema1.yaml not found in test resources");
-        }
 
-        // Resolve absolute paths for all schema files
-        String cockroachdbSchemaPath = java.nio.file.Paths.get(cockroachdbSchemaResource.toURI()).toString();
-        String ordersSchema1Path = java.nio.file.Paths.get(ordersSchema1Resource.toURI()).toString();
-        String ordersSchema2Path = java.nio.file.Paths.get(ordersSchema2Resource.toURI()).toString();
-        String usersSchema1Path = java.nio.file.Paths.get(usersSchema1Resource.toURI()).toString();
-
-        // Read the template tables-schema.yaml and replace placeholders with absolute paths
-        // This allows us to use the resource file directly instead of generating it programmatically
-        String tablesSchemaContent = new String(java.nio.file.Files.readAllBytes(
-                java.nio.file.Paths.get(tablesSchemaResource.toURI())));
-        String resolvedContent = tablesSchemaContent
-                .replace("${COCKROACHDB_SCHEMA_PATH}", cockroachdbSchemaPath)
-                .replace("${ORDERS_SCHEMA1_PATH}", ordersSchema1Path)
-                .replace("${ORDERS_SCHEMA2_PATH}", ordersSchema2Path)
-                .replace("${USERS_SCHEMA1_PATH}", usersSchema1Path);
-
-        // Write the resolved content to a temporary file
-        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("clp-test");
-        java.nio.file.Path tempTablesSchema = tempDir.resolve("tables-schema.yaml");
-        java.nio.file.Files.write(tempTablesSchema, resolvedContent.getBytes());
+        // Get the absolute path to test-tables-schema.yaml
+        // Relative paths in the YAML will be resolved relative to this file's parent directory
+        String tablesSchemaPath = java.nio.file.Paths.get(tablesSchemaResource.toURI()).toString();
 
         ClpConfig config = new ClpConfig()
                 .setPolymorphicTypeEnabled(true)
                 .setMetadataDbUrl(PINOT_BROKER_URL)
                 .setMetadataProviderType(YAML)
-                .setMetadataYamlPath(tempTablesSchema.toString());
+                .setMetadataYamlPath(tablesSchemaPath);
         ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config);
         metadata = new ClpMetadata(config, metadataProvider);
         clpSplitProvider = new ClpPinotSplitProvider(config);
