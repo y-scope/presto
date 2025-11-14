@@ -1,0 +1,44 @@
+{
+  "": {
+    "metaColumns": {
+      "level": {
+        "type": "BIGINT"
+      }
+    }
+  },
+  "default": {
+    "metaColumns": {
+      "author": {
+        "type": "VARCHAR"
+      }
+    }
+  },
+  "default.table_1": {
+    "metaColumns": {
+      "begin_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "lower"
+        }
+      },
+      "end_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "upper"
+        }
+      },
+      "file_name": {
+        "type": "VARCHAR"
+      }
+    },
+    "filterRules": [
+      {
+        "column": "msg.timestamp",
+        "required": true,
+        "reason": "Full scan would be too expensive without timestamp filtering."
+      }
+    ]
+  }
+}

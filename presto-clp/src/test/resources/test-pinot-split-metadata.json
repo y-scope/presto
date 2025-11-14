@@ -1,0 +1,88 @@
+{
+  "": {
+    "metaColumns": {
+      "level": {
+        "type": "BIGINT"
+      }
+    }
+  },
+  "default": {
+    "metaColumns": {
+      "author": {
+        "type": "VARCHAR"
+      }
+    }
+  },
+  "default.table_1": {
+    "metaColumns": {
+      "begin_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "lower"
+        }
+      },
+      "end_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "upper"
+        }
+      },
+      "status_code": {
+        "type": "BIGINT"
+      },
+      "score": {
+        "type": "DOUBLE"
+      },
+      "hostname": {
+        "type": "VARCHAR"
+      },
+      "service": {
+        "type": "VARCHAR"
+      }
+    }
+  },
+  "default.table_2": {
+    "metaColumns": {
+      "table2_lower": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "table2_column",
+          "boundType": "lower"
+        }
+      },
+      "table2_upper": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "table2_column",
+          "boundType": "upper"
+        }
+      },
+      "request_id": {
+        "type": "VARCHAR"
+      },
+      "user_id": {
+        "type": "VARCHAR"
+      }
+    }
+  },
+  "schema1": {
+    "metaColumns": {
+      "schema_lower": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "schema_column",
+          "boundType": "lower"
+        }
+      },
+      "schema_upper": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "schema_column",
+          "boundType": "upper"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "default.test": {
+    "metaColumns": {
+      "begin_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "lower"
+        }
+      },
+      "end_timestamp": {
+        "type": "BIGINT",
+        "filter": {
+          "asRangeBoundOf": "msg.timestamp",
+          "boundType": "upper"
+        }
+      }
+    },
+    "filterRules": [
+      {
+        "column": "msg.timestamp",
+        "required": true,
+        "reason": "Full scan would be too expensive without timestamp filtering."
+      }
+    ]
+  }
+}

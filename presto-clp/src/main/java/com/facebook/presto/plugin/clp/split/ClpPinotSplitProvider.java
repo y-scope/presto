@@ -19,7 +19,10 @@ import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
 import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.function.FunctionMetadataManager;
+import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,8 +41,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.IR;
@@ -51,14 +56,22 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class ClpPinotSplitProvider
         implements ClpSplitProvider
 {
-    private static final Logger log = Logger.get(ClpPinotSplitProvider.class);
     private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT tpath FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
     private static final String SQL_SELECT_SPLIT_META_TEMPLATE = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) ORDER BY %s %s LIMIT 999999";
     private final ClpConfig config;
-    private final URL pinotSqlQueryEndpointUrl;
+
+    protected static final Logger log = Logger.get(ClpPinotSplitProvider.class);
+    protected final URL pinotSqlQueryEndpointUrl;
+    protected final FunctionMetadataManager functionManager;
+    protected final StandardFunctionResolution functionResolution;
+    protected final ClpSplitMetadataConfig metadataConfig;
 
     @Inject
-    public ClpPinotSplitProvider(ClpConfig config)
+    public ClpPinotSplitProvider(
+            ClpConfig config,
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig metadataConfig)
     {
         this.config = requireNonNull(config, "config is null");
         try {
@@ -68,6 +81,9 @@ public class ClpPinotSplitProvider
             throw new IllegalArgumentException(
                     format("Failed to build Pinot sql query endpoint URL using the provided database url: %s", config.getMetadataDbUrl()), e);
         }
+        this.functionManager = functionManager;
+        this.functionResolution = functionResolution;
+        this.metadataConfig = metadataConfig;
     }
 
     @Override
@@ -76,16 +92,40 @@ public class ClpPinotSplitProvider
         ClpTableHandle clpTableHandle = clpTableLayoutHandle.getTable();
         Optional<ClpTopNSpec> topNSpecOptional = clpTableLayoutHandle.getTopN();
         String tableName = inferMetadataTableName(clpTableHandle);
+        Optional<String> metadataFilterQuery = Optional.empty();
+
+        SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+        Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
+        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+            ClpPinotSplitMetadataExpressionConverter converter =
+                    new ClpPinotSplitMetadataExpressionConverter(
+                            functionManager,
+                            functionResolution,
+                            metadataConfig.getExposedToOriginalMapping(schemaTableName),
+                            dataColumnRangeMapping,
+                            metadataConfig.getRequiredColumns(schemaTableName));
+            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression().get()));
+        }
+        else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
+            throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");
+        }
+
         try {
             ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
             if (topNSpecOptional.isPresent()) {
                 ClpTopNSpec topNSpec = topNSpecOptional.get();
-                // Only handles one range metadata column for now (first ordering)
+                // Only handles one range metadata column for now
                 ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
-                // Get the last column in the ordering (the primary sort column for nested fields)
-                String col = ordering.getColumns().get(ordering.getColumns().size() - 1);
+                String columnName = ordering.getColumn();
+                String lowerBound = columnName;
+                String upperBound = columnName;
+                if (dataColumnRangeMapping.containsKey(columnName)) {
+                    lowerBound = dataColumnRangeMapping.get(columnName).getOrDefault("lowerBound", lowerBound);
+                    upperBound = dataColumnRangeMapping.get(columnName).getOrDefault("upperBound", upperBound);
+                }
+
                 String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
-                String splitMetaQuery = buildSplitMetadataQuery(tableName, clpTableLayoutHandle.getMetadataSql().orElse("1 = 1"), col, dir);
+                String splitMetaQuery = buildSplitMetadataQuery(tableName, metadataFilterQuery.orElse("1 = 1"), upperBound, dir);
                 List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(splitMetaQuery, ordering);
                 List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
@@ -93,13 +133,12 @@ public class ClpPinotSplitProvider
                     String splitPath = a.id;
                     splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
                 }
-
                 List<ClpSplit> filteredSplits = splits.build();
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
 
-            String splitQuery = buildSplitSelectionQuery(tableName, clpTableLayoutHandle.getMetadataSql().orElse("1 = 1"));
+            String splitQuery = buildSplitSelectionQuery(tableName, metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
             for (JsonNode row : splitRows) {
                 String splitPath = row.elements().next().asText();
@@ -167,7 +206,7 @@ public class ClpPinotSplitProvider
      * @param ordering The top-N ordering specifying which columns contain lowerBound/upperBound
      * @return List of ArchiveMeta objects representing archive metadata
      */
-    private List<ArchiveMeta> fetchArchiveMeta(String query, ClpTopNSpec.Ordering ordering)
+    protected List<ArchiveMeta> fetchArchiveMeta(String query, ClpTopNSpec.Ordering ordering)
     {
         ImmutableList.Builder<ArchiveMeta> archiveMetas = new ImmutableList.Builder<>();
         List<JsonNode> rows = getQueryResult(pinotSqlQueryEndpointUrl, query);
@@ -196,7 +235,7 @@ public class ClpPinotSplitProvider
      * @param order ASC (earliest first) or DESC (latest first)
      * @return archives that must be scanned
      */
-    private static List<ArchiveMeta> selectTopNArchives(List<ArchiveMeta> archives, long limit, ClpTopNSpec.Order order)
+    protected static List<ArchiveMeta> selectTopNArchives(List<ArchiveMeta> archives, long limit, ClpTopNSpec.Order order)
     {
         if (archives == null || archives.isEmpty() || limit <= 0) {
             return ImmutableList.of();
@@ -302,7 +341,7 @@ public class ClpPinotSplitProvider
      * @param splitPath the file path
      * @return IR for .clp.zst files, ARCHIVE otherwise
      */
-    private static SplitType determineSplitType(String splitPath)
+    protected static SplitType determineSplitType(String splitPath)
     {
         return splitPath.endsWith(".clp.zst") ? IR : ARCHIVE;
     }
@@ -337,7 +376,7 @@ public class ClpPinotSplitProvider
         return format(SQL_SELECT_SPLIT_META_TEMPLATE, tableName, filterSql, orderByColumn, orderDirection);
     }
 
-    private static List<JsonNode> getQueryResult(URL url, String sql)
+    protected static List<JsonNode> getQueryResult(URL url, String sql)
     {
         try {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -395,9 +434,9 @@ public class ClpPinotSplitProvider
     /**
      * Represents metadata of an archive, including its ID, timestamp bounds, and message count.
      */
-    private static final class ArchiveMeta
+    protected static final class ArchiveMeta
     {
-        private final String id;
+        final String id;
         private final long lowerBound;
         private final long upperBound;
         private final long messageCount;
@@ -422,7 +461,7 @@ public class ClpPinotSplitProvider
     /**
      * Represents a group of overlapping archives treated as one logical unit.
      */
-    private static final class ArchiveGroup
+    protected static final class ArchiveGroup
     {
         long begin;
         long end;

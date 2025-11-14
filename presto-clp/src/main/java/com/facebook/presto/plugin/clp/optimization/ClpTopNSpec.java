@@ -41,22 +41,22 @@ public class ClpTopNSpec
      */
     public static final class Ordering
     {
-        private final List<String> columns;
+        private final String column;
         private final Order order;
 
         @JsonCreator
         public Ordering(
-                @JsonProperty("columns") List<String> columns,
+                @JsonProperty("columns") String column,
                 @JsonProperty("order") Order order)
         {
-            this.columns = requireNonNull(columns, "column is null");
+            this.column = requireNonNull(column, "column is null");
             this.order = requireNonNull(order, "order is null");
         }
 
         @JsonProperty("columns")
-        public List<String> getColumns()
+        public String getColumn()
         {
-            return columns;
+            return column;
         }
 
         @JsonProperty("order")
@@ -68,7 +68,7 @@ public class ClpTopNSpec
         @Override
         public int hashCode()
         {
-            return Objects.hash(columns, order);
+            return Objects.hash(column, order);
         }
 
         @Override
@@ -81,13 +81,13 @@ public class ClpTopNSpec
                 return false;
             }
             Ordering other = (Ordering) obj;
-            return this.order == other.order && this.columns.equals(other.columns);
+            return this.order == other.order && this.column.equals(other.column);
         }
 
         @Override
         public String toString()
         {
-            return columns + ":" + order;
+            return column + ":" + order;
         }
     }
 

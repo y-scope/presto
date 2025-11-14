@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.relation.RowExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -28,7 +29,7 @@ public class ClpTableLayoutHandle
 {
     private final ClpTableHandle table;
     private final Optional<String> kqlQuery;
-    private final Optional<String> metadataSql;
+    private final Optional<RowExpression> metadataExpression;
     private final boolean metadataQueryOnly;
     private final Optional<ClpTopNSpec> topN;
 
@@ -36,13 +37,13 @@ public class ClpTableLayoutHandle
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataFilterQuery") Optional<String> metadataSql,
+            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
-        this.metadataSql = metadataSql;
+        this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = metadataQueryOnly;
         this.topN = topN;
     }
@@ -50,11 +51,11 @@ public class ClpTableLayoutHandle
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataFilterQuery") Optional<String> metadataSql)
+            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
-        this.metadataSql = metadataSql;
+        this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = false;
         this.topN = Optional.empty();
     }
@@ -72,9 +73,9 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Optional<String> getMetadataSql()
+    public Optional<RowExpression> getMetadataExpression()
     {
-        return metadataSql;
+        return metadataExpression;
     }
 
     @JsonProperty
@@ -101,7 +102,7 @@ public class ClpTableLayoutHandle
         ClpTableLayoutHandle that = (ClpTableLayoutHandle) o;
         return Objects.equals(table, that.table) &&
                 Objects.equals(kqlQuery, that.kqlQuery) &&
-                Objects.equals(metadataSql, that.metadataSql) &&
+                Objects.equals(metadataExpression, that.metadataExpression) &&
                 Objects.equals(metadataQueryOnly, that.metadataQueryOnly) &&
                 Objects.equals(topN, that.topN);
     }
@@ -109,7 +110,7 @@ public class ClpTableLayoutHandle
     @Override
     public int hashCode()
     {
-        return Objects.hash(table, kqlQuery, metadataSql, metadataQueryOnly, topN);
+        return Objects.hash(table, kqlQuery, metadataExpression, metadataQueryOnly, topN);
     }
 
     @Override
@@ -118,7 +119,7 @@ public class ClpTableLayoutHandle
         return toStringHelper(this)
                 .add("table", table)
                 .add("kqlQuery", kqlQuery)
-                .add("metadataSql", metadataSql)
+                .add("metadataExpression", metadataExpression)
                 .add("metadataQueryOnly", metadataQueryOnly)
                 .add("topN", topN)
                 .toString();

@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.type.DecimalType;
+import com.facebook.presto.common.type.Decimals;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
@@ -32,9 +33,12 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.RowExpressionVisitor;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +66,7 @@ import static com.facebook.presto.common.type.TimestampType.TIMESTAMP_MICROSECON
 import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.AND;
+import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.OR;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -110,17 +115,20 @@ public class ClpFilterToKqlConverter
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
     private final Set<String> metadataFilterColumns;
+    private final Set<String> dataColumnsWithRangeBounds;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
             Map<VariableReferenceExpression, ColumnHandle> assignments,
-            Set<String> metadataFilterColumns)
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.metadataFilterColumns = requireNonNull(metadataFilterColumns, "metadataFilterColumns is null");
+        this.dataColumnsWithRangeBounds = requireNonNull(dataColumnsWithRangeBounds, "dataColumnsWithRangeBounds is null");
     }
 
     @Override
@@ -202,10 +210,25 @@ public class ClpFilterToKqlConverter
      */
     private String getLiteralString(ConstantExpression literal)
     {
-        if (literal.getValue() instanceof Slice) {
-            return ((Slice) literal.getValue()).toStringUtf8();
+        Object value = literal.getValue();
+        Type type = literal.getType();
+        if (value instanceof Slice) {
+            if (type instanceof DecimalType) {
+                DecimalType decimalType = (DecimalType) type;
+                BigInteger unscaled = Decimals.decodeUnscaledValue((Slice) value);
+                BigDecimal decimalValue = new BigDecimal(unscaled, decimalType.getScale());
+                return decimalValue.toPlainString();
+            }
+            return ((Slice) value).toStringUtf8();
         }
-        return literal.toString();
+
+        if (type instanceof DecimalType && value instanceof Long) {
+            DecimalType decimalType = (DecimalType) type;
+            BigDecimal decimalValue = new BigDecimal(BigInteger.valueOf((Long) value), decimalType.getScale());
+            return decimalValue.toPlainString();
+        }
+
+        return value.toString();
     }
 
     /**
@@ -243,33 +266,82 @@ public class ClpFilterToKqlConverter
                     "BETWEEN operator must have exactly three arguments. Received: " + node);
         }
 
-        RowExpression first = arguments.get(0);
-        RowExpression second = arguments.get(1);
-        RowExpression third = arguments.get(2);
-        if (!isClpCompatibleNumericType(first.getType())
-                || !isClpCompatibleNumericType(second.getType())
-                || !isClpCompatibleNumericType(third.getType())) {
-            return new ClpExpression(node);
-        }
+        RowExpression lhs = arguments.get(0);
+        RowExpression lower = arguments.get(1);
+        RowExpression upper = arguments.get(2);
 
-        ClpExpression variableExpression = first.accept(this, null);
+        ClpExpression variableExpression = lhs.accept(this, null);
         Optional<String> variableOpt = variableExpression.getPushDownExpression();
-        if (!variableOpt.isPresent()
-                || !(second instanceof ConstantExpression)
-                || !(third instanceof ConstantExpression)) {
+        if (!variableOpt.isPresent()) {
             return new ClpExpression(node);
         }
 
         String variable = variableOpt.get();
-        Type lowerBoundType = second.getType();
-        String lowerBound = tryEnsureNanosecondTimestamp(lowerBoundType, getLiteralString((ConstantExpression) second));
-        Type upperBoundType = third.getType();
-        String upperBound = tryEnsureNanosecondTimestamp(upperBoundType, getLiteralString((ConstantExpression) third));
-        String kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
-        String metadataSqlQuery = metadataFilterColumns.contains(variable)
-                ? String.format("\"%s\" >= %s AND \"%s\" <= %s", variable, lowerBound, variable, upperBound)
-                : null;
-        return new ClpExpression(kql, metadataSqlQuery, variableExpression.getPushDownVariables());
+        boolean isMetadataColumn = metadataFilterColumns.contains(variable);
+
+        // Type validation
+        boolean numericCompatible =
+                isClpCompatibleNumericType(lhs.getType())
+                        && isClpCompatibleNumericType(lower.getType())
+                        && isClpCompatibleNumericType(upper.getType());
+
+        if (!numericCompatible) {
+            if (isMetadataColumn) {
+                throw new PrestoException(
+                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "Metadata BETWEEN requires numeric-compatible types. Received: " + node);
+            }
+            // Non-metadata columns just fallback (cannot push down)
+            return new ClpExpression(node);
+        }
+
+        // Metadata columns must have constant bounds
+        if (isMetadataColumn &&
+                (!(lower instanceof ConstantExpression) || !(upper instanceof ConstantExpression))) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Metadata BETWEEN requires constant bounds. Received: " + node);
+        }
+
+        // Pushdown only if both bounds are constants
+        if (!(lower instanceof ConstantExpression) || !(upper instanceof ConstantExpression)) {
+            return new ClpExpression(node);
+        }
+
+        RowExpression metadataExpr = null;
+        if (isMetadataColumn || dataColumnsWithRangeBounds.contains(variable)) {
+            VariableReferenceExpression varExpr =
+                    new VariableReferenceExpression(lhs.getSourceLocation(), variable, lhs.getType());
+            ConstantExpression lowerConst = (ConstantExpression) lower;
+            ConstantExpression upperConst = (ConstantExpression) upper;
+
+            // (var >= lower) AND (var <= upper)
+            metadataExpr = new SpecialFormExpression(
+                    AND,
+                    BOOLEAN,
+                    ImmutableList.of(
+                            new CallExpression(
+                                    GREATER_THAN_OR_EQUAL.name(),
+                                    standardFunctionResolution.comparisonFunction(
+                                            GREATER_THAN_OR_EQUAL, varExpr.getType(), lowerConst.getType()),
+                                    BOOLEAN,
+                                    ImmutableList.of(varExpr, lowerConst)),
+                            new CallExpression(
+                                    LESS_THAN_OR_EQUAL.name(),
+                                    standardFunctionResolution.comparisonFunction(
+                                            LESS_THAN_OR_EQUAL, varExpr.getType(), upperConst.getType()),
+                                    BOOLEAN,
+                                    ImmutableList.of(varExpr, upperConst))));
+        }
+
+        String kql = null;
+        if (!isMetadataColumn) {
+            String lowerBound = getLiteralString((ConstantExpression) lower);
+            String upperBound = getLiteralString((ConstantExpression) upper);
+            kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+        }
+
+        return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
     }
 
     /**
@@ -293,13 +365,22 @@ public class ClpFilterToKqlConverter
         if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
             return new ClpExpression(node);
         }
-        String notPushDownExpression = "NOT " + expression.getPushDownExpression().get();
-        if (expression.getMetadataSqlQuery().isPresent()) {
-            return new ClpExpression(notPushDownExpression, "NOT " + expression.getMetadataSqlQuery(), expression.getPushDownVariables());
+
+        String kql = null;
+        if (expression.getPushDownExpression().isPresent()) {
+            kql = "NOT " + expression.getPushDownExpression().get();
         }
-        else {
-            return new ClpExpression(notPushDownExpression, expression.getPushDownVariables());
+
+        RowExpression metadataExpr = null;
+        if (expression.getMetadataExpression().isPresent()) {
+            metadataExpr = new CallExpression(
+                    standardFunctionResolution.notFunction().getName(),
+                    standardFunctionResolution.notFunction(),
+                    BOOLEAN,
+                    ImmutableList.of(expression.getMetadataExpression().get()));
         }
+
+        return new ClpExpression(kql, metadataExpr, expression.getPushDownVariables());
     }
 
     /**
@@ -326,6 +407,11 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = variable.getPushDownExpression().get();
+        if (metadataFilterColumns.contains(variableName)) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Metadata filter columns are not supported for LIKE predicate" + node);
+        }
         RowExpression argument = node.getArguments().get(1);
 
         String pattern;
@@ -339,7 +425,9 @@ public class ClpFilterToKqlConverter
                 return new ClpExpression(node);
             }
             if (callExpression.getArguments().size() != 1) {
-                throw new PrestoException(CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION, "CAST function must have exactly one argument. Received: " + callExpression);
+                throw new PrestoException(
+                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "CAST function must have exactly one argument. Received: " + callExpression);
             }
             if (!(callExpression.getArguments().get(0) instanceof ConstantExpression)) {
                 return new ClpExpression(node);
@@ -401,8 +489,9 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     leftPushDownExpression.get(),    // variable
                     rightPushDownExpression.get(),   // literal
+                    right,                           // constant
                     operator,
-                    rightType,
+                    leftType,
                     node);
         }
         else if (leftIsConstant) {
@@ -410,8 +499,9 @@ public class ClpFilterToKqlConverter
             return buildClpExpression(
                     rightPushDownExpression.get(),   // variable
                     leftPushDownExpression.get(),    // literal
+                    left,                            // constant
                     newOperator,
-                    leftType,
+                    rightType,
                     node);
         }
         // fallback
@@ -433,61 +523,57 @@ public class ClpFilterToKqlConverter
      *
      * @param variableName name of the variable
      * @param literalString string representation of the literal
+     * @param constant the original ConstantExpression of literalString
      * @param operator the comparison operator
-     * @param literalType the type of the literal
-     * @param originalNode the original RowExpression node
+     * @param variableType the type of the variable
+     * @param originalNode the original CallExpression node
      * @return a ClpExpression containing either the equivalent KQL query, or the original
      * expression if it couldn't be translated
      */
     private ClpExpression buildClpExpression(
             String variableName,
             String literalString,
+            RowExpression constant,
             OperatorType operator,
-            Type literalType,
-            RowExpression originalNode)
+            Type variableType,
+            CallExpression originalNode)
     {
-        String metadataSqlQuery = null;
-        literalString = tryEnsureNanosecondTimestamp(literalType, literalString);
-        if (operator.equals(EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("\"%s\" = '%s'", variableName, literalString);
-                }
-                return new ClpExpression(
-                        format("%s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSqlQuery,
-                        ImmutableSet.of(variableName));
+        boolean isVarchar = constant.getType() instanceof VarcharType;
+        boolean isMetadataColumn = metadataFilterColumns.contains(variableName);
+        boolean isDataColumnsWithRangeBounds = dataColumnsWithRangeBounds.contains(variableName);
+        String formattedLiteral = isVarchar
+                ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
+                : literalString;
+
+        String pushDownExpression = null;
+        CallExpression metadataExpression = null;
+        if (!isMetadataColumn) {
+            if (operator.equals(EQUAL)) {
+                pushDownExpression = format("%s: %s", variableName, formattedLiteral);
             }
-            else {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("\"%s\" = %s", variableName, literalString);
-                }
-                return new ClpExpression(format("%s: %s", variableName, literalString), metadataSqlQuery, ImmutableSet.of(variableName));
+            else if (operator.equals(NOT_EQUAL)) {
+                pushDownExpression = format("NOT %s: %s", variableName, formattedLiteral);
             }
-        }
-        else if (operator.equals(NOT_EQUAL)) {
-            if (literalType instanceof VarcharType) {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("\"%s\" != '%s'", variableName, literalString);
-                }
-                return new ClpExpression(
-                        format("NOT %s: \"%s\"", variableName, escapeKqlSpecialCharsForStringValue(literalString)), metadataSqlQuery,
-                        ImmutableSet.of(variableName));
+            else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !isVarchar) {
+                pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), literalString);
             }
-            else {
-                if (metadataFilterColumns.contains(variableName)) {
-                    metadataSqlQuery = format("NOT \"%s\" = %s", variableName, literalString);
-                }
-                return new ClpExpression(format("NOT %s: %s", variableName, literalString), metadataSqlQuery, ImmutableSet.of(variableName));
+
+            if (pushDownExpression == null) {
+                return new ClpExpression(originalNode);
             }
         }
-        else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
-            if (metadataFilterColumns.contains(variableName)) {
-                metadataSqlQuery = format("\"%s\" %s %s", variableName, operator.getOperator(), literalString, ImmutableSet.of(variableName));
-            }
-            return new ClpExpression(
-                    format("%s %s %s", variableName, operator.getOperator(), literalString), metadataSqlQuery, ImmutableSet.of(variableName));
+
+        if (isMetadataColumn || isDataColumnsWithRangeBounds) {
+            metadataExpression = new CallExpression(
+                    operator.name(),
+                    originalNode.getFunctionHandle(),
+                    BOOLEAN,
+                    ImmutableList.of(
+                            new VariableReferenceExpression(Optional.empty(), variableName, variableType),
+                            constant));
         }
-        return new ClpExpression(originalNode);
+
+        return new ClpExpression(pushDownExpression, metadataExpression, ImmutableSet.of(variableName));
     }
 
     /**
@@ -548,6 +634,11 @@ public class ClpFilterToKqlConverter
         }
 
         String varName = variable.getPushDownExpression().get();
+        if (metadataFilterColumns.contains(varName)) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Metadata filter columns are not supported for substr call" + callExpression);
+        }
         RowExpression startExpression = callExpression.getArguments().get(1);
         RowExpression lengthExpression = null;
         if (argCount == 3) {
@@ -688,54 +779,52 @@ public class ClpFilterToKqlConverter
      */
     private ClpExpression handleAnd(SpecialFormExpression node)
     {
-        StringBuilder metadataQueryBuilder = new StringBuilder();
-        metadataQueryBuilder.append("(");
-        StringBuilder queryBuilder = new StringBuilder();
-        queryBuilder.append("(");
+        List<String> pushdownKql = new ArrayList<>();
         List<RowExpression> remainingExpressions = new ArrayList<>();
-        boolean hasMetadataSql = false;
-        boolean hasPushDownExpression = false;
+        List<RowExpression> metadataExpressions = new ArrayList<>();
         ImmutableSet.Builder<String> pushDownVariables = new ImmutableSet.Builder<>();
+
         for (RowExpression argument : node.getArguments()) {
             ClpExpression expression = argument.accept(this, null);
             if (expression.getPushDownExpression().isPresent()) {
-                hasPushDownExpression = true;
                 pushDownVariables.addAll(expression.getPushDownVariables());
-                queryBuilder.append(expression.getPushDownExpression().get());
-                queryBuilder.append(" AND ");
-                if (expression.getMetadataSqlQuery().isPresent()) {
-                    hasMetadataSql = true;
-                    metadataQueryBuilder.append(expression.getMetadataSqlQuery().get());
-                    metadataQueryBuilder.append(" AND ");
-                }
+                pushdownKql.add(expression.getPushDownExpression().get());
             }
-            if (expression.getRemainingExpression().isPresent()) {
-                remainingExpressions.add(expression.getRemainingExpression().get());
-            }
+
+            expression.getMetadataExpression().ifPresent(metadataExpressions::add);
+            expression.getRemainingExpression().ifPresent(remainingExpressions::add);
         }
-        if (!hasPushDownExpression) {
-            return new ClpExpression(node);
+
+        String combinedKql = null;
+        if (!pushdownKql.isEmpty()) {
+            combinedKql = "(" + String.join(" AND ", pushdownKql) + ")";
         }
-        else if (!remainingExpressions.isEmpty()) {
-            if (remainingExpressions.size() == 1) {
-                return new ClpExpression(
-                        queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                        hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null,
-                        remainingExpressions.get(0),
-                        pushDownVariables.build());
-            }
-            else {
-                return new ClpExpression(
-                        queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                        hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null,
-                        new SpecialFormExpression(node.getSourceLocation(), AND, BOOLEAN, remainingExpressions),
-                        pushDownVariables.build());
-            }
+        RowExpression combinedMetadataExpression = null;
+
+        if (metadataExpressions.size() == 1) {
+            combinedMetadataExpression = metadataExpressions.get(0);
         }
-        // Remove the last " AND " from the query
-        return new ClpExpression(queryBuilder.substring(0, queryBuilder.length() - 5) + ")",
-                hasMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 5) + ")" : null,
-                pushDownVariables.build());
+        else if (metadataExpressions.size() > 1) {
+            combinedMetadataExpression = new SpecialFormExpression(
+                    node.getSourceLocation(),
+                    AND,
+                    BOOLEAN,
+                    metadataExpressions);
+        }
+
+        RowExpression combinedRemainingExpression = null;
+        if (remainingExpressions.size() == 1) {
+            combinedRemainingExpression = remainingExpressions.get(0);
+        }
+        else if (remainingExpressions.size() > 1) {
+            combinedRemainingExpression = new SpecialFormExpression(
+                    node.getSourceLocation(),
+                    AND,
+                    BOOLEAN,
+                    remainingExpressions);
+        }
+
+        return new ClpExpression(combinedKql, combinedMetadataExpression, combinedRemainingExpression, pushDownVariables.build());
     }
 
     /**
@@ -752,40 +841,57 @@ public class ClpFilterToKqlConverter
      */
     private ClpExpression handleOr(SpecialFormExpression node)
     {
-        StringBuilder metadataQueryBuilder = new StringBuilder();
-        metadataQueryBuilder.append("(");
-        StringBuilder queryBuilder = new StringBuilder();
-        queryBuilder.append("(");
-        boolean allPushedDown = true;
-        boolean hasAllMetadataSql = true;
+        List<String> pushdownKql = new ArrayList<>();
+        List<RowExpression> metadataExpressions = new ArrayList<>();
         ImmutableSet.Builder<String> pushDownVariables = new ImmutableSet.Builder<>();
+
+        boolean hasUnpushable = false;
+
         for (RowExpression argument : node.getArguments()) {
-            ClpExpression expression = argument.accept(this, null);
-            // Note: It is possible in the future that an expression cannot be pushed down as a KQL query, but can be
-            // pushed down as a metadata SQL query.
-            if (expression.getRemainingExpression().isPresent() || !expression.getPushDownExpression().isPresent()) {
-                allPushedDown = false;
-                continue;
+            ClpExpression expr = argument.accept(this, null);
+
+            boolean hasRemaining = expr.getRemainingExpression().isPresent();
+            boolean hasKql = expr.getPushDownExpression().isPresent();
+            boolean hasMeta = expr.getMetadataExpression().isPresent();
+
+            // If this arg cannot be pushed down at all, bail early
+            if (hasRemaining || (!hasKql && !hasMeta)) {
+                hasUnpushable = true;
+                break;
             }
-            queryBuilder.append(expression.getPushDownExpression().get());
-            queryBuilder.append(" OR ");
-            pushDownVariables.addAll(expression.getPushDownVariables());
-            if (hasAllMetadataSql && expression.getMetadataSqlQuery().isPresent()) {
-                metadataQueryBuilder.append(expression.getMetadataSqlQuery().get());
-                metadataQueryBuilder.append(" OR ");
+
+            if (hasKql) {
+                pushDownVariables.addAll(expr.getPushDownVariables());
+                pushdownKql.add(expr.getPushDownExpression().get());
             }
-            else {
-                hasAllMetadataSql = false;
+
+            if (hasMeta) {
+                metadataExpressions.add(expr.getMetadataExpression().get());
             }
         }
-        if (allPushedDown) {
-            // Remove the last " OR " from the query
-            return new ClpExpression(
-                    queryBuilder.substring(0, queryBuilder.length() - 4) + ")",
-                    hasAllMetadataSql ? metadataQueryBuilder.substring(0, metadataQueryBuilder.length() - 4) + ")" : null,
-                    pushDownVariables.build());
+
+        if (hasUnpushable) {
+            return new ClpExpression(node);
         }
-        return new ClpExpression(node);
+
+        String combinedKql = null;
+        if (!pushdownKql.isEmpty()) {
+            combinedKql = "(" + String.join(" OR ", pushdownKql) + ")";
+        }
+
+        // Only use metadata if every argument has metadata and none had KQL
+        RowExpression combinedMetadata = null;
+        if (metadataExpressions.size() == node.getArguments().size() && pushdownKql.isEmpty()) {
+            combinedMetadata = (metadataExpressions.size() == 1)
+                    ? metadataExpressions.get(0)
+                    : new SpecialFormExpression(
+                    node.getSourceLocation(),
+                    OR,
+                    BOOLEAN,
+                    metadataExpressions);
+        }
+
+        return new ClpExpression(combinedKql, combinedMetadata, pushDownVariables.build());
     }
 
     /**
@@ -804,6 +910,11 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
         String variableName = variable.getPushDownExpression().get();
+        if (metadataFilterColumns.contains(variableName)) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Metadata filter columns are not supported for IN predicate" + node);
+        }
         StringBuilder queryBuilder = new StringBuilder();
         queryBuilder.append("(");
         for (RowExpression argument : node.getArguments().subList(1, node.getArguments().size())) {
@@ -848,6 +959,11 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = expression.getPushDownExpression().get();
+        if (metadataFilterColumns.contains(variableName)) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Metadata filter columns are not supported for IN predicate" + node);
+        }
         return new ClpExpression(format("NOT %s: *", variableName), expression.getPushDownVariables());
     }
 

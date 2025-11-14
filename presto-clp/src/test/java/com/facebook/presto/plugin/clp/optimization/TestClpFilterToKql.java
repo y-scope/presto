@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp;
+package com.facebook.presto.plugin.clp.optimization;
 
-import com.facebook.presto.plugin.clp.optimization.ClpExpression;
-import com.facebook.presto.plugin.clp.optimization.ClpFilterToKqlConverter;
+import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.planner.TypeProvider;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -228,48 +230,62 @@ public class TestClpFilterToKql
     }
 
     @Test
-    public void testMetadataSqlGeneration()
+    public void testMetadataExpressionGeneration()
     {
         SessionHolder sessionHolder = new SessionHolder();
         Set<String> testMetadataFilterColumns = ImmutableSet.of("fare");
+        Set<String> testDataColumnsWithRangeBounds = ImmutableSet.of("city.Region.Id");
 
         // Normal case
         testPushDown(
                 sessionHolder,
                 "(fare > 0 AND city.Name like 'b%')",
-                "(fare > 0 AND city.Name: \"b*\")",
-                "(\"fare\" > 0)",
-                testMetadataFilterColumns);
+                "(city.Name: \"b*\")",
+                "fare > 0",
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
 
         // With BETWEEN
         testPushDown(
                 sessionHolder,
                 "((fare BETWEEN 0 AND 5) AND city.Name like 'b%')",
-                "(fare >= 0 AND fare <= 5 AND city.Name: \"b*\")",
-                "(\"fare\" >= 0 AND \"fare\" <= 5)",
-                testMetadataFilterColumns);
+                "(city.Name: \"b*\")",
+                "fare >= 0 AND fare <= 5",
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
 
         // The cases of that the metadata filter column exist but cannot be push down
         testPushDown(
                 sessionHolder,
                 "(fare > 0 OR city.Name like 'b%')",
-                "(fare > 0 OR city.Name: \"b*\")",
+                "(city.Name: \"b*\")",
                 null,
-                testMetadataFilterColumns);
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
         testPushDown(
                 sessionHolder,
                 "(fare > 0 AND city.Name like 'b%') OR city.Region.Id = 1",
-                "((fare > 0 AND city.Name: \"b*\") OR city.Region.Id: 1)",
+                "((city.Name: \"b*\") OR city.Region.Id: 1)",
                 null,
-                testMetadataFilterColumns);
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
 
         // Complicated case
         testPushDown(
                 sessionHolder,
                 "fare = 0 AND (city.Name like 'b%' OR city.Region.Id = 1)",
-                "(fare: 0 AND (city.Name: \"b*\" OR city.Region.Id: 1))",
-                "(\"fare\" = 0)",
-                testMetadataFilterColumns);
+                "((city.Name: \"b*\" OR city.Region.Id: 1))",
+                "fare = 0",
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
+        testPushDown(
+                sessionHolder,
+                "city.Region.Id = 1 AND (city.Name like 'b%' OR fare = 0)",
+                "(city.Region.Id: 1 AND (city.Name: \"b*\"))",
+                "\"city.Region.Id\" = 1",
+                TypeProvider.viewOf(ImmutableMap.of("city.Region.Id", BIGINT)),
+                testMetadataFilterColumns,
+                testDataColumnsWithRangeBounds);
     }
 
     @Test
@@ -307,27 +323,55 @@ public class TestClpFilterToKql
 
     private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedRemaining)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of());
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, ImmutableSet.of(), ImmutableSet.of());
         testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
     }
 
-    private void testPushDown(SessionHolder sessionHolder, String sql, String expectedKql, String expectedMetadataSqlQuery, Set<String> metadataFilterColumns)
+    private void testPushDown(
+            SessionHolder sessionHolder,
+            String sql,
+            String expectedKql,
+            String expectedMetadataSqlQuery,
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds)
     {
-        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns);
+        testPushDown(
+                sessionHolder,
+                sql,
+                expectedKql,
+                expectedMetadataSqlQuery,
+                typeProvider,
+                metadataFilterColumns,
+                dataColumnsWithRangeBounds);
+    }
+
+    private void testPushDown(
+            SessionHolder sessionHolder,
+            String sql,
+            String expectedKql,
+            String expectedMetadataSqlQuery,
+            TypeProvider typeProviderForMetadataExpression,
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds)
+    {
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, dataColumnsWithRangeBounds);
         testFilter(clpExpression, expectedKql, null, sessionHolder);
         if (expectedMetadataSqlQuery != null) {
-            assertTrue(clpExpression.getMetadataSqlQuery().isPresent());
-            assertEquals(clpExpression.getMetadataSqlQuery().get(), expectedMetadataSqlQuery);
+            assertTrue(clpExpression.getMetadataExpression().isPresent());
+            assertEquals(
+                    clpExpression.getMetadataExpression().get(),
+                    getRowExpression(expectedMetadataSqlQuery, typeProviderForMetadataExpression, sessionHolder));
         }
         else {
-            assertFalse(clpExpression.getMetadataSqlQuery().isPresent());
+            assertFalse(clpExpression.getMetadataExpression().isPresent());
         }
     }
 
     private ClpExpression tryPushDown(
             String sqlExpression,
             SessionHolder sessionHolder,
-            Set<String> metadataFilterColumns)
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds)
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
@@ -336,7 +380,8 @@ public class TestClpFilterToKql
                         standardFunctionResolution,
                         functionAndTypeManager,
                         assignments,
-                        metadataFilterColumns),
+                        metadataFilterColumns,
+                        dataColumnsWithRangeBounds),
                 null);
     }
 

@@ -11,13 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp;
+package com.facebook.presto.plugin.clp.split;
 
+import com.facebook.presto.plugin.clp.ClpConfig;
+import com.facebook.presto.plugin.clp.ClpSplit;
+import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
 import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
-import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
-import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.AfterMethod;
@@ -28,17 +32,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
 public class TestClpSplit
+        extends TestClpQueryBase
 {
     private ClpMockMetadataDatabase mockMetadataDatabase;
     private ClpSplitProvider clpSplitProvider;
+    private TypeProvider typeProvider;
     private Map<String, ArchivesTableRows> tableSplits;
 
     @BeforeMethod
@@ -80,7 +86,12 @@ public class TestClpSplit
                 .setMetadataDbUser(mockMetadataDatabase.getUsername())
                 .setMetadataDbPassword(mockMetadataDatabase.getPassword())
                 .setMetadataTablePrefix(mockMetadataDatabase.getTablePrefix());
-        clpSplitProvider = new ClpMySqlSplitProvider(config);
+        clpSplitProvider = new ClpMySqlSplitProvider(
+                config,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(config, functionAndTypeManager));
+        typeProvider = TypeProvider.viewOf(ImmutableMap.of("begin_timestamp", BIGINT, "end_timestamp", BIGINT));
     }
 
     @AfterMethod
@@ -135,12 +146,13 @@ public class TestClpSplit
             Optional<String> metadataSql,
             List<Integer> expectedSplitIndexes)
     {
+        final String storageBase = "/tmp/archives/";
         String tableName = entry.getKey();
-        String tablePath = ARCHIVES_STORAGE_DIRECTORY_BASE + tableName;
+        String tablePath = storageBase + tableName;
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),
-                metadataSql);
+                metadataSql.map(sql -> getRowExpression(sql, typeProvider, new SessionHolder())));
         List<String> expectedSplitPaths = expectedSplitIndexes.stream()
                 .map(expectedSplitIndex -> format("%s/%s", tablePath, entry.getValue().getIds().get(expectedSplitIndex)))
                 .collect(toImmutableList());

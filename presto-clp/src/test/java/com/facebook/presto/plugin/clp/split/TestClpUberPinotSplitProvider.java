@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.spi.SchemaTableName;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -35,6 +36,7 @@ import static org.testng.Assert.fail;
  */
 @Test(singleThreaded = true)
 public class TestClpUberPinotSplitProvider
+        extends TestClpQueryBase
 {
     private ClpUberPinotSplitProvider splitProvider;
     private ClpConfig config;
@@ -45,7 +47,11 @@ public class TestClpUberPinotSplitProvider
         config = new ClpConfig();
         config.setMetadataDbUrl("https://neutrino.uber.com");
         config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
-        splitProvider = new ClpUberPinotSplitProvider(config);
+        splitProvider = new ClpUberPinotSplitProvider(
+                config,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(config, functionAndTypeManager));
     }
 
     /**
@@ -243,7 +249,11 @@ public class TestClpUberPinotSplitProvider
         newConfig.setMetadataDbUrl("https://other-neutrino.uber.com");
         newConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
 
-        ClpUberPinotSplitProvider newProvider = new ClpUberPinotSplitProvider(newConfig);
+        ClpUberPinotSplitProvider newProvider = new ClpUberPinotSplitProvider(
+                newConfig,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(newConfig, functionAndTypeManager));
         assertNotNull(newProvider);
     }
 }

@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpYamlMetadataProvider;
 import com.facebook.presto.plugin.clp.split.ClpPinotSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
@@ -23,6 +24,7 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.BeforeTest;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.util.HashSet;
@@ -34,7 +36,10 @@ import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
 import static org.testng.Assert.assertEquals;
 
+@Test(enabled = false)
+@Ignore
 public class TestClpYamlMetadata
+        extends TestClpQueryBase
 {
     private static final String PINOT_BROKER_URL = "http://localhost:8099";
     private static final String METADATA_YAML_PATH = "/home/xiaochong-dev/presto-e2e/pinot/tables-schema.yaml";
@@ -52,7 +57,11 @@ public class TestClpYamlMetadata
                 .setMetadataYamlPath(METADATA_YAML_PATH);
         ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config);
         metadata = new ClpMetadata(config, metadataProvider);
-        clpSplitProvider = new ClpPinotSplitProvider(config);
+        clpSplitProvider = new ClpPinotSplitProvider(
+                config,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(config, functionAndTypeManager));
     }
 
     @Test
