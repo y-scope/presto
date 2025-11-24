@@ -94,7 +94,7 @@ public class ClpMySqlSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+        if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpMySqlSplitMetadataExpressionConverter converter =
                     new ClpMySqlSplitMetadataExpressionConverter(
                             functionManager,
@@ -102,7 +102,7 @@ public class ClpMySqlSplitProvider
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             dataColumnRangeMapping,
                             metadataConfig.getRequiredColumns(schemaTableName));
-            String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression().get());
+            String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
@@ -128,7 +128,7 @@ public class ClpMySqlSplitProvider
             List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
             for (ArchiveMeta a : selected) {
-                splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
+                splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
             }
             ImmutableList<ClpSplit> result = splits.build();
             log.debug("Number of splits: %s", result.size());
@@ -142,7 +142,7 @@ public class ClpMySqlSplitProvider
                 while (resultSet.next()) {
                     final String archiveId = resultSet.getString(ARCHIVES_TABLE_COLUMN_ID);
                     final String archivePath = tablePath + "/" + archiveId;
-                    splits.add(new ClpSplit(archivePath, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(archivePath, ARCHIVE, clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
             }
         }

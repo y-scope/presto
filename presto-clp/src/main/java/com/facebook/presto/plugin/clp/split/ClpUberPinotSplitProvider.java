@@ -30,6 +30,7 @@ import javax.inject.Inject;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,7 +76,7 @@ public class ClpUberPinotSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+        if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpUberPinotSplitMetadataExpressionConverter converter =
                     new ClpUberPinotSplitMetadataExpressionConverter(
                             functionManager,
@@ -83,7 +84,7 @@ public class ClpUberPinotSplitProvider
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             dataColumnRangeMapping,
                             metadataConfig.getRequiredColumns(schemaTableName));
-            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression().get()));
+            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression()));
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
             throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");
@@ -110,18 +111,29 @@ public class ClpUberPinotSplitProvider
 
                 for (ArchiveMeta a : selected) {
                     String splitPath = a.id;
-                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
                 List<ClpSplit> filteredSplits = splits.build();
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
+            List<String> metadataColumnNames = new ArrayList<>(
+                    clpTableLayoutHandle.getOrInitializeSplitMetadataColumnNames());
+            String splitQuery = buildSplitSelectionQuery(
+                    tableName,
+                    metadataColumnNames,
+                    metadataFilterQuery.orElse("1 = 1"));
+            List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
 
-            String splitQuery = buildSplitSelectionQuery(tableName, metadataFilterQuery.orElse("1 = 1"));
-            List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
-            for (JsonNode row : splitRows) {
-                String splitPath = row.elements().next().asText();
-                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+            for (Map<String, JsonNode> row : splitRows) {
+                String splitPath = row.get("tpath").asText();
+                Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
+
+                splits.add(new ClpSplit(
+                        splitPath,
+                        determineSplitType(splitPath),
+                        clpTableLayoutHandle.getKqlQuery(),
+                        Optional.of(metadataColumns)));
             }
 
             List<ClpSplit> filteredSplits = splits.build();

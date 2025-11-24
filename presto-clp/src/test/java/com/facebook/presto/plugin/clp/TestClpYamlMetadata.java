@@ -120,7 +120,7 @@ public class TestClpYamlMetadata
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME), ""),
                 Optional.empty(),
-                Optional.empty());
+                null);
         List<ClpSplit> result = clpSplitProvider.listSplits(layoutHandle);
         System.out.println("Hello world");
     }

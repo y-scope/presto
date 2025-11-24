@@ -174,7 +174,7 @@ public class TestClpUdfRewriter
                                                 table,
                                                 Optional.of(
                                                         "(((user_id: 0 AND fare < 50.0) AND (city: \"SF\" AND isHoliday: true)))"),
-                                                Optional.empty()),
+                                                null),
                                         ImmutableSet.of(
                                                 city,
                                                 fare,
@@ -224,7 +224,7 @@ public class TestClpUdfRewriter
                                         new ClpTableLayoutHandle(
                                                 table,
                                                 Optional.empty(),
-                                                Optional.empty()),
+                                                null),
                                         ImmutableSet.of(
                                                 new ClpColumnHandle("user_id", BIGINT),
                                                 new ClpColumnHandle("fare", DOUBLE),
@@ -264,7 +264,7 @@ public class TestClpUdfRewriter
                                 filter(
                                         expression("lower(city.Name) = 'beijing'"),
                                         ClpTableScanMatcher.clpTableScanPattern(
-                                                new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), Optional.empty()),
+                                                new ClpTableLayoutHandle(table, Optional.of("(user_id: 0)"), null),
                                                 ImmutableSet.of(
                                                         new ClpColumnHandle("city.Name", VARCHAR),
                                                         new ClpColumnHandle("user_id", BIGINT),
@@ -297,7 +297,7 @@ public class TestClpUdfRewriter
                                         "clp_get_json_string",
                                         PlanMatchPattern.expression(JSON_STRING_PLACEHOLDER)),
                                 ClpTableScanMatcher.clpTableScanPattern(
-                                        new ClpTableLayoutHandle(table, Optional.of("user_id: 0"), Optional.empty()),
+                                        new ClpTableLayoutHandle(table, Optional.of("user_id: 0"), null),
                                         ImmutableSet.of(
                                                 fare,
                                                 new ClpColumnHandle("user_id", BIGINT),
