@@ -128,7 +128,7 @@ public class ClpMySqlSplitProvider
             List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
             for (ArchiveMeta a : selected) {
-                splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
+                splits.add(new ClpSplit(tablePath + "/" + a.id, ARCHIVE, clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
             }
             ImmutableList<ClpSplit> result = splits.build();
             log.debug("Number of splits: %s", result.size());
@@ -142,7 +142,7 @@ public class ClpMySqlSplitProvider
                 while (resultSet.next()) {
                     final String archiveId = resultSet.getString(ARCHIVES_TABLE_COLUMN_ID);
                     final String archivePath = tablePath + "/" + archiveId;
-                    splits.add(new ClpSplit(archivePath, ARCHIVE, clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(archivePath, ARCHIVE, clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
             }
         }

@@ -110,18 +110,18 @@ public class ClpUberPinotSplitProvider
 
                 for (ArchiveMeta a : selected) {
                     String splitPath = a.id;
-                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
                 List<ClpSplit> filteredSplits = splits.build();
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
 
-            String splitQuery = buildSplitSelectionQuery(tableName, metadataFilterQuery.orElse("1 = 1"));
+            String splitQuery = buildSplitSelectionQuery(tableName, clpTableLayoutHandle.getSplitMetaColumnNames(), metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
             for (JsonNode row : splitRows) {
                 String splitPath = row.elements().next().asText();
-                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
             }
 
             List<ClpSplit> filteredSplits = splits.build();

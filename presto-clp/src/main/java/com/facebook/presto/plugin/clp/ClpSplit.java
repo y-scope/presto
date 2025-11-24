@@ -36,16 +36,19 @@ public class ClpSplit
     private final String path;
     private final SplitType type;
     private final Optional<String> kqlQuery;
+    private final Optional<Map<String, String>> projectionNameValue;
 
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
             @JsonProperty("type") SplitType type,
-            @JsonProperty("kqlQuery") Optional<String> kqlQuery)
+            @JsonProperty("kqlQuery") Optional<String> kqlQuery,
+            @JsonProperty("projectionNameValue") Optional<Map<String, String>> projectionNameValue)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.type = requireNonNull(type, "Split type is null");
         this.kqlQuery = kqlQuery;
+        this.projectionNameValue = projectionNameValue;
     }
 
     @JsonProperty
@@ -64,6 +67,12 @@ public class ClpSplit
     public Optional<String> getKqlQuery()
     {
         return kqlQuery;
+    }
+
+    @JsonProperty
+    public Optional<Map<String, String>> getProjectionNameValue()
+    {
+        return projectionNameValue;
     }
 
     @Override

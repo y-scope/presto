@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 
@@ -31,6 +32,7 @@ public class ClpTableLayoutHandle
     private final Optional<String> kqlQuery;
     private final Optional<RowExpression> metadataExpression;
     private final boolean metadataQueryOnly;
+    private final Optional<Set<String>> splitMetaColumnNames;
     private final Optional<ClpTopNSpec> topN;
 
     @JsonCreator
@@ -39,12 +41,14 @@ public class ClpTableLayoutHandle
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
             @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
+            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = metadataQueryOnly;
+        this.splitMetaColumnNames = splitMetaColumnNames;
         this.topN = topN;
     }
 
@@ -57,6 +61,19 @@ public class ClpTableLayoutHandle
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = false;
+        this.splitMetaColumnNames = Optional.empty();
+        this.topN = Optional.empty();
+    }
+
+    public ClpTableLayoutHandle(
+            @JsonProperty("table") ClpTableHandle table,
+            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames)
+    {
+        this.table = table;
+        this.kqlQuery = Optional.empty();
+        this.metadataExpression = Optional.empty();
+        this.metadataQueryOnly = false;
+        this.splitMetaColumnNames = splitMetaColumnNames;
         this.topN = Optional.empty();
     }
 
@@ -82,6 +99,12 @@ public class ClpTableLayoutHandle
     public boolean isMetadataQueryOnly()
     {
         return metadataQueryOnly;
+    }
+
+    @JsonProperty
+    public Optional<Set<String>> getSplitMetaColumnNames()
+    {
+        return splitMetaColumnNames;
     }
 
     @JsonProperty

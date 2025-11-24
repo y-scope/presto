@@ -47,6 +47,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -101,6 +102,46 @@ public class ClpComputePushDown
             }
 
             return processFilter(node, (TableScanNode) node.getSource());
+        }
+
+        @Override
+        public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
+        {
+            log.debug("Visiting TableScan: " + node.getId()); // Debug
+
+            Set<String> projectColumns = new HashSet<>();
+            // extract project column from node.getOutputVariables
+            for (VariableReferenceExpression variable : node.getOutputVariables()) {
+                projectColumns.add(variable.getName());
+            }
+
+            TableHandle tableHandle = node.getTable();
+            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
+
+            Set<String> intersection = new HashSet<>(projectColumns);
+            intersection.retainAll(metadataColumns);
+
+            ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
+                    clpTableHandle, Optional.of(intersection));
+            ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            TableScanNode newScanNode = new TableScanNode(
+                    node.getSourceLocation(),
+                    idAllocator.getNextId(),
+                    new TableHandle(
+                            tableHandle.getConnectorId(),
+                            clpHandle,
+                            tableHandle.getTransaction(),
+                            Optional.of(layoutHandle)),
+                    node.getOutputVariables(),
+                    node.getAssignments(),
+                    node.getTableConstraints(),
+                    node.getCurrentConstraint(),
+                    node.getEnforcedConstraint(),
+                    node.getCteMaterializationInfo());
+
+            return newScanNode;
         }
 
         @Override
@@ -191,7 +232,7 @@ public class ClpComputePushDown
                 ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.getOrderings());
                 ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
                 ClpTableLayoutHandle newLayout =
-                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.of(tightened));
+                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.empty(), Optional.of(tightened));
 
                 TableScanNode newScan = new TableScanNode(
                         scan.getSourceLocation(),
@@ -227,7 +268,7 @@ public class ClpComputePushDown
             ClpTopNSpec spec = new ClpTopNSpec(node.getCount(), newOrderings);
             ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpTableLayoutHandle newLayout =
-                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.of(spec));
+                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.empty(), Optional.of(spec));
 
             TableScanNode newScanNode = new TableScanNode(
                     scan.getSourceLocation(),
@@ -283,7 +324,7 @@ public class ClpComputePushDown
                 kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                        clpTableHandle, kqlQuery, metadataExpression, allInMetadata, Optional.empty());
+                        clpTableHandle, kqlQuery, metadataExpression, allInMetadata, Optional.empty(), Optional.empty());
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,

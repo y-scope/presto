@@ -37,3 +37,4 @@ JavaClasses:
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpTableHandle.java
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpTableLayoutHandle.java
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpSplit.java
+  - presto-clp/src/main/java/com/facebook/presto/plugin/clp/optimization/ClpTopNSpec.java
