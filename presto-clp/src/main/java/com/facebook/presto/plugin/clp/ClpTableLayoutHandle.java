@@ -19,8 +19,10 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 
@@ -29,34 +31,51 @@ public class ClpTableLayoutHandle
 {
     private final ClpTableHandle table;
     private final Optional<String> kqlQuery;
-    private final Optional<RowExpression> metadataExpression;
+    private final RowExpression metadataExpression;
     private final boolean metadataQueryOnly;
     private final Optional<ClpTopNSpec> topN;
+
+    private Optional<Set<String>> splitMetadataColumnNames;
 
     @JsonCreator
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
+            @JsonProperty("metadataExpression") RowExpression metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
+            @JsonProperty("splitMetadataColumnNames") Optional<Set<String>> splitMetadataColumnNames,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = metadataQueryOnly;
+        this.splitMetadataColumnNames = splitMetadataColumnNames;
         this.topN = topN;
     }
 
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression)
+            @JsonProperty("metadataExpression") RowExpression metadataExpression)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = false;
+        this.splitMetadataColumnNames = Optional.empty();
+        this.topN = Optional.empty();
+    }
+
+    public ClpTableLayoutHandle(
+            @JsonProperty("table") ClpTableHandle table,
+            @JsonProperty("splitMetadataColumnNames") Optional<Set<String>> splitMetadataColumnNames)
+    {
+        this.table = table;
+        this.kqlQuery = Optional.empty();
+        this.metadataExpression = null;
+        this.metadataQueryOnly = false;
+        this.splitMetadataColumnNames = splitMetadataColumnNames;
         this.topN = Optional.empty();
     }
 
@@ -73,7 +92,7 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Optional<RowExpression> getMetadataExpression()
+    public RowExpression getMetadataExpression()
     {
         return metadataExpression;
     }
@@ -82,6 +101,20 @@ public class ClpTableLayoutHandle
     public boolean isMetadataQueryOnly()
     {
         return metadataQueryOnly;
+    }
+
+    @JsonProperty
+    public Optional<Set<String>> getSplitMetadataColumnNames()
+    {
+        return splitMetadataColumnNames;
+    }
+
+    public Set<String> getOrInitializeSplitMetadataColumnNames()
+    {
+        if (!splitMetadataColumnNames.isPresent()) {
+            splitMetadataColumnNames = Optional.of(new HashSet<>());
+        }
+        return splitMetadataColumnNames.get();
     }
 
     @JsonProperty
@@ -103,14 +136,15 @@ public class ClpTableLayoutHandle
         return Objects.equals(table, that.table) &&
                 Objects.equals(kqlQuery, that.kqlQuery) &&
                 Objects.equals(metadataExpression, that.metadataExpression) &&
-                Objects.equals(metadataQueryOnly, that.metadataQueryOnly) &&
+                Objects.equals(splitMetadataColumnNames, that.splitMetadataColumnNames) &&
                 Objects.equals(topN, that.topN);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(table, kqlQuery, metadataExpression, metadataQueryOnly, topN);
+        return Objects.hash(
+                table, kqlQuery, metadataExpression, metadataQueryOnly, topN);
     }
 
     @Override

@@ -21,7 +21,12 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.msgpack.core.MessageBufferPacker;
+import org.msgpack.core.MessagePack;
 
+import java.io.IOException;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,16 +41,56 @@ public class ClpSplit
     private final String path;
     private final SplitType type;
     private final Optional<String> kqlQuery;
+    private final String metadataProjectionNameValueEncoded;
 
+    /**
+     * Invoked by Jackson; serializes a ClpSplit to JSON format
+     *
+     * @param path the path to the split
+     * @param type the split type
+     * @param kqlQuery optional KQL query pushed down to CLP-S
+     * @param metadataProjectionNameValueEncoded Base64-encoded MessagePack representation of metadata projection in
+     *                                           column name and value pairs
+     */
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
             @JsonProperty("type") SplitType type,
-            @JsonProperty("kqlQuery") Optional<String> kqlQuery)
+            @JsonProperty("kqlQuery") Optional<String> kqlQuery,
+            @JsonProperty("metadataProjectionNameValue") String metadataProjectionNameValueEncoded)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.type = requireNonNull(type, "Split type is null");
         this.kqlQuery = kqlQuery;
+        this.metadataProjectionNameValueEncoded = metadataProjectionNameValueEncoded != null ? metadataProjectionNameValueEncoded : "";
+    }
+
+    /**
+     * Creates a ClpSplit for internal use
+     *
+     * @param path the path to the split
+     * @param type the split type
+     * @param kqlQuery optional KQL query pushed down to CLP-S
+     * @param metadataProjectionNameValue optional map of metadata projection column names to their values
+     * @throws RuntimeException if encoding metadata projection name-value pairs fails
+     */
+    public ClpSplit(
+            String path,
+            SplitType type,
+            Optional<String> kqlQuery,
+            Optional<Map<String, Object>> metadataProjectionNameValue)
+    {
+        this.path = requireNonNull(path, "Split path is null");
+        this.type = requireNonNull(type, "Split type is null");
+        this.kqlQuery = kqlQuery;
+
+        try {
+            this.metadataProjectionNameValueEncoded = encodeProjectionNameValue(
+                    metadataProjectionNameValue.orElse(new HashMap<>()));
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to encode projection name value", e);
+        }
     }
 
     @JsonProperty
@@ -64,6 +109,48 @@ public class ClpSplit
     public Optional<String> getKqlQuery()
     {
         return kqlQuery;
+    }
+
+    @JsonProperty("metadataProjectionNameValue")
+    public String getMetadataProjectionNameValue()
+    {
+        return metadataProjectionNameValueEncoded;
+    }
+
+    /**
+     * @param metadataColumnNameValue map of metadata column names to their values.
+     * @return Base64-encoded MessagePack representation of the metadataColumnNameValue map
+     * @throws IOException if MessagePack serialization fails
+     * @throws IllegalArgumentException if a value type is not String, Long, or Double
+     */
+    private String encodeProjectionNameValue(Map<String, Object> metadataColumnNameValue) throws IOException
+    {
+        if (metadataColumnNameValue.isEmpty()) {
+            return "";
+        }
+
+        try (MessageBufferPacker packer = MessagePack.newDefaultBufferPacker()) {
+            packer.packMapHeader(metadataColumnNameValue.size());
+            for (Map.Entry<String, Object> entry : metadataColumnNameValue.entrySet()) {
+                packer.packString(entry.getKey());
+
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    packer.packString((String) value);
+                }
+                else if (value instanceof Long) {
+                    packer.packLong((Long) value);
+                }
+                else if (value instanceof Double) {
+                    packer.packDouble((Double) value);
+                }
+                else {
+                    throw new IllegalArgumentException(
+                            "Unsupported type for column " + entry.getKey() + ": " + value.getClass());
+                }
+            }
+            return Base64.getEncoder().encodeToString(packer.toByteArray());
+        }
     }
 
     @Override

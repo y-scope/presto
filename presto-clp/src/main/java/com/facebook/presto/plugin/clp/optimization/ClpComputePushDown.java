@@ -26,6 +26,7 @@ import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -47,12 +48,14 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
@@ -100,7 +103,91 @@ public class ClpComputePushDown
                 return node;
             }
 
-            return processFilter(node, (TableScanNode) node.getSource());
+            PlanNode processedNode = processFilter(node, (TableScanNode) node.getSource());
+
+            if (processedNode instanceof TableScanNode) {
+                return context.rewrite(processedNode, null);
+            }
+
+            return processedNode;
+        }
+
+        /**
+         * Rewrites a TableScanNode to attach metadata projection column.
+         *
+         * @param node the original TableScanNode to rewrite.
+         * @param context
+         * @return a new TableScanNode with metadata projection in the layout handle
+         * @throw PrestoException if a metadata column maps to a range-bound column - this is an unsupported feature
+         */
+        @Override
+        public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
+        {
+            // Retrieve projection column names
+            Set<String> projectionColumns = new HashSet<>();
+            for (VariableReferenceExpression variable : node.getOutputVariables()) {
+                projectionColumns.add(variable.getName());
+            }
+
+            // Retrieve metadata column
+            TableHandle tableHandle = node.getTable();
+            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
+
+            // Metadata Projection: intersection between the projection column and metadata column
+            Set<String> metadataColumnsWithRangeBound =
+                    metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
+            Map<String, String> exposedToOriginalMap =
+                    metadataConfig.getExposedToOriginalMapping(schemaTableName);
+
+            Set<String> metadataProjections = new HashSet<>();
+            for (String columnName : projectionColumns) {
+                if (metadataColumns.contains(columnName)) {
+                    // Resolve exposed column names to their original names in the metadata database.
+                    // After extracting values from the metadata database, these will be mapped back to exposed names
+                    // for projection.
+                    String originalColumnName = exposedToOriginalMap.get(columnName);
+                    if (metadataColumnsWithRangeBound.contains(originalColumnName)) {
+                        throw new PrestoException(CLP_UNSUPPORTED_METADATA_PROJECTION,
+                                format("Unsupported metadata projection column: %s", columnName));
+                    }
+                    metadataProjections.add(originalColumnName);
+                }
+            }
+
+            if (metadataProjections.isEmpty()) {
+                return node;
+            }
+
+            // TableScan optimization happens late in planning; append to existing layout if present.
+            Optional<ConnectorTableLayoutHandle> layout = tableHandle.getLayout();
+            if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
+                ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
+                for (String metadataProjection : metadataProjections) {
+                    cl.getOrInitializeSplitMetadataColumnNames().add(metadataProjection);
+                }
+                return node;
+            }
+
+            ClpTableLayoutHandle newLayout = new ClpTableLayoutHandle(
+                    clpTableHandle, Optional.of(metadataProjections));
+
+            // TableScanNode is immutable, we need to copy-on-write
+            return new TableScanNode(
+                    node.getSourceLocation(),
+                    idAllocator.getNextId(),
+                    new TableHandle(
+                            tableHandle.getConnectorId(),
+                            clpTableHandle,
+                            tableHandle.getTransaction(),
+                            Optional.of(newLayout)),
+                    node.getOutputVariables(),
+                    node.getAssignments(),
+                    node.getTableConstraints(),
+                    node.getCurrentConstraint(),
+                    node.getEnforcedConstraint(),
+                    node.getCteMaterializationInfo());
         }
 
         @Override
@@ -142,7 +229,7 @@ public class ClpComputePushDown
                 ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
                 metadataOnly = cl.isMetadataQueryOnly();
                 kql = cl.getKqlQuery();
-                metadataSql = cl.getMetadataExpression();
+                metadataSql = Optional.ofNullable(cl.getMetadataExpression());
                 existingTopN = cl.getTopN();
                 clpTableHandle = cl.getTable();
             }
@@ -191,7 +278,7 @@ public class ClpComputePushDown
                 ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.getOrderings());
                 ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
                 ClpTableLayoutHandle newLayout =
-                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.of(tightened));
+                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(tightened));
 
                 TableScanNode newScan = new TableScanNode(
                         scan.getSourceLocation(),
@@ -227,7 +314,7 @@ public class ClpComputePushDown
             ClpTopNSpec spec = new ClpTopNSpec(node.getCount(), newOrderings);
             ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpTableLayoutHandle newLayout =
-                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.of(spec));
+                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(spec));
 
             TableScanNode newScanNode = new TableScanNode(
                     scan.getSourceLocation(),
@@ -283,7 +370,7 @@ public class ClpComputePushDown
                 kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                        clpTableHandle, kqlQuery, metadataExpression, allInMetadata, Optional.empty());
+                        clpTableHandle, kqlQuery, metadataExpression.orElse(null), allInMetadata, Optional.empty(), Optional.empty());
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,

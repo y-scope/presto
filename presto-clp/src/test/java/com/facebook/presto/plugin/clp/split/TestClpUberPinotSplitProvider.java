@@ -23,6 +23,7 @@ import org.testng.annotations.Test;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -219,7 +220,8 @@ public class TestClpUberPinotSplitProvider
     public void testInheritedSqlQueryMethods()
     {
         // Test buildSplitSelectionQuery (inherited from parent)
-        String query = splitProvider.buildSplitSelectionQuery("rta.logging.logs", "status = 200");
+        String query = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", new ArrayList<>(), "status = 200");
         assertTrue(query.contains("rta.logging.logs"));
         assertTrue(query.contains("status = 200"));
         assertTrue(query.contains("SELECT"));

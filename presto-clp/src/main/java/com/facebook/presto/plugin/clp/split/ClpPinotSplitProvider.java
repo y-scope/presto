@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -27,6 +28,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import javax.inject.Inject;
 
@@ -38,13 +40,18 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_TYPE_MISMATCH_METADATA_DATABASE_TYPE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.IR;
@@ -56,7 +63,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class ClpPinotSplitProvider
         implements ClpSplitProvider
 {
-    private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT tpath FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
+    private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
     private static final String SQL_SELECT_SPLIT_META_TEMPLATE = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) ORDER BY %s %s LIMIT 999999";
     private final ClpConfig config;
 
@@ -65,6 +72,9 @@ public class ClpPinotSplitProvider
     protected final FunctionMetadataManager functionManager;
     protected final StandardFunctionResolution functionResolution;
     protected final ClpSplitMetadataConfig metadataConfig;
+
+    // Required projection columns for metadata database queries
+    protected final List<String> requiredProjectionColumns;
 
     @Inject
     public ClpPinotSplitProvider(
@@ -84,6 +94,84 @@ public class ClpPinotSplitProvider
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
         this.metadataConfig = metadataConfig;
+        this.requiredProjectionColumns = new ArrayList<>(Arrays.asList("tpath"));
+    }
+
+    /**
+     * Extracts a typed value from a JsonNode representing a cell in the metadata database, and compares it with the
+     * expected Presto type specified by the user.
+     *
+     * @param columnValue the JSON node containing the value to be converted
+     * @param columnName the column name (used for error reporting)
+     * @param expectedType the expected Presto type for validation
+     * @return the typed value (String, Long, or Double), or null if the node is null
+     * @throws PrestoException if the JSON value type is incompatible with the expected Presto type
+     */
+    protected Object getTypedValue(JsonNode columnValue, String columnName, Type expectedType)
+    {
+        if (columnValue == null || columnValue.isNull()) {
+            return null;
+        }
+
+        String typeName = expectedType.getTypeSignature().getBase();
+
+        if (typeName.equals("varchar") && columnValue.isTextual()) {
+            return columnValue.asText();
+        }
+        if (typeName.equals("bigint") && (columnValue.isInt() || columnValue.isLong())) {
+            return columnValue.asLong();
+        }
+        if (typeName.equals("double") && columnValue.isNumber()) {
+            return columnValue.asDouble();
+        }
+
+        throw new PrestoException(CLP_SPLIT_METADATA_TYPE_MISMATCH_METADATA_DATABASE_TYPE,
+                format("Column '%s': incompatible type %s for value type %s",
+                        columnName, expectedType.getDisplayName(), columnValue.getNodeType()));
+    }
+
+    /**
+     * Extracts metadata column values from a JSON row and maps them to their exposed column names.
+     *
+     * @param row the JSON array representing a database row
+     * @param metadataColumnNames the original column names in the metadata database
+     * @param schemaTableName the schema and table name for looking up column mappings
+     * @return a map of exposed column names to their typed values
+     */
+    protected Map<String, Object> extractMetadataColumns(
+            Map<String, JsonNode> row,
+            List<String> metadataColumnNames,
+            SchemaTableName schemaTableName)
+    {
+        // Build reverse mapping: original column names -> exposed column names because the metadata value should
+        // attach to the exposed metadata column name.
+        Map<String, String> exposedToOriginalMapping =
+                metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        Map<String, String> originalToExposedMapping = new HashMap<>();
+        for (Map.Entry<String, String> entry : exposedToOriginalMapping.entrySet()) {
+            originalToExposedMapping.put(entry.getValue(), entry.getKey());
+        }
+
+        Map<String, Type> metadataColumnTypes = metadataConfig.getMetadataColumns(schemaTableName);
+        Map<String, Object> metadataColumns = new HashMap<>();
+
+        // Resolve values for metadata columns
+        for (String metadataColumnName : metadataColumnNames) {
+            JsonNode metadataColumnValue = row.get(metadataColumnName);
+            if (metadataColumnValue == null || metadataColumnValue.isNull()) {
+                continue;
+            }
+
+            String exposedColumnName = originalToExposedMapping.get(metadataColumnName);
+            Type expectedType = metadataColumnTypes.get(exposedColumnName);
+
+            Object typedValue = getTypedValue(metadataColumnValue, exposedColumnName, expectedType);
+            if (typedValue != null) {
+                metadataColumns.put(exposedColumnName, typedValue);
+            }
+        }
+
+        return metadataColumns;
     }
 
     @Override
@@ -96,7 +184,7 @@ public class ClpPinotSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+        if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpPinotSplitMetadataExpressionConverter converter =
                     new ClpPinotSplitMetadataExpressionConverter(
                             functionManager,
@@ -104,7 +192,7 @@ public class ClpPinotSplitProvider
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             dataColumnRangeMapping,
                             metadataConfig.getRequiredColumns(schemaTableName));
-            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression().get()));
+            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression()));
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
             throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");
@@ -131,18 +219,33 @@ public class ClpPinotSplitProvider
 
                 for (ArchiveMeta a : selected) {
                     String splitPath = a.id;
-                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
                 List<ClpSplit> filteredSplits = splits.build();
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
+            List<String> metadataColumnNames = new ArrayList<>(
+                    clpTableLayoutHandle.getOrInitializeSplitMetadataColumnNames());
+            String splitQuery = buildSplitSelectionQuery(
+                    tableName,
+                    metadataColumnNames,
+                    metadataFilterQuery.orElse("1 = 1"));
+            List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
 
-            String splitQuery = buildSplitSelectionQuery(tableName, metadataFilterQuery.orElse("1 = 1"));
-            List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
-            for (JsonNode row : splitRows) {
-                String splitPath = row.elements().next().asText();
-                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+            for (Map<String, JsonNode> row : splitRows) {
+                JsonNode tpathNode = row.get("tpath");
+                if (tpathNode == null || tpathNode .isNull()) {
+                    throw new RuntimeException("Missing required 'tpath' field in split metadata row");
+                }
+                String splitPath = tpathNode.asText();
+                Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
+
+                splits.add(new ClpSplit(
+                        splitPath,
+                        determineSplitType(splitPath),
+                        clpTableLayoutHandle.getKqlQuery(),
+                        Optional.of(metadataColumns)));
             }
 
             List<ClpSplit> filteredSplits = splits.build();
@@ -209,13 +312,22 @@ public class ClpPinotSplitProvider
     protected List<ArchiveMeta> fetchArchiveMeta(String query, ClpTopNSpec.Ordering ordering)
     {
         ImmutableList.Builder<ArchiveMeta> archiveMetas = new ImmutableList.Builder<>();
-        List<JsonNode> rows = getQueryResult(pinotSqlQueryEndpointUrl, query);
-        for (JsonNode row : rows) {
+        List<Map<String, JsonNode>> results = getQueryResult(pinotSqlQueryEndpointUrl, query);
+        for (Map<String, JsonNode> row : results) {
+            JsonNode idNode = row.get("tpath");
+            JsonNode lowerNode = row.get("creationtime");
+            JsonNode upperNode = row.get("lastmodifiedtime");
+            JsonNode countNode = row.get("num_messages");
+
+            if (idNode == null || lowerNode == null || upperNode == null || countNode == null) {
+                log.warn("Pinot split metadata row missing expected columns: %s", row.keySet());
+                continue;
+            }
             archiveMetas.add(new ArchiveMeta(
-                    row.get(0).asText(),
-                    row.get(1).asLong(),
-                    row.get(2).asLong(),
-                    row.get(3).asLong()));
+                    idNode.asText(),
+                    lowerNode.asLong(),
+                    upperNode.asLong(),
+                    countNode.asLong()));
         }
         return archiveMetas.build();
     }
@@ -355,9 +467,17 @@ public class ClpPinotSplitProvider
      * @return the complete SQL query for selecting splits
      */
     @VisibleForTesting
-    protected String buildSplitSelectionQuery(String tableName, String filterSql)
+    protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
     {
-        return format(SQL_SELECT_SPLITS_TEMPLATE, tableName, filterSql);
+        Set<String> allProjections = new LinkedHashSet<>();
+        allProjections.addAll(requiredProjectionColumns);
+        allProjections.addAll(metadataProject);
+
+        String metadataColumns = allProjections.isEmpty()
+                ? ""
+                : String.join(", ", allProjections);
+
+        return format(SQL_SELECT_SPLITS_TEMPLATE, metadataColumns, tableName, filterSql);
     }
 
     /**
@@ -376,7 +496,17 @@ public class ClpPinotSplitProvider
         return format(SQL_SELECT_SPLIT_META_TEMPLATE, tableName, filterSql, orderByColumn, orderDirection);
     }
 
-    protected static List<JsonNode> getQueryResult(URL url, String sql)
+    /**
+     * Executes a SQL query against a Pinot database via HTTP POST and returns the results as a list of row maps.
+     *
+     * @param url the Pinot broker HTTP endpoint URL
+     * @param sql the SQL query string to execute
+     * @return a list where each element represents one row from the query results. Each row is a map that allows
+     *         looking up the column value of that row through the column name (e.g., map.get("columnName") returns
+     *         the value for that column for the row as a JsonNode). Returns an empty list if the query fails or
+     *         encounters an error.
+     */
+    protected static List<Map<String, JsonNode>> getQueryResult(URL url, String sql)
     {
         try {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -412,12 +542,37 @@ public class ClpPinotSplitProvider
             if (rows == null) {
                 throw new IllegalStateException("Pinot query response missing 'rows' field in resultTable");
             }
-            ImmutableList.Builder<JsonNode> resultBuilder = ImmutableList.builder();
+
+            JsonNode dataSchema = resultTable.get("dataSchema");
+            if (dataSchema == null) {
+                throw new IllegalStateException("Pinot query response missing 'dataSchema' field in resultTable");
+            }
+
+            JsonNode columnNamesNode = dataSchema.get("columnNames");
+            if (columnNamesNode == null) {
+                throw new IllegalStateException("Pinot query response missing 'columnNames' field in dataSchema");
+            }
+
+            ImmutableList.Builder<String> columnNamesBuilder = ImmutableList.builder();
+            for (Iterator<JsonNode> it = columnNamesNode.elements(); it.hasNext(); ) {
+                columnNamesBuilder.add(it.next().asText());
+            }
+            List<String> columnNames = columnNamesBuilder.build();
+
+            // Convert rows to maps using column names
+            ImmutableList.Builder<Map<String, JsonNode>> resultBuilder = ImmutableList.builder();
             for (Iterator<JsonNode> it = rows.elements(); it.hasNext(); ) {
                 JsonNode row = it.next();
-                resultBuilder.add(row);
+                ImmutableMap.Builder<String, JsonNode> rowBuilder = ImmutableMap.builder();
+
+                for (int i = 0; i < columnNames.size(); i++) {
+                    rowBuilder.put(columnNames.get(i), row.get(i));
+                }
+
+                resultBuilder.add(rowBuilder.build());
             }
-            List<JsonNode> results = resultBuilder.build();
+
+            List<Map<String, JsonNode>> results = resultBuilder.build();
             log.debug("Number of results: %s", results.size());
             return results;
         }

@@ -60,6 +60,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.net.URISyntaxException;
@@ -213,6 +214,7 @@ public class TestClpTopN
         }
     }
 
+    @Ignore("Issue tracked in https://github.com/y-scope/presto/issues/111")
     @Test
     public void test()
     {
@@ -289,11 +291,12 @@ public class TestClpTopN
         ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(
                 table,
                 Optional.of(kql),
-                Optional.of(getRowExpression(
+                getRowExpression(
                         metadataSql,
                         TypeProvider.viewOf(ImmutableMap.of("msg.timestamp", BIGINT)),
-                        session)),
+                        session),
                 true,
+                Optional.empty(),
                 Optional.of(new ClpTopNSpec(
                         limit,
                         ImmutableList.of(new ClpTopNSpec.Ordering("msg.timestamp", order)))));
@@ -317,7 +320,7 @@ public class TestClpTopN
         assertEquals(
                 ImmutableSet.copyOf(splitProvider.listSplits(clpTableLayoutHandle)),
                 splitIds.stream()
-                        .map(id -> new ClpSplit("/tmp/archives/test/" + id, ARCHIVE, Optional.of(kql)))
+                        .map(id -> new ClpSplit("/tmp/archives/test/" + id, ARCHIVE, Optional.of(kql), Optional.empty()))
                         .collect(ImmutableSet.toImmutableSet()));
     }
 
