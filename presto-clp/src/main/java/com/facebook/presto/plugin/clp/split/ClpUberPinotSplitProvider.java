@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp.split;
 
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -30,6 +31,7 @@ import javax.inject.Inject;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -116,8 +118,11 @@ public class ClpUberPinotSplitProvider
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
-
-            String splitQuery = buildSplitSelectionQuery(tableName, clpTableLayoutHandle.getSplitMetaColumnNames(), metadataFilterQuery.orElse("1 = 1"));
+            Map<String, Type> splitMetadataColumn = clpTableLayoutHandle.getSplitMetaColumnNames().orElse(new HashMap<>());
+            String splitQuery = buildSplitSelectionQuery(
+                    tableName,
+                    splitMetadataColumn.keySet(),
+                    metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
             for (JsonNode row : splitRows) {
                 String splitPath = row.elements().next().asText();

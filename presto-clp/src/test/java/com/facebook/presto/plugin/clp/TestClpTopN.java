@@ -294,6 +294,7 @@ public class TestClpTopN
                         TypeProvider.viewOf(ImmutableMap.of("msg.timestamp", BIGINT)),
                         session)),
                 true,
+                Optional.empty(),
                 Optional.of(new ClpTopNSpec(
                         limit,
                         ImmutableList.of(new ClpTopNSpec.Ordering("msg.timestamp", order)))));
@@ -317,7 +318,7 @@ public class TestClpTopN
         assertEquals(
                 ImmutableSet.copyOf(splitProvider.listSplits(clpTableLayoutHandle)),
                 splitIds.stream()
-                        .map(id -> new ClpSplit("/tmp/archives/test/" + id, ARCHIVE, Optional.of(kql)))
+                        .map(id -> new ClpSplit("/tmp/archives/test/" + id, ARCHIVE, Optional.of(kql), Optional.empty()))
                         .collect(ImmutableSet.toImmutableSet()));
     }
 

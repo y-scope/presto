@@ -40,6 +40,9 @@
       },
       "service": {
         "type": "VARCHAR"
+      },
+      "file_name": {
+        "type": "VARCHAR"
       }
     }
   },

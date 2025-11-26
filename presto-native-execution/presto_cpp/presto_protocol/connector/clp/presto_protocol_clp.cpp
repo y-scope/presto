@@ -270,7 +270,7 @@ void to_json(json& j, const ClpTableLayoutHandle& p) {
       "splitMetaColumnNames",
       p.splitMetaColumnNames,
       "ClpTableLayoutHandle",
-      "List<String>",
+      "Map<String, Type>",
       "splitMetaColumnNames");
   to_json_key(j, "topN", p.topN, "ClpTableLayoutHandle", "ClpTopNSpec", "topN");
 }
@@ -300,7 +300,7 @@ void from_json(const json& j, ClpTableLayoutHandle& p) {
       "splitMetaColumnNames",
       p.splitMetaColumnNames,
       "ClpTableLayoutHandle",
-      "List<String>",
+      "Map<String, Type>",
       "splitMetaColumnNames");
   from_json_key(
       j, "topN", p.topN, "ClpTableLayoutHandle", "ClpTopNSpec", "topN");

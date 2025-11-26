@@ -102,7 +102,7 @@ struct ClpTableLayoutHandle : public ConnectorTableLayoutHandle {
   std::shared_ptr<String> kqlQuery = {};
   std::shared_ptr<std::shared_ptr<RowExpression>> metadataExpression = {};
   bool metadataQueryOnly = {};
-  std::shared_ptr<List<String>> splitMetaColumnNames = {};
+  std::shared_ptr<Map<String, Type>> splitMetaColumnNames = {};
   std::shared_ptr<ClpTopNSpec> topN = {};
 
   ClpTableLayoutHandle() noexcept;

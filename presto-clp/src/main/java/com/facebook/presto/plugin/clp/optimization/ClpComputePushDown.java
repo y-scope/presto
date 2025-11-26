@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp.optimization;
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.type.RowType;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpMetadata;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -47,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -107,31 +109,34 @@ public class ClpComputePushDown
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
         {
-            log.debug("Visiting TableScan: " + node.getId()); // Debug
-
-            Set<String> projectColumns = new HashSet<>();
-            // extract project column from node.getOutputVariables
+            // Retrieve projection column names
+            Set<String> projectionColumns = new HashSet<>();
             for (VariableReferenceExpression variable : node.getOutputVariables()) {
-                projectColumns.add(variable.getName());
+                projectionColumns.add(variable.getName());
             }
 
+            // Retrieve metadata column
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
+            Map<String, Type> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName);
 
-            Set<String> intersection = new HashSet<>(projectColumns);
-            intersection.retainAll(metadataColumns);
+            // Metadata Projection: intersection between the projection column and metadata column
+            Map<String, Type> metadataProjection = new HashMap<>();
+            for (String columnName : projectionColumns) {
+                if (metadataColumns.containsKey(columnName)) {
+                    metadataProjection.put(columnName, metadataColumns.get(columnName));
+                }
+            }
 
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                    clpTableHandle, Optional.of(intersection));
-            ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
+                    clpTableHandle, Optional.of(metadataProjection));
             TableScanNode newScanNode = new TableScanNode(
                     node.getSourceLocation(),
                     idAllocator.getNextId(),
                     new TableHandle(
                             tableHandle.getConnectorId(),
-                            clpHandle,
+                            clpTableHandle,
                             tableHandle.getTransaction(),
                             Optional.of(layoutHandle)),
                     node.getOutputVariables(),

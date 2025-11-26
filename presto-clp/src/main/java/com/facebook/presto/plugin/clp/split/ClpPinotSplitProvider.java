@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -138,19 +139,32 @@ public class ClpPinotSplitProvider
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
-
-            String splitQuery = buildSplitSelectionQuery(tableName, clpTableLayoutHandle.getSplitMetaColumnNames(), metadataFilterQuery.orElse("1 = 1"));
+            Map<String, Type> splitMetadataColumn = clpTableLayoutHandle.getSplitMetaColumnNames().orElse(new HashMap<>());
+            String splitQuery = buildSplitSelectionQuery(
+                    tableName,
+                    splitMetadataColumn.keySet(),
+                    metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+
+            List<String> metadataColumnNames = new ArrayList<>(splitMetadataColumn.keySet());
             for (JsonNode row : splitRows) {
-                String splitPath = row.elements().next().asText();
-                Map<String, String> map = new HashMap<>();
-                if (row.get(1) != null) {
-                    String hostName = row.get(1).asText();
-                    // passing hostName as a set to ClpSplit
-                    map.put("hostname", hostName);
+                String splitPath = row.get(0).asText();
+                Map<String, String> metadataColumns = new HashMap<>();
+
+                // Start from index 1 for metadata columns
+                for (int i = 1; i < row.size(); i++) {
+                    JsonNode columnValue = row.get(i);
+                    if (columnValue != null && !columnValue.isNull()) {
+                        String columnName = metadataColumnNames.get(i - 1); // -1 because index 0 is splitPath
+                        metadataColumns.put(columnName, columnValue.asText());
+                    }
                 }
 
-                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.of(map)));
+                splits.add(new ClpSplit(
+                        splitPath,
+                        determineSplitType(splitPath),
+                        clpTableLayoutHandle.getKqlQuery(),
+                        Optional.of(metadataColumns)));
             }
 
             List<ClpSplit> filteredSplits = splits.build();
@@ -363,13 +377,13 @@ public class ClpPinotSplitProvider
      * @return the complete SQL query for selecting splits
      */
     @VisibleForTesting
-    protected String buildSplitSelectionQuery(String tableName, Optional<Set<String>> metadataProject, String filterSql)
+    protected String buildSplitSelectionQuery(String tableName, Set<String> metadataProject, String filterSql)
     {
-        String additionalColumns = metadataProject
-                .map(cols -> ", " + String.join(", ", cols))
-                .orElse("");
+        String metadataColumns = metadataProject.isEmpty()
+                ? ""
+                : ", " + String.join(", ", metadataProject);
 
-        return format(SQL_SELECT_SPLITS_TEMPLATE, additionalColumns, tableName, filterSql);
+        return format(SQL_SELECT_SPLITS_TEMPLATE, metadataColumns, tableName, filterSql);
     }
 
     /**
