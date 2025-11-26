@@ -21,7 +21,12 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.msgpack.core.MessageBufferPacker;
+import org.msgpack.core.MessagePack;
 
+import java.io.IOException;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,19 +41,38 @@ public class ClpSplit
     private final String path;
     private final SplitType type;
     private final Optional<String> kqlQuery;
-    private final Optional<Map<String, String>> projectionNameValue;
+    private final String projectionNameValueEncoded;
 
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
             @JsonProperty("type") SplitType type,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("projectionNameValue") Optional<Map<String, String>> projectionNameValue)
+            @JsonProperty("projectionNameValue") String projectionNameValueEncoded)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.type = requireNonNull(type, "Split type is null");
         this.kqlQuery = kqlQuery;
-        this.projectionNameValue = projectionNameValue;
+        this.projectionNameValueEncoded = projectionNameValueEncoded != null ? projectionNameValueEncoded : "";
+    }
+
+    public ClpSplit(
+            String path,
+            SplitType type,
+            Optional<String> kqlQuery,
+            Optional<Map<String, Object>> projectionNameValue)
+    {
+        this.path = requireNonNull(path, "Split path is null");
+        this.type = requireNonNull(type, "Split type is null");
+        this.kqlQuery = kqlQuery;
+
+        try {
+            this.projectionNameValueEncoded = encodeProjectionNameValue(
+                    projectionNameValue.orElse(new HashMap<>()));
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to encode projection name value", e);
+        }
     }
 
     @JsonProperty
@@ -69,10 +93,52 @@ public class ClpSplit
         return kqlQuery;
     }
 
-    @JsonProperty
-    public Optional<Map<String, String>> getProjectionNameValue()
+    @JsonProperty("projectionNameValue")
+    public String getProjectionNameValue()
     {
-        return projectionNameValue;
+        return projectionNameValueEncoded;
+    }
+
+    // Serialize projectionColumns to MessagePack, then Base64 encode for JSON transport
+    public String encodeProjectionNameValue(Map<String, Object> splitMetadataColumn) throws IOException
+    {
+        if (splitMetadataColumn.isEmpty()) {
+            return "";
+        }
+
+        MessageBufferPacker packer = MessagePack.newDefaultBufferPacker();
+
+        packer.packMapHeader(splitMetadataColumn.size());
+        for (Map.Entry<String, Object> entry : splitMetadataColumn.entrySet()) {
+            packer.packString(entry.getKey());
+
+            Object value = entry.getValue();
+            if (value instanceof String) {
+                packer.packString((String) value);
+            }
+            else if (value instanceof Integer) {
+                packer.packInt((Integer) value);
+            }
+            else if (value instanceof Long) {
+                packer.packLong((Long) value);
+            }
+            else if (value instanceof Double) {
+                packer.packDouble((Double) value);
+            }
+            else if (value instanceof Float) {
+                packer.packFloat((Float) value);
+            }
+            else {
+                throw new IllegalArgumentException(
+                        "Unsupported type for column " + entry.getKey() + ": " + value.getClass());
+            }
+        }
+
+        byte[] bytes = packer.toByteArray();
+        packer.close();
+
+        // Base64 encode for JSON transport
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     @Override

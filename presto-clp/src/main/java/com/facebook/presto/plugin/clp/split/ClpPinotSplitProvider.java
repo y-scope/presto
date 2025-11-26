@@ -149,14 +149,30 @@ public class ClpPinotSplitProvider
             List<String> metadataColumnNames = new ArrayList<>(splitMetadataColumn.keySet());
             for (JsonNode row : splitRows) {
                 String splitPath = row.get(0).asText();
-                Map<String, String> metadataColumns = new HashMap<>();
+                Map<String, Object> metadataColumns = new HashMap<>();  // Changed to Object
 
                 // Start from index 1 for metadata columns
                 for (int i = 1; i < row.size(); i++) {
                     JsonNode columnValue = row.get(i);
                     if (columnValue != null && !columnValue.isNull()) {
-                        String columnName = metadataColumnNames.get(i - 1); // -1 because index 0 is splitPath
-                        metadataColumns.put(columnName, columnValue.asText());
+                        String columnName = metadataColumnNames.get(i - 1);
+
+                        // Store with proper type
+                        if (columnValue.isTextual()) {
+                            metadataColumns.put(columnName, columnValue.asText());
+                        }
+                        else if (columnValue.isInt()) {
+                            metadataColumns.put(columnName, columnValue.asInt());
+                        }
+                        else if (columnValue.isLong()) {
+                            metadataColumns.put(columnName, columnValue.asLong());
+                        }
+                        else if (columnValue.isDouble()) {
+                            metadataColumns.put(columnName, columnValue.asDouble());
+                        }
+                        else if (columnValue.isFloat()) {
+                            metadataColumns.put(columnName, columnValue.floatValue());
+                        }
                     }
                 }
 

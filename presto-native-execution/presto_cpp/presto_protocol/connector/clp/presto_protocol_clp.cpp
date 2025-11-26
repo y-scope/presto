@@ -120,7 +120,7 @@ void to_json(json& j, const ClpSplit& p) {
       "projectionNameValue",
       p.projectionNameValue,
       "ClpSplit",
-      "Map<String, String>",
+      "String",
       "projectionNameValue");
 }
 
@@ -134,7 +134,7 @@ void from_json(const json& j, ClpSplit& p) {
       "projectionNameValue",
       p.projectionNameValue,
       "ClpSplit",
-      "Map<String, String>",
+      "String",
       "projectionNameValue");
 }
 } // namespace facebook::presto::protocol::clp

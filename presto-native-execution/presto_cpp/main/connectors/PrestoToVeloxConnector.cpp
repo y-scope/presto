@@ -12,6 +12,11 @@
  * limitations under the License.
  */
 
+#include <msgpack.hpp>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+#include <openssl/buffer.h>
+
 #include "presto_cpp/main/connectors/PrestoToVeloxConnector.h"
 #include "presto_cpp/main/types/PrestoToVeloxExpr.h"
 #include "presto_cpp/main/types/TypeParser.h"
@@ -1555,6 +1560,80 @@ TpchPrestoToVeloxConnector::createConnectorProtocol() const {
   return std::make_unique<protocol::tpch::TpchConnectorProtocol>();
 }
 
+using ColumnValue = std::variant<std::string, int64_t, double>;
+
+// Base64 decode helper
+std::vector<uint8_t> base64_decode(const std::string& encoded) {
+    BIO *bio, *b64;
+    int decodeLen = encoded.size();
+    std::vector<uint8_t> buffer(decodeLen);
+
+    bio = BIO_new_mem_buf(encoded.data(), -1);
+    b64 = BIO_new(BIO_f_base64());
+    bio = BIO_push(b64, bio);
+
+    BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
+    int length = BIO_read(bio, buffer.data(), decodeLen);
+    BIO_free_all(bio);
+
+    buffer.resize(length);
+    return buffer;
+}
+
+std::map<std::string, ColumnValue> deserializeProjectionMap(const std::string& base64EncodedMsgpack) {
+    std::map<std::string, ColumnValue> result;
+
+    if (base64EncodedMsgpack.empty()) {
+        return result;
+    }
+
+    try {
+        std::vector<uint8_t> msgpackData = base64_decode(base64EncodedMsgpack);
+
+        // Unpack MessagePack
+        msgpack::object_handle oh = msgpack::unpack(
+            reinterpret_cast<const char*>(msgpackData.data()),
+            msgpackData.size()
+        );
+
+        msgpack::object obj = oh.get();
+
+        if (obj.type != msgpack::type::MAP) {
+            throw std::runtime_error("Expected map type");
+        }
+
+        msgpack::object_map map = obj.via.map;
+
+        for (uint32_t i = 0; i < map.size; ++i) {
+            std::string key = map.ptr[i].key.as<std::string>();
+            msgpack::object& val = map.ptr[i].val;
+
+            switch (val.type) {
+                case msgpack::type::POSITIVE_INTEGER:
+                case msgpack::type::NEGATIVE_INTEGER:
+                    result[key] = val.as<int64_t>();
+                    break;
+
+                case msgpack::type::FLOAT32:
+                case msgpack::type::FLOAT64:
+                    result[key] = val.as<double>();
+                    break;
+
+                case msgpack::type::STR:
+                    result[key] = val.as<std::string>();
+                    break;
+
+                default:
+                    VELOX_FAIL("Unsupported MessagePack type for key: {}", key);
+            }
+        }
+    } catch (const std::exception& e) {
+        VELOX_FAIL("Failed to deserialize projectionNameValue: {}", e.what());
+    }
+
+    return result;
+}
+
 std::unique_ptr<velox::connector::ConnectorSplit>
 ClpPrestoToVeloxConnector::toVeloxSplit(
     const protocol::ConnectorId& catalogId,
@@ -1563,12 +1642,19 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
   auto clpSplit = dynamic_cast<const protocol::clp::ClpSplit*>(connectorSplit);
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
+
+  // Deserialize the MessagePack projection map
+  std::map<std::string, ColumnValue> projectionMap =
+    deserializeProjectionMap(clpSplit->projectionNameValue);
+  auto projectionMapPtr = std::make_shared<std::map<std::string, ColumnValue>>(
+      std::move(projectionMap));
+
   return std::make_unique<connector::clp::ClpConnectorSplit>(
       catalogId,
       clpSplit->path,
       static_cast<int>(clpSplit->type),
       clpSplit->kqlQuery,
-      clpSplit->projectionNameValue);
+      projectionMapPtr);  // Pass shared_ptr
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>

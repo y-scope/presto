@@ -58,7 +58,7 @@ struct ClpSplit : public ConnectorSplit {
   String path = {};
   SplitType type = {};
   std::shared_ptr<String> kqlQuery = {};
-  std::shared_ptr<Map<String, String>> projectionNameValue = {};
+  String projectionNameValue = {};
 
   ClpSplit() noexcept;
 };
