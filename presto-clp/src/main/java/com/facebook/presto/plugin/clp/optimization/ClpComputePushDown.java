@@ -124,6 +124,18 @@ public class ClpComputePushDown
             return processedNode;
         }
 
+        /**
+         * Rewrites a TableScanNode to attach metadata projection information to the table layout.
+         * <p>
+         * Identifies metadata columns in the projection, resolves their exposed names to original
+         * database column names, and embeds this information in a {@link ClpTableLayoutHandle}.
+         *
+         * @param node the original TableScanNode to rewrite
+         * @param context
+         * @return a new TableScanNode with metadata projection in the layout handle
+         * @throw PrestoException with {@link ClpErrorCode#CLP_UNSUPPORTED_METADATA_PROJECTION}
+         *        if a metadata column maps to an unsupported range-bound column
+         */
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
         {

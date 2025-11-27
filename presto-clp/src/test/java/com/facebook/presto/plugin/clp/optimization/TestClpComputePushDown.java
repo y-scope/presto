@@ -25,6 +25,7 @@ import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorId;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -48,10 +49,11 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
 
 @Test(singleThreaded = true)
 public class TestClpComputePushDown
@@ -110,14 +112,14 @@ public class TestClpComputePushDown
                 Optional.empty(), "fare", DOUBLE);
 
         // building projection columns that are pushed down to TableScanNode
-        // metadata projection
+        // metadata projections:
         ClpColumnHandle fileNameHandle =
                 new ClpColumnHandle("file_name", "file_name", fileNameString);
         ClpColumnHandle scoreHandle =
                 new ClpColumnHandle("score", "score", scoreDouble);
         ClpColumnHandle statusCodeHandle =
                 new ClpColumnHandle("status_code", "status_code", statusCodeInt);
-        // data projection
+        // data projection:
         ClpColumnHandle fareHandle = new ClpColumnHandle("fare", DOUBLE);
 
         TableHandle tableHandle = new TableHandle(
@@ -157,8 +159,68 @@ public class TestClpComputePushDown
                 exposedToOriginalMap.get("score"),
                 exposedToOriginalMap.get("status_code"));
         assertEquals(layout.getSplitMetaColumnNames().get(), expectedMetadataProjection);
+    }
 
-        // The original scan had no layout
-        assertFalse(originalScan.getTable().getLayout().isPresent());
+    @Test
+    public void testMetadataProjectionWithErrorHandling()
+    {
+        // Get a metadata column that has range bounds (should trigger the exception)
+        Set<String> metadataColumnsWithRangeBound =
+                metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
+        Map<String, String> exposedToOriginalMap =
+                metadataConfig.getExposedToOriginalMapping(schemaTableName);
+
+        // Find an exposed column name that maps to a range-bound original column
+        String rangeBoundExposedColumn = null;
+        Type rangeBoundColumnType = null;
+        for (Map.Entry<String, String> entry : exposedToOriginalMap.entrySet()) {
+            if (metadataColumnsWithRangeBound.contains(entry.getValue())) {
+                rangeBoundExposedColumn = entry.getKey();
+                rangeBoundColumnType = metadataConfig.getMetadataColumns(schemaTableName)
+                        .get(rangeBoundExposedColumn);
+                break;
+            }
+        }
+
+        VariableReferenceExpression rangeBoundVar = new VariableReferenceExpression(
+                Optional.empty(), rangeBoundExposedColumn, rangeBoundColumnType);
+
+        ClpColumnHandle rangeBoundHandle = new ClpColumnHandle(
+                rangeBoundExposedColumn, rangeBoundExposedColumn, rangeBoundColumnType);
+
+        TableHandle tableHandle = new TableHandle(
+                connectorId,
+                clpTableHandle,
+                ClpTransactionHandle.INSTANCE,
+                Optional.empty());
+
+        TableScanNode originalScan = new TableScanNode(
+                Optional.empty(),
+                idAllocator.getNextId(),
+                tableHandle,
+                ImmutableList.of(rangeBoundVar),
+                ImmutableMap.<VariableReferenceExpression, ColumnHandle>builder()
+                        .put(rangeBoundVar, rangeBoundHandle)
+                        .build(),
+                ImmutableList.of(),
+                TupleDomain.all(),
+                TupleDomain.all(),
+                Optional.empty());
+
+        // Verify that PrestoException is thrown with the correct error code and message
+        final String columnName = rangeBoundExposedColumn;
+        try {
+            optimizer.optimize(
+                    originalScan,
+                    new SessionHolder().getConnectorSession(),
+                    variableAllocator,
+                    idAllocator);
+            fail("Expected PrestoException to be thrown");
+        }
+        catch (PrestoException e) {
+            assertEquals(e.getErrorCode(), CLP_UNSUPPORTED_METADATA_PROJECTION.toErrorCode());
+            assertTrue(e.getMessage().contains(columnName),
+                    "Exception message should contain the column name: " + columnName);
+        }
     }
 }
