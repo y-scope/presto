@@ -16,7 +16,6 @@ package com.facebook.presto.plugin.clp.optimization;
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.type.RowType;
-import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpMetadata;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
@@ -27,6 +26,7 @@ import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -48,7 +48,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +55,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
@@ -103,7 +103,25 @@ public class ClpComputePushDown
                 return node;
             }
 
-            return processFilter(node, (TableScanNode) node.getSource());
+            PlanNode processedNode = processFilter(node, (TableScanNode) node.getSource());
+
+            if (processedNode instanceof TableScanNode) {
+                return context.rewrite(processedNode, null);
+            }
+
+            if (processedNode instanceof FilterNode) {
+                FilterNode filterNode = (FilterNode) processedNode;
+                if (filterNode.getSource() instanceof TableScanNode) {
+                    PlanNode rewrittenScan = context.rewrite(filterNode.getSource(), null);
+                    return new FilterNode(
+                            filterNode.getSourceLocation(),
+                            idAllocator.getNextId(),
+                            rewrittenScan,
+                            filterNode.getPredicate());
+                }
+            }
+
+            return processedNode;
         }
 
         @Override
@@ -119,19 +137,31 @@ public class ClpComputePushDown
             TableHandle tableHandle = node.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-            Map<String, Type> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName);
+            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
 
             // Metadata Projection: intersection between the projection column and metadata column
-            Map<String, Type> metadataProjection = new HashMap<>();
+            Set<String> metadataProjection = new HashSet<>();
             for (String columnName : projectionColumns) {
-                if (metadataColumns.containsKey(columnName)) {
-                    metadataProjection.put(columnName, metadataColumns.get(columnName));
+                if (metadataColumns.contains(columnName)) {
+                    Set<String> metadataColumnsWithRangeBound =
+                            metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
+                    Map<String, String> exposedToOriginalMap =
+                            metadataConfig.getExposedToOriginalMapping(schemaTableName);
+
+                    // resolve the exposed name to the original name in the metadata database
+                    // note, if the original name is a range bound mapping, we currently dont support
+                    String originalColumnName = exposedToOriginalMap.get(columnName);
+                    if (metadataColumnsWithRangeBound.contains(originalColumnName)) {
+                        throw new PrestoException(CLP_UNSUPPORTED_METADATA_PROJECTION,
+                                format("Unsupported metadata projection column: %s", columnName));
+                    }
+                    metadataProjection.add(originalColumnName);
                 }
             }
 
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                     clpTableHandle, Optional.of(metadataProjection));
-            TableScanNode newScanNode = new TableScanNode(
+            return new TableScanNode(
                     node.getSourceLocation(),
                     idAllocator.getNextId(),
                     new TableHandle(
@@ -145,8 +175,6 @@ public class ClpComputePushDown
                     node.getCurrentConstraint(),
                     node.getEnforcedConstraint(),
                     node.getCteMaterializationInfo());
-
-            return newScanNode;
         }
 
         @Override

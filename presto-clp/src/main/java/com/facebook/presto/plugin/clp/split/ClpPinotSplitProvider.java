@@ -41,13 +41,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_TYPE_NOT_COMPATIBLE_WITH_DATABASE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.IR;
@@ -87,6 +88,65 @@ public class ClpPinotSplitProvider
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
         this.metadataConfig = metadataConfig;
+    }
+
+    /**
+     * Extracts a typed value from a JsonNode based on the expected Presto Type.
+     */
+    private Object getTypedValue(JsonNode columnValue, String columnName, Type expectedType)
+    {
+        if (columnValue == null || columnValue.isNull()) {
+            return null;
+        }
+
+        String typeName = expectedType.getTypeSignature().getBase();
+
+        if (typeName.equals("varchar") && columnValue.isTextual()) {
+            return columnValue.asText();
+        }
+        if (typeName.equals("bigint") && (columnValue.isInt() || columnValue.isLong())) {
+            return columnValue.asLong();
+        }
+        if (typeName.equals("double") && columnValue.isNumber()) {
+            return columnValue.asDouble();
+        }
+
+        throw new PrestoException(CLP_SPLIT_METADATA_TYPE_NOT_COMPATIBLE_WITH_DATABASE,
+                format("Column '%s': incompatible type %s for value type %s",
+                        columnName, expectedType.getDisplayName(), columnValue.getNodeType()));
+    }
+
+    private Map<String, Object> extractMetadataColumns(
+            JsonNode row,
+            List<String> metadataColumnNames,
+            SchemaTableName schemaTableName)
+    {
+        Map<String, String> exposedToOriginalMapping =
+                metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        Map<String, String> originalToExposedMapping = new HashMap<>();
+        for (Map.Entry<String, String> entry : exposedToOriginalMapping.entrySet()) {
+            originalToExposedMapping.put(entry.getValue(), entry.getKey());
+        }
+        Map<String, Type> metadataColumnTypes = metadataConfig.getMetadataColumns(schemaTableName);
+        Map<String, Object> metadataColumns = new HashMap<>();
+
+        for (int i = 1; i < row.size(); i++) {
+            JsonNode columnValue = row.get(i);
+            if (columnValue == null || columnValue.isNull()) {
+                continue;
+            }
+
+            String originalColumnName = metadataColumnNames.get(i - 1);
+            String exposedColumnName = originalToExposedMapping.get(originalColumnName);
+            Type expectedType = metadataColumnTypes.get(exposedColumnName);
+
+            Object typedValue = getTypedValue(columnValue, exposedColumnName, expectedType);
+            if (typedValue != null) {
+                metadataColumns.put(exposedColumnName, typedValue);
+            }
+        }
+
+        return metadataColumns;
     }
 
     @Override
@@ -139,42 +199,17 @@ public class ClpPinotSplitProvider
                 log.debug("Number of topN filtered splits: %s", filteredSplits.size());
                 return filteredSplits;
             }
-            Map<String, Type> splitMetadataColumn = clpTableLayoutHandle.getSplitMetaColumnNames().orElse(new HashMap<>());
+            List<String> metadataColumnNames = new ArrayList<>(
+                    clpTableLayoutHandle.getSplitMetaColumnNames().orElse(new HashSet<>()));
             String splitQuery = buildSplitSelectionQuery(
                     tableName,
-                    splitMetadataColumn.keySet(),
+                    metadataColumnNames,
                     metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
 
-            List<String> metadataColumnNames = new ArrayList<>(splitMetadataColumn.keySet());
             for (JsonNode row : splitRows) {
                 String splitPath = row.get(0).asText();
-                Map<String, Object> metadataColumns = new HashMap<>();  // Changed to Object
-
-                // Start from index 1 for metadata columns
-                for (int i = 1; i < row.size(); i++) {
-                    JsonNode columnValue = row.get(i);
-                    if (columnValue != null && !columnValue.isNull()) {
-                        String columnName = metadataColumnNames.get(i - 1);
-
-                        // Store with proper type
-                        if (columnValue.isTextual()) {
-                            metadataColumns.put(columnName, columnValue.asText());
-                        }
-                        else if (columnValue.isInt()) {
-                            metadataColumns.put(columnName, columnValue.asInt());
-                        }
-                        else if (columnValue.isLong()) {
-                            metadataColumns.put(columnName, columnValue.asLong());
-                        }
-                        else if (columnValue.isDouble()) {
-                            metadataColumns.put(columnName, columnValue.asDouble());
-                        }
-                        else if (columnValue.isFloat()) {
-                            metadataColumns.put(columnName, columnValue.floatValue());
-                        }
-                    }
-                }
+                Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
 
                 splits.add(new ClpSplit(
                         splitPath,
@@ -393,7 +428,7 @@ public class ClpPinotSplitProvider
      * @return the complete SQL query for selecting splits
      */
     @VisibleForTesting
-    protected String buildSplitSelectionQuery(String tableName, Set<String> metadataProject, String filterSql)
+    protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
     {
         String metadataColumns = metadataProject.isEmpty()
                 ? ""

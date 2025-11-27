@@ -242,6 +242,24 @@ public class ClpSplitMetadataConfig
     }
 
     /**
+     * Returns the set of metadata column names that define range bounds for data columns.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a set of metadata column names that are used as range bounds
+     */
+    public Set<String> getMetadataColumnsWithRangeBounds(SchemaTableName name)
+    {
+        TableConfig cfg = getTableConfig(name);
+        Set<String> result = new LinkedHashSet<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null) {
+                result.add(c.name);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Merges and returns the effective {@link TableConfig} for the given table, taking into account
      * the hierarchical configuration structure: global → schema → table.
      *

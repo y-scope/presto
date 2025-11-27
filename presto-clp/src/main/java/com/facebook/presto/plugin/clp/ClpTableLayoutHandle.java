@@ -13,16 +13,15 @@
  */
 package com.facebook.presto.plugin.clp;
 
-import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 
@@ -33,7 +32,7 @@ public class ClpTableLayoutHandle
     private final Optional<String> kqlQuery;
     private final Optional<RowExpression> metadataExpression;
     private final boolean metadataQueryOnly;
-    private final Optional<Map<String, Type>> splitMetaColumnNames;
+    private final Optional<Set<String>> splitMetaColumnNames;
     private final Optional<ClpTopNSpec> topN;
 
     @JsonCreator
@@ -42,7 +41,7 @@ public class ClpTableLayoutHandle
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
             @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
-            @JsonProperty("splitMetaColumnNames") Optional<Map<String, Type>> splitMetaColumnNames,
+            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
     {
         this.table = table;
@@ -68,7 +67,7 @@ public class ClpTableLayoutHandle
 
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
-            @JsonProperty("splitMetaColumnNames") Optional<Map<String, Type>> splitMetaColumnNames)
+            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames)
     {
         this.table = table;
         this.kqlQuery = Optional.empty();
@@ -103,7 +102,7 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Optional<Map<String, Type>> getSplitMetaColumnNames()
+    public Optional<Set<String>> getSplitMetaColumnNames()
     {
         return splitMetaColumnNames;
     }

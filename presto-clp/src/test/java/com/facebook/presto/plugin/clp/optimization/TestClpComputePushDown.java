@@ -36,6 +36,7 @@ import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -44,6 +45,7 @@ import java.net.URL;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static org.testng.Assert.assertEquals;
@@ -149,12 +151,12 @@ public class TestClpComputePushDown
 
         ClpTableLayoutHandle layout = (ClpTableLayoutHandle) rewrittenScan.getTable().getLayout().get();
         assertTrue(layout.getSplitMetaColumnNames().isPresent(), "Metadata projection should be present");
-        assertEquals(
-                layout.getSplitMetaColumnNames().get(),
-                ImmutableMap.of(
-                        "file_name", fileNameString,
-                        "score", scoreDouble,
-                        "status_code", statusCodeInt));
+        Map<String, String> exposedToOriginalMap = metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        Set<String> expectedMetadataProjection = ImmutableSet.of(
+                exposedToOriginalMap.get("file_name"),
+                exposedToOriginalMap.get("score"),
+                exposedToOriginalMap.get("status_code"));
+        assertEquals(layout.getSplitMetaColumnNames().get(), expectedMetadataProjection);
 
         // The original scan had no layout
         assertFalse(originalScan.getTable().getLayout().isPresent());
