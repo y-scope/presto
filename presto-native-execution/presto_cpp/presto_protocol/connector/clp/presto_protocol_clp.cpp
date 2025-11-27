@@ -115,13 +115,6 @@ void to_json(json& j, const ClpSplit& p) {
   to_json_key(j, "path", p.path, "ClpSplit", "String", "path");
   to_json_key(j, "type", p.type, "ClpSplit", "SplitType", "type");
   to_json_key(j, "kqlQuery", p.kqlQuery, "ClpSplit", "String", "kqlQuery");
-  to_json_key(
-      j,
-      "projectionNameValue",
-      p.projectionNameValue,
-      "ClpSplit",
-      "String",
-      "projectionNameValue");
 }
 
 void from_json(const json& j, ClpSplit& p) {
@@ -129,13 +122,6 @@ void from_json(const json& j, ClpSplit& p) {
   from_json_key(j, "path", p.path, "ClpSplit", "String", "path");
   from_json_key(j, "type", p.type, "ClpSplit", "SplitType", "type");
   from_json_key(j, "kqlQuery", p.kqlQuery, "ClpSplit", "String", "kqlQuery");
-  from_json_key(
-      j,
-      "projectionNameValue",
-      p.projectionNameValue,
-      "ClpSplit",
-      "String",
-      "projectionNameValue");
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
@@ -171,75 +157,6 @@ void from_json(const json& j, ClpTableHandle& p) {
 }
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-// Loosely copied this here from NLOHMANN_JSON_SERIALIZE_ENUM()
-
-// NOLINTNEXTLINE: cppcoreguidelines-avoid-c-arrays
-static const std::pair<Order, json> Order_enum_table[] =
-    { // NOLINT: cert-err58-cpp
-        {Order::ASC, "ASC"},
-        {Order::DESC, "DESC"}};
-void to_json(json& j, const Order& e) {
-  static_assert(std::is_enum<Order>::value, "Order must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(Order_enum_table),
-      std::end(Order_enum_table),
-      [e](const std::pair<Order, json>& ej_pair) -> bool {
-        return ej_pair.first == e;
-      });
-  j = ((it != std::end(Order_enum_table)) ? it : std::begin(Order_enum_table))
-          ->second;
-}
-void from_json(const json& j, Order& e) {
-  static_assert(std::is_enum<Order>::value, "Order must be an enum!");
-  const auto* it = std::find_if(
-      std::begin(Order_enum_table),
-      std::end(Order_enum_table),
-      [&j](const std::pair<Order, json>& ej_pair) -> bool {
-        return ej_pair.second == j;
-      });
-  e = ((it != std::end(Order_enum_table)) ? it : std::begin(Order_enum_table))
-          ->first;
-}
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
-
-void to_json(json& j, const Ordering& p) {
-  j = json::object();
-  to_json_key(j, "columns", p.columns, "Ordering", "String", "columns");
-  to_json_key(j, "order", p.order, "Ordering", "Order", "order");
-}
-
-void from_json(const json& j, Ordering& p) {
-  from_json_key(j, "columns", p.columns, "Ordering", "String", "columns");
-  from_json_key(j, "order", p.order, "Ordering", "Order", "order");
-}
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
-
-void to_json(json& j, const ClpTopNSpec& p) {
-  j = json::object();
-  to_json_key(j, "limit", p.limit, "ClpTopNSpec", "int64_t", "limit");
-  to_json_key(
-      j,
-      "orderings",
-      p.orderings,
-      "ClpTopNSpec",
-      "List<Ordering>",
-      "orderings");
-}
-
-void from_json(const json& j, ClpTopNSpec& p) {
-  from_json_key(j, "limit", p.limit, "ClpTopNSpec", "int64_t", "limit");
-  from_json_key(
-      j,
-      "orderings",
-      p.orderings,
-      "ClpTopNSpec",
-      "List<Ordering>",
-      "orderings");
-}
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
 ClpTableLayoutHandle::ClpTableLayoutHandle() noexcept {
   _type = "clp";
 }
@@ -253,26 +170,11 @@ void to_json(json& j, const ClpTableLayoutHandle& p) {
       j, "kqlQuery", p.kqlQuery, "ClpTableLayoutHandle", "String", "kqlQuery");
   to_json_key(
       j,
-      "metadataExpression",
-      p.metadataExpression,
+      "metadataFilterQuery",
+      p.metadataFilterQuery,
       "ClpTableLayoutHandle",
-      "std::shared_ptr<RowExpression>",
-      "metadataExpression");
-  to_json_key(
-      j,
-      "metadataQueryOnly",
-      p.metadataQueryOnly,
-      "ClpTableLayoutHandle",
-      "bool",
-      "metadataQueryOnly");
-  to_json_key(
-      j,
-      "splitMetaColumnNames",
-      p.splitMetaColumnNames,
-      "ClpTableLayoutHandle",
-      "Map<String, Type>",
-      "splitMetaColumnNames");
-  to_json_key(j, "topN", p.topN, "ClpTableLayoutHandle", "ClpTopNSpec", "topN");
+      "String",
+      "metadataFilterQuery");
 }
 
 void from_json(const json& j, ClpTableLayoutHandle& p) {
@@ -283,26 +185,10 @@ void from_json(const json& j, ClpTableLayoutHandle& p) {
       j, "kqlQuery", p.kqlQuery, "ClpTableLayoutHandle", "String", "kqlQuery");
   from_json_key(
       j,
-      "metadataExpression",
-      p.metadataExpression,
+      "metadataFilterQuery",
+      p.metadataFilterQuery,
       "ClpTableLayoutHandle",
-      "std::shared_ptr<RowExpression>",
-      "metadataExpression");
-  from_json_key(
-      j,
-      "metadataQueryOnly",
-      p.metadataQueryOnly,
-      "ClpTableLayoutHandle",
-      "bool",
-      "metadataQueryOnly");
-  from_json_key(
-      j,
-      "splitMetaColumnNames",
-      p.splitMetaColumnNames,
-      "ClpTableLayoutHandle",
-      "Map<String, Type>",
-      "splitMetaColumnNames");
-  from_json_key(
-      j, "topN", p.topN, "ClpTableLayoutHandle", "ClpTopNSpec", "topN");
+      "String",
+      "metadataFilterQuery");
 }
 } // namespace facebook::presto::protocol::clp

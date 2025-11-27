@@ -58,7 +58,6 @@ struct ClpSplit : public ConnectorSplit {
   String path = {};
   SplitType type = {};
   std::shared_ptr<String> kqlQuery = {};
-  String projectionNameValue = {};
 
   ClpSplit() noexcept;
 };
@@ -76,34 +75,10 @@ void to_json(json& j, const ClpTableHandle& p);
 void from_json(const json& j, ClpTableHandle& p);
 } // namespace facebook::presto::protocol::clp
 namespace facebook::presto::protocol::clp {
-enum class Order { ASC, DESC };
-extern void to_json(json& j, const Order& e);
-extern void from_json(const json& j, Order& e);
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
-struct Ordering {
-  String columns = {};
-  Order order = {};
-};
-void to_json(json& j, const Ordering& p);
-void from_json(const json& j, Ordering& p);
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
-struct ClpTopNSpec {
-  int64_t limit = {};
-  List<Ordering> orderings = {};
-};
-void to_json(json& j, const ClpTopNSpec& p);
-void from_json(const json& j, ClpTopNSpec& p);
-} // namespace facebook::presto::protocol::clp
-namespace facebook::presto::protocol::clp {
 struct ClpTableLayoutHandle : public ConnectorTableLayoutHandle {
   ClpTableHandle table = {};
   std::shared_ptr<String> kqlQuery = {};
-  std::shared_ptr<std::shared_ptr<RowExpression>> metadataExpression = {};
-  bool metadataQueryOnly = {};
-  std::shared_ptr<Map<String, Type>> splitMetaColumnNames = {};
-  std::shared_ptr<ClpTopNSpec> topN = {};
+  std::shared_ptr<String> metadataFilterQuery = {};
 
   ClpTableLayoutHandle() noexcept;
 };
