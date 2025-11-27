@@ -23,6 +23,7 @@ import org.testng.annotations.Test;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -218,21 +219,22 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testInheritedSqlQueryMethods()
     {
-//        // Test buildSplitSelectionQuery (inherited from parent)
-//        String query = splitProvider.buildSplitSelectionQuery("rta.logging.logs", "status = 200");
-//        assertTrue(query.contains("rta.logging.logs"));
-//        assertTrue(query.contains("status = 200"));
-//        assertTrue(query.contains("SELECT"));
-//        assertTrue(query.contains("tpath"));
-//
-//        // Test buildSplitMetadataQuery (inherited from parent)
-//        String metaQuery = splitProvider.buildSplitMetadataQuery("rta.logging.events", "timestamp > 1000", "timestamp", "DESC");
-//        assertTrue(metaQuery.contains("rta.logging.events"));
-//        assertTrue(metaQuery.contains("timestamp > 1000"));
-//        assertTrue(metaQuery.contains("ORDER BY timestamp DESC"));
-//        assertTrue(metaQuery.contains("creationtime"));
-//        assertTrue(metaQuery.contains("lastmodifiedtime"));
-//        assertTrue(metaQuery.contains("num_messages"));
+        // Test buildSplitSelectionQuery (inherited from parent)
+        String query = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", new ArrayList<>(), "status = 200");
+        assertTrue(query.contains("rta.logging.logs"));
+        assertTrue(query.contains("status = 200"));
+        assertTrue(query.contains("SELECT"));
+        assertTrue(query.contains("tpath"));
+
+        // Test buildSplitMetadataQuery (inherited from parent)
+        String metaQuery = splitProvider.buildSplitMetadataQuery("rta.logging.events", "timestamp > 1000", "timestamp", "DESC");
+        assertTrue(metaQuery.contains("rta.logging.events"));
+        assertTrue(metaQuery.contains("timestamp > 1000"));
+        assertTrue(metaQuery.contains("ORDER BY timestamp DESC"));
+        assertTrue(metaQuery.contains("creationtime"));
+        assertTrue(metaQuery.contains("lastmodifiedtime"));
+        assertTrue(metaQuery.contains("num_messages"));
     }
 
     /**

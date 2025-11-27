@@ -98,12 +98,12 @@ public class TestClpComputePushDown
     public void testMetadataProjectionWithDataProjection()
     {
         Map<String, Type> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName);
-        Type fileNameString = metadataColumns.get("file_name");
+        Type hostnameString = metadataColumns.get("hostname");
         Type scoreDouble = metadataColumns.get("score");
         Type statusCodeInt = metadataColumns.get("status_code");
 
-        VariableReferenceExpression fileName = new VariableReferenceExpression(
-                Optional.empty(), "file_name", fileNameString);
+        VariableReferenceExpression hostname = new VariableReferenceExpression(
+                Optional.empty(), "hostname", hostnameString);
         VariableReferenceExpression score = new VariableReferenceExpression(
                 Optional.empty(), "score", scoreDouble);
         VariableReferenceExpression statusCode = new VariableReferenceExpression(
@@ -114,7 +114,7 @@ public class TestClpComputePushDown
         // building projection columns that are pushed down to TableScanNode
         // metadata projections:
         ClpColumnHandle fileNameHandle =
-                new ClpColumnHandle("file_name", "file_name", fileNameString);
+                new ClpColumnHandle("hostname", "hostname", hostnameString);
         ClpColumnHandle scoreHandle =
                 new ClpColumnHandle("score", "score", scoreDouble);
         ClpColumnHandle statusCodeHandle =
@@ -132,9 +132,9 @@ public class TestClpComputePushDown
                 Optional.empty(),
                 idAllocator.getNextId(),
                 tableHandle,
-                ImmutableList.of(fileName, score, statusCode, fare),
+                ImmutableList.of(hostname, score, statusCode, fare),
                 ImmutableMap.<VariableReferenceExpression, ColumnHandle>builder()
-                        .put(fileName, fileNameHandle)
+                        .put(hostname, fileNameHandle)
                         .put(score, scoreHandle)
                         .put(statusCode, statusCodeHandle)
                         .put(fare, fareHandle)
@@ -155,7 +155,7 @@ public class TestClpComputePushDown
         assertTrue(layout.getSplitMetaColumnNames().isPresent(), "Metadata projection should be present");
         Map<String, String> exposedToOriginalMap = metadataConfig.getExposedToOriginalMapping(schemaTableName);
         Set<String> expectedMetadataProjection = ImmutableSet.of(
-                exposedToOriginalMap.get("file_name"),
+                exposedToOriginalMap.get("hostname"),
                 exposedToOriginalMap.get("score"),
                 exposedToOriginalMap.get("status_code"));
         assertEquals(layout.getSplitMetaColumnNames().get(), expectedMetadataProjection);

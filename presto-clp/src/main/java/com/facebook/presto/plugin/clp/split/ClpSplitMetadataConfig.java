@@ -242,8 +242,6 @@ public class ClpSplitMetadataConfig
     }
 
     /**
-     * Returns the set of metadata column names that define range bounds for data columns.
-     *
      * @param name the {@link SchemaTableName} of the target table
      * @return a set of metadata column names that are used as range bounds
      */
@@ -252,7 +250,7 @@ public class ClpSplitMetadataConfig
         TableConfig cfg = getTableConfig(name);
         Set<String> result = new LinkedHashSet<>();
         for (MetaColumn c : cfg.metaColumns.values()) {
-            if (c.asRangeBoundOf != null) {
+            if (c.asRangeBoundOf != null || c.boundType != null) {
                 result.add(c.name);
             }
         }

@@ -109,18 +109,6 @@ public class ClpComputePushDown
                 return context.rewrite(processedNode, null);
             }
 
-            if (processedNode instanceof FilterNode) {
-                FilterNode filterNode = (FilterNode) processedNode;
-                if (filterNode.getSource() instanceof TableScanNode) {
-                    PlanNode rewrittenScan = context.rewrite(filterNode.getSource(), null);
-                    return new FilterNode(
-                            filterNode.getSourceLocation(),
-                            idAllocator.getNextId(),
-                            rewrittenScan,
-                            filterNode.getPredicate());
-                }
-            }
-
             return processedNode;
         }
 
@@ -133,8 +121,7 @@ public class ClpComputePushDown
          * @param node the original TableScanNode to rewrite
          * @param context
          * @return a new TableScanNode with metadata projection in the layout handle
-         * @throw PrestoException with {@link ClpErrorCode#CLP_UNSUPPORTED_METADATA_PROJECTION}
-         *        if a metadata column maps to an unsupported range-bound column
+         * @throw PrestoException if a metadata column maps to an unsupported range-bound column
          */
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
@@ -170,6 +157,8 @@ public class ClpComputePushDown
                     metadataProjection.add(originalColumnName);
                 }
             }
+
+            if (metadataProjection.isEmpty()) return node;
 
             ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                     clpTableHandle, Optional.of(metadataProjection));
