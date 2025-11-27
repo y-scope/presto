@@ -113,15 +113,12 @@ public class ClpComputePushDown
         }
 
         /**
-         * Rewrites a TableScanNode to attach metadata projection information to the table layout.
-         * <p>
-         * Identifies metadata columns in the projection, resolves their exposed names to original
-         * database column names, and embeds this information in a {@link ClpTableLayoutHandle}.
+         * Rewrites a TableScanNode to attach metadata projection column.
          *
-         * @param node the original TableScanNode to rewrite
+         * @param node the original TableScanNode to rewrite.
          * @param context
          * @return a new TableScanNode with metadata projection in the layout handle
-         * @throw PrestoException if a metadata column maps to an unsupported range-bound column
+         * @throw PrestoException if a metadata column maps to a range-bound column - this is an unsupported feature
          */
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
@@ -147,8 +144,9 @@ public class ClpComputePushDown
                     Map<String, String> exposedToOriginalMap =
                             metadataConfig.getExposedToOriginalMapping(schemaTableName);
 
-                    // resolve the exposed name to the original name in the metadata database
-                    // note, if the original name is a range bound mapping, we currently dont support
+                    // Resolve exposed column names to their original names in the metadata database.
+                    // After extracting values from the metadata database, these will be mapped back to exposed names
+                    // for projection.
                     String originalColumnName = exposedToOriginalMap.get(columnName);
                     if (metadataColumnsWithRangeBound.contains(originalColumnName)) {
                         throw new PrestoException(CLP_UNSUPPORTED_METADATA_PROJECTION,
@@ -158,10 +156,28 @@ public class ClpComputePushDown
                 }
             }
 
-            if (metadataProjection.isEmpty()) return node;
+            if (metadataProjection.isEmpty()) {
+                return node;
+            }
 
-            ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                    clpTableHandle, Optional.of(metadataProjection));
+            // TableScan optimization happens late in planning; preserve existing layout properties if any
+            ClpTableLayoutHandle newLayout;
+            Optional<ConnectorTableLayoutHandle> layout = tableHandle.getLayout();
+            if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
+                ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
+                newLayout = new ClpTableLayoutHandle(
+                        clpTableHandle,
+                        cl.getKqlQuery(),
+                        cl.getMetadataExpression(),
+                        cl.isMetadataQueryOnly(),
+                        Optional.of(metadataProjection),
+                        cl.getTopN());
+            }
+            else {
+                newLayout = new ClpTableLayoutHandle(
+                        clpTableHandle, Optional.of(metadataProjection));
+            }
+
             return new TableScanNode(
                     node.getSourceLocation(),
                     idAllocator.getNextId(),
@@ -169,7 +185,7 @@ public class ClpComputePushDown
                             tableHandle.getConnectorId(),
                             clpTableHandle,
                             tableHandle.getTransaction(),
-                            Optional.of(layoutHandle)),
+                            Optional.of(newLayout)),
                     node.getOutputVariables(),
                     node.getAssignments(),
                     node.getTableConstraints(),

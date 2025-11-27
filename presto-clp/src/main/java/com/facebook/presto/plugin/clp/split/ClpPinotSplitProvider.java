@@ -48,7 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_TYPE_NOT_COMPATIBLE_WITH_DATABASE;
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_SPLIT_METADATA_TYPE_MISMATCH_METADATA_DATABASE_TYPE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.IR;
@@ -91,9 +91,16 @@ public class ClpPinotSplitProvider
     }
 
     /**
-     * Extracts a typed value from a JsonNode based on the expected Presto Type.
+     * Extracts a typed value from a JsonNode read from the metadata database.
+     * Validates the JSON value against the expected Presto type specified by the user.
+     *
+     * @param columnValue the JSON node containing the value to be converted
+     * @param columnName the column name (used for error reporting)
+     * @param expectedType the expected Presto type for validation
+     * @return the typed value (String, Long, or Double), or null if the node is null
+     * @throws PrestoException if the JSON value type is incompatible with the expected Presto type
      */
-    private Object getTypedValue(JsonNode columnValue, String columnName, Type expectedType)
+    protected Object getTypedValue(JsonNode columnValue, String columnName, Type expectedType)
     {
         if (columnValue == null || columnValue.isNull()) {
             return null;
@@ -111,25 +118,37 @@ public class ClpPinotSplitProvider
             return columnValue.asDouble();
         }
 
-        throw new PrestoException(CLP_SPLIT_METADATA_TYPE_NOT_COMPATIBLE_WITH_DATABASE,
+        throw new PrestoException(CLP_SPLIT_METADATA_TYPE_MISMATCH_METADATA_DATABASE_TYPE,
                 format("Column '%s': incompatible type %s for value type %s",
                         columnName, expectedType.getDisplayName(), columnValue.getNodeType()));
     }
 
-    private Map<String, Object> extractMetadataColumns(
+    /**
+     * Extracts metadata column values from a JSON row and maps them to their exposed column names.
+     *
+     * @param row the JSON array representing a database row
+     * @param metadataColumnNames the original column names in the metadata database
+     * @param schemaTableName the schema and table name for looking up column mappings
+     * @return a map of exposed column names to their typed values
+     */
+    protected Map<String, Object> extractMetadataColumns(
             JsonNode row,
             List<String> metadataColumnNames,
             SchemaTableName schemaTableName)
     {
+        // Build reverse mapping: original column names -> exposed column names because the metadata value should
+        // attach to the exposed metadata column name.
         Map<String, String> exposedToOriginalMapping =
                 metadataConfig.getExposedToOriginalMapping(schemaTableName);
         Map<String, String> originalToExposedMapping = new HashMap<>();
         for (Map.Entry<String, String> entry : exposedToOriginalMapping.entrySet()) {
             originalToExposedMapping.put(entry.getValue(), entry.getKey());
         }
+
         Map<String, Type> metadataColumnTypes = metadataConfig.getMetadataColumns(schemaTableName);
         Map<String, Object> metadataColumns = new HashMap<>();
 
+        // Start from index 1 to skip the first column (assumed to be the split path)
         for (int i = 1; i < row.size(); i++) {
             JsonNode columnValue = row.get(i);
             if (columnValue == null || columnValue.isNull()) {
@@ -156,6 +175,7 @@ public class ClpPinotSplitProvider
         Optional<ClpTopNSpec> topNSpecOptional = clpTableLayoutHandle.getTopN();
         String tableName = inferMetadataTableName(clpTableHandle);
         Optional<String> metadataFilterQuery = Optional.empty();
+
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
         if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {

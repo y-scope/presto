@@ -127,13 +127,15 @@ public class ClpTableLayoutHandle
                 Objects.equals(kqlQuery, that.kqlQuery) &&
                 Objects.equals(metadataExpression, that.metadataExpression) &&
                 Objects.equals(metadataQueryOnly, that.metadataQueryOnly) &&
+                Objects.equals(splitMetaColumnNames, that.splitMetaColumnNames) &&
                 Objects.equals(topN, that.topN);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(table, kqlQuery, metadataExpression, metadataQueryOnly, topN);
+        return Objects.hash(
+                table, kqlQuery, metadataExpression, metadataQueryOnly, splitMetaColumnNames, topN);
     }
 
     @Override
@@ -144,6 +146,7 @@ public class ClpTableLayoutHandle
                 .add("kqlQuery", kqlQuery)
                 .add("metadataExpression", metadataExpression)
                 .add("metadataQueryOnly", metadataQueryOnly)
+                .add("splitMetaColumnNames", splitMetaColumnNames)
                 .add("topN", topN)
                 .toString();
     }

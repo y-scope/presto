@@ -125,9 +125,16 @@ public class ClpUberPinotSplitProvider
                     metadataColumnNames,
                     metadataFilterQuery.orElse("1 = 1"));
             List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+
             for (JsonNode row : splitRows) {
-                String splitPath = row.elements().next().asText();
-                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
+                String splitPath = row.get(0).asText();
+                Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
+
+                splits.add(new ClpSplit(
+                        splitPath,
+                        determineSplitType(splitPath),
+                        clpTableLayoutHandle.getKqlQuery(),
+                        Optional.of(metadataColumns)));
             }
 
             List<ClpSplit> filteredSplits = splits.build();

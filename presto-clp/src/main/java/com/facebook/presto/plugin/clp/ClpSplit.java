@@ -41,34 +41,52 @@ public class ClpSplit
     private final String path;
     private final SplitType type;
     private final Optional<String> kqlQuery;
-    private final String projectionNameValueEncoded;
+    private final String metadataProjectionNameValueEncoded;
 
+    /**
+     * Invoked by Jackson; deserializes a ClpSplit from JSON
+     *
+     * @param path the path to the split
+     * @param type the split type
+     * @param kqlQuery optional KQL query push down to CLP-S
+     * @param metadataProjectionNameValueEncoded Base64-encoded MessagePack representation of metadata projection in
+     *                                           column name and value pairs
+     */
     @JsonCreator
     public ClpSplit(
             @JsonProperty("path") String path,
             @JsonProperty("type") SplitType type,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("projectionNameValue") String projectionNameValueEncoded)
+            @JsonProperty("metadataProjectionNameValue") String metadataProjectionNameValueEncoded)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.type = requireNonNull(type, "Split type is null");
         this.kqlQuery = kqlQuery;
-        this.projectionNameValueEncoded = projectionNameValueEncoded != null ? projectionNameValueEncoded : "";
+        this.metadataProjectionNameValueEncoded = metadataProjectionNameValueEncoded != null ? metadataProjectionNameValueEncoded : "";
     }
 
+    /**
+     * Creates a ClpSplit for internal use
+     *
+     * @param path the path to the split
+     * @param type the split type
+     * @param kqlQuery optional KQL query push down to CLP-S
+     * @param metadataProjectionNameValue optional map of metadata projection column names to their values
+     * @throws RuntimeException if encoding projection name-value pairs fails
+     */
     public ClpSplit(
             String path,
             SplitType type,
             Optional<String> kqlQuery,
-            Optional<Map<String, Object>> projectionNameValue)
+            Optional<Map<String, Object>> metadataProjectionNameValue)
     {
         this.path = requireNonNull(path, "Split path is null");
         this.type = requireNonNull(type, "Split type is null");
         this.kqlQuery = kqlQuery;
 
         try {
-            this.projectionNameValueEncoded = encodeProjectionNameValue(
-                    projectionNameValue.orElse(new HashMap<>()));
+            this.metadataProjectionNameValueEncoded = encodeProjectionNameValue(
+                    metadataProjectionNameValue.orElse(new HashMap<>()));
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to encode projection name value", e);
@@ -93,40 +111,39 @@ public class ClpSplit
         return kqlQuery;
     }
 
-    @JsonProperty("projectionNameValue")
-    public String getProjectionNameValue()
+    @JsonProperty("metadataProjectionNameValue")
+    public String getmetadataProjectionNameValue()
     {
-        return projectionNameValueEncoded;
+        return metadataProjectionNameValueEncoded;
     }
 
-    // Serialize projectionColumns to MessagePack, then Base64 encode for JSON transport
-    public String encodeProjectionNameValue(Map<String, Object> splitMetadataColumn) throws IOException
+    /**
+     * @param splitMetadataColumnNameValue map of metadata column names to their values.
+     * @return Base64-encoded MessagePack representation of the map
+     * @throws IOException if MessagePack serialization fails
+     * @throws IllegalArgumentException if a value type is not String, Long, or Double
+     */
+    private String encodeProjectionNameValue(Map<String, Object> splitMetadataColumnNameValue) throws IOException
     {
-        if (splitMetadataColumn.isEmpty()) {
+        if (splitMetadataColumnNameValue.isEmpty()) {
             return "";
         }
 
         MessageBufferPacker packer = MessagePack.newDefaultBufferPacker();
 
-        packer.packMapHeader(splitMetadataColumn.size());
-        for (Map.Entry<String, Object> entry : splitMetadataColumn.entrySet()) {
+        packer.packMapHeader(splitMetadataColumnNameValue.size());
+        for (Map.Entry<String, Object> entry : splitMetadataColumnNameValue.entrySet()) {
             packer.packString(entry.getKey());
 
             Object value = entry.getValue();
             if (value instanceof String) {
                 packer.packString((String) value);
             }
-            else if (value instanceof Integer) {
-                packer.packInt((Integer) value);
-            }
             else if (value instanceof Long) {
                 packer.packLong((Long) value);
             }
             else if (value instanceof Double) {
                 packer.packDouble((Double) value);
-            }
-            else if (value instanceof Float) {
-                packer.packFloat((Float) value);
             }
             else {
                 throw new IllegalArgumentException(
@@ -137,7 +154,6 @@ public class ClpSplit
         byte[] bytes = packer.toByteArray();
         packer.close();
 
-        // Base64 encode for JSON transport
         return Base64.getEncoder().encodeToString(bytes);
     }
 
