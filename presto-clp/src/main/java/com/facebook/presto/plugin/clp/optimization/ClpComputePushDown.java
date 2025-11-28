@@ -136,14 +136,14 @@ public class ClpComputePushDown
             Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
 
             // Metadata Projection: intersection between the projection column and metadata column
+            Set<String> metadataColumnsWithRangeBound =
+                    metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
+            Map<String, String> exposedToOriginalMap =
+                    metadataConfig.getExposedToOriginalMapping(schemaTableName);
+
             Set<String> metadataProjections = new HashSet<>();
             for (String columnName : projectionColumns) {
                 if (metadataColumns.contains(columnName)) {
-                    Set<String> metadataColumnsWithRangeBound =
-                            metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
-                    Map<String, String> exposedToOriginalMap =
-                            metadataConfig.getExposedToOriginalMapping(schemaTableName);
-
                     // Resolve exposed column names to their original names in the metadata database.
                     // After extracting values from the metadata database, these will be mapped back to exposed names
                     // for projection.
