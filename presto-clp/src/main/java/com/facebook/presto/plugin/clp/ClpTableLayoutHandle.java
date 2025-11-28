@@ -35,7 +35,7 @@ public class ClpTableLayoutHandle
     private final boolean metadataQueryOnly;
     private final Optional<ClpTopNSpec> topN;
 
-    private Optional<Set<String>> splitMetadataColumnNames;
+    private final Optional<Set<String>> splitMetadataColumnNames;
 
     @JsonCreator
     public ClpTableLayoutHandle(
@@ -104,10 +104,16 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Set<String> getSplitMetadataColumnNames()
+    public Optional<Set<String>> getSplitMetadataColumnNames()
+    {
+        return splitMetadataColumnNames;
+    }
+
+    // Add a separate method without @JsonProperty for internal use
+    public Set<String> getSplitMetadataColumnNamesOrEmpty()
     {
         if (!splitMetadataColumnNames.isPresent()) {
-            splitMetadataColumnNames = Optional.of(new HashSet<>());
+            return new HashSet<>();
         }
         return splitMetadataColumnNames.get();
     }
@@ -131,7 +137,6 @@ public class ClpTableLayoutHandle
         return Objects.equals(table, that.table) &&
                 Objects.equals(kqlQuery, that.kqlQuery) &&
                 Objects.equals(metadataExpression, that.metadataExpression) &&
-                Objects.equals(metadataQueryOnly, that.metadataQueryOnly) &&
                 Objects.equals(splitMetadataColumnNames, that.splitMetadataColumnNames) &&
                 Objects.equals(topN, that.topN);
     }
@@ -140,7 +145,7 @@ public class ClpTableLayoutHandle
     public int hashCode()
     {
         return Objects.hash(
-                table, kqlQuery, metadataExpression, metadataQueryOnly, splitMetadataColumnNames, topN);
+                table, kqlQuery, metadataExpression, metadataQueryOnly, topN);
     }
 
     @Override
@@ -151,7 +156,6 @@ public class ClpTableLayoutHandle
                 .add("kqlQuery", kqlQuery)
                 .add("metadataExpression", metadataExpression)
                 .add("metadataQueryOnly", metadataQueryOnly)
-                .add("splitMetaColumnNames", splitMetadataColumnNames)
                 .add("topN", topN)
                 .toString();
     }

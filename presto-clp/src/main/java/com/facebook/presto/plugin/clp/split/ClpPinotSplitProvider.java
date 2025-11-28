@@ -226,7 +226,7 @@ public class ClpPinotSplitProvider
                 return filteredSplits;
             }
             List<String> metadataColumnNames = new ArrayList<>(
-                    clpTableLayoutHandle.getSplitMetadataColumnNames());
+                    clpTableLayoutHandle.getSplitMetadataColumnNamesOrEmpty());
             String splitQuery = buildSplitSelectionQuery(
                     tableName,
                     metadataColumnNames,
@@ -234,8 +234,8 @@ public class ClpPinotSplitProvider
             List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
-                JsonNode tpathNode  = row.get("tpath");
-                if (tpathNode  == null || tpathNode .isNull()) {
+                JsonNode tpathNode = row.get("tpath");
+                if (tpathNode == null || tpathNode .isNull()) {
                     throw new RuntimeException("Missing required 'tpath' field in split metadata row");
                 }
                 String splitPath = tpathNode.asText();
