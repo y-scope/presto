@@ -129,32 +129,28 @@ public class ClpSplit
             return "";
         }
 
-        MessageBufferPacker packer = MessagePack.newDefaultBufferPacker();
+        try (MessageBufferPacker packer = MessagePack.newDefaultBufferPacker()) {
+            packer.packMapHeader(metadataColumnNameValue.size());
+            for (Map.Entry<String, Object> entry : metadataColumnNameValue.entrySet()) {
+                packer.packString(entry.getKey());
 
-        packer.packMapHeader(metadataColumnNameValue.size());
-        for (Map.Entry<String, Object> entry : metadataColumnNameValue.entrySet()) {
-            packer.packString(entry.getKey());
-
-            Object value = entry.getValue();
-            if (value instanceof String) {
-                packer.packString((String) value);
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    packer.packString((String) value);
+                }
+                else if (value instanceof Long) {
+                    packer.packLong((Long) value);
+                }
+                else if (value instanceof Double) {
+                    packer.packDouble((Double) value);
+                }
+                else {
+                    throw new IllegalArgumentException(
+                            "Unsupported type for column " + entry.getKey() + ": " + value.getClass());
+                }
             }
-            else if (value instanceof Long) {
-                packer.packLong((Long) value);
-            }
-            else if (value instanceof Double) {
-                packer.packDouble((Double) value);
-            }
-            else {
-                throw new IllegalArgumentException(
-                        "Unsupported type for column " + entry.getKey() + ": " + value.getClass());
-            }
+            return Base64.getEncoder().encodeToString(packer.toByteArray());
         }
-
-        byte[] bytes = packer.toByteArray();
-        packer.close();
-
-        return Base64.getEncoder().encodeToString(bytes);
     }
 
     @Override
