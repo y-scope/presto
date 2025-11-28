@@ -144,6 +144,11 @@ public class TestClpPinotSplitProvider
         invokeExtractMetadataColumns(row, metadataColumnNames, schemaTableName);
     }
 
+    /**
+     * Reflectively invokes {@code ClpPinotSplitProvider.extractMetadataColumns} on the test instance,
+     * propagating any underlying {@link PrestoException} instead of wrapping it so tests can assert
+     * on the original failure type.
+     */
     private Map<String, Object> invokeExtractMetadataColumns(
             Map<String, JsonNode> row,
             List<String> metadataColumnNames,

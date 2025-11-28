@@ -112,7 +112,7 @@ public class ClpSplit
     }
 
     @JsonProperty("metadataProjectionNameValue")
-    public String getmetadataProjectionNameValue()
+    public String getMetadataProjectionNameValue()
     {
         return metadataProjectionNameValueEncoded;
     }

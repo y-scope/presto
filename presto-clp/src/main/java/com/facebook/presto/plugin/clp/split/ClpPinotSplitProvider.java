@@ -155,7 +155,7 @@ public class ClpPinotSplitProvider
         Map<String, Type> metadataColumnTypes = metadataConfig.getMetadataColumns(schemaTableName);
         Map<String, Object> metadataColumns = new HashMap<>();
 
-        // Start from index 1 to skip the first column (assumed to be the split path)
+        // Resolve values for metadata columns
         for (String metadataColumnName : metadataColumnNames) {
             JsonNode metadataColumnValue = row.get(metadataColumnName);
             if (metadataColumnValue == null || metadataColumnValue.isNull()) {
@@ -310,13 +310,20 @@ public class ClpPinotSplitProvider
         ImmutableList.Builder<ArchiveMeta> archiveMetas = new ImmutableList.Builder<>();
         List<Map<String, JsonNode>> results = getQueryResult(pinotSqlQueryEndpointUrl, query);
         for (Map<String, JsonNode> row : results) {
-            for (Map.Entry<String, JsonNode> entry : row.entrySet()) {
-                archiveMetas.add(new ArchiveMeta(
-                        entry.getValue().get(0).asText(),
-                        entry.getValue().get(1).asLong(),
-                        entry.getValue().get(2).asLong(),
-                        entry.getValue().get(3).asLong()));
+            JsonNode idNode = row.get("tpath");
+            JsonNode lowerNode = row.get("creationtime");
+            JsonNode upperNode = row.get("lastmodifiedtime");
+            JsonNode countNode = row.get("num_messages");
+
+            if (idNode == null || lowerNode == null || upperNode == null || countNode == null) {
+                log.warn("Pinot split metadata row missing expected columns: %s", row.keySet());
+                continue;
             }
+            archiveMetas.add(new ArchiveMeta(
+                    idNode.asText(),
+                    lowerNode.asLong(),
+                    upperNode.asLong(),
+                    countNode.asLong()));
         }
         return archiveMetas.build();
     }
