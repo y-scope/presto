@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -58,15 +59,25 @@ public class TestClpPinotSplitProvider
     private SchemaTableName schemaTableName;
     private ClpPinotSplitProvider splitProvider;
 
+    private AutoCloseable mocks;
+
     @BeforeMethod
     public void setUp()
     {
-        MockitoAnnotations.openMocks(this);
+        mocks = MockitoAnnotations.openMocks(this);
         schemaTableName = new SchemaTableName("test_schema", "test_table");
 
         when(config.getMetadataDbUrl()).thenReturn("http://localhost:8099");
 
         splitProvider = new ClpPinotSplitProvider(config, functionManager, functionResolution, metadataConfig);
+    }
+
+    @AfterMethod
+    public void tearDown() throws Exception
+    {
+        if (mocks != null) {
+            mocks.close();
+        }
     }
 
     /**
