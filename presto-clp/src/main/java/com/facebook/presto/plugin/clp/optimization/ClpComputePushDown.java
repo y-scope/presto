@@ -136,7 +136,7 @@ public class ClpComputePushDown
             Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
 
             // Metadata Projection: intersection between the projection column and metadata column
-            Set<String> metadataProjection = new HashSet<>();
+            Set<String> metadataProjections = new HashSet<>();
             for (String columnName : projectionColumns) {
                 if (metadataColumns.contains(columnName)) {
                     Set<String> metadataColumnsWithRangeBound =
@@ -152,32 +152,28 @@ public class ClpComputePushDown
                         throw new PrestoException(CLP_UNSUPPORTED_METADATA_PROJECTION,
                                 format("Unsupported metadata projection column: %s", columnName));
                     }
-                    metadataProjection.add(originalColumnName);
+                    metadataProjections.add(originalColumnName);
                 }
             }
 
-            if (metadataProjection.isEmpty()) {
+            if (metadataProjections.isEmpty()) {
                 return node;
             }
 
-            // TableScan optimization happens late in planning; preserve existing layout properties if any
-            ClpTableLayoutHandle newLayout;
+            // TableScan optimization happens late in planning; append to existing layout if present.
             Optional<ConnectorTableLayoutHandle> layout = tableHandle.getLayout();
             if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
                 ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
-                newLayout = new ClpTableLayoutHandle(
-                        clpTableHandle,
-                        cl.getKqlQuery(),
-                        cl.getMetadataExpression(),
-                        cl.isMetadataQueryOnly(),
-                        Optional.of(metadataProjection),
-                        cl.getTopN());
-            }
-            else {
-                newLayout = new ClpTableLayoutHandle(
-                        clpTableHandle, Optional.of(metadataProjection));
+                for (String metadataProjection : metadataProjections) {
+                    cl.getSplitMetadataColumnNames().add(metadataProjection);
+                }
+                return node;
             }
 
+            ClpTableLayoutHandle newLayout = new ClpTableLayoutHandle(
+                    clpTableHandle, Optional.of(metadataProjections));
+
+            // TableScanNode is immutable, we need to copy-on-write
             return new TableScanNode(
                     node.getSourceLocation(),
                     idAllocator.getNextId(),

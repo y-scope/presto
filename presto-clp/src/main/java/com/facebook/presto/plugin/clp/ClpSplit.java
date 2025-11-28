@@ -44,11 +44,11 @@ public class ClpSplit
     private final String metadataProjectionNameValueEncoded;
 
     /**
-     * Invoked by Jackson; deserializes a ClpSplit from JSON
+     * Invoked by Jackson; serializes a ClpSplit to JSON format
      *
      * @param path the path to the split
      * @param type the split type
-     * @param kqlQuery optional KQL query push down to CLP-S
+     * @param kqlQuery optional KQL query pushed down to CLP-S
      * @param metadataProjectionNameValueEncoded Base64-encoded MessagePack representation of metadata projection in
      *                                           column name and value pairs
      */
@@ -70,9 +70,9 @@ public class ClpSplit
      *
      * @param path the path to the split
      * @param type the split type
-     * @param kqlQuery optional KQL query push down to CLP-S
+     * @param kqlQuery optional KQL query pushed down to CLP-S
      * @param metadataProjectionNameValue optional map of metadata projection column names to their values
-     * @throws RuntimeException if encoding projection name-value pairs fails
+     * @throws RuntimeException if encoding metadata projection name-value pairs fails
      */
     public ClpSplit(
             String path,
@@ -118,21 +118,21 @@ public class ClpSplit
     }
 
     /**
-     * @param splitMetadataColumnNameValue map of metadata column names to their values.
-     * @return Base64-encoded MessagePack representation of the map
+     * @param metadataColumnNameValue map of metadata column names to their values.
+     * @return Base64-encoded MessagePack representation of the metadataColumnNameValue map
      * @throws IOException if MessagePack serialization fails
      * @throws IllegalArgumentException if a value type is not String, Long, or Double
      */
-    private String encodeProjectionNameValue(Map<String, Object> splitMetadataColumnNameValue) throws IOException
+    private String encodeProjectionNameValue(Map<String, Object> metadataColumnNameValue) throws IOException
     {
-        if (splitMetadataColumnNameValue.isEmpty()) {
+        if (metadataColumnNameValue.isEmpty()) {
             return "";
         }
 
         MessageBufferPacker packer = MessagePack.newDefaultBufferPacker();
 
-        packer.packMapHeader(splitMetadataColumnNameValue.size());
-        for (Map.Entry<String, Object> entry : splitMetadataColumnNameValue.entrySet()) {
+        packer.packMapHeader(metadataColumnNameValue.size());
+        for (Map.Entry<String, Object> entry : metadataColumnNameValue.entrySet()) {
             packer.packString(entry.getKey());
 
             Object value = entry.getValue();

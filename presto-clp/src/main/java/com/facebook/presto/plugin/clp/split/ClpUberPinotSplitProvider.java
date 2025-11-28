@@ -31,7 +31,6 @@ import javax.inject.Inject;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -119,15 +118,15 @@ public class ClpUberPinotSplitProvider
                 return filteredSplits;
             }
             List<String> metadataColumnNames = new ArrayList<>(
-                    clpTableLayoutHandle.getSplitMetaColumnNames().orElse(new HashSet<>()));
+                    clpTableLayoutHandle.getSplitMetadataColumnNames());
             String splitQuery = buildSplitSelectionQuery(
                     tableName,
                     metadataColumnNames,
                     metadataFilterQuery.orElse("1 = 1"));
-            List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+            List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
 
-            for (JsonNode row : splitRows) {
-                String splitPath = row.get(0).asText();
+            for (Map<String, JsonNode> row : splitRows) {
+                String splitPath = row.get("tpath").asText();
                 Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
 
                 splits.add(new ClpSplit(

@@ -19,6 +19,7 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -32,8 +33,9 @@ public class ClpTableLayoutHandle
     private final Optional<String> kqlQuery;
     private final Optional<RowExpression> metadataExpression;
     private final boolean metadataQueryOnly;
-    private final Optional<Set<String>> splitMetaColumnNames;
     private final Optional<ClpTopNSpec> topN;
+
+    private Optional<Set<String>> splitMetadataColumnNames;
 
     @JsonCreator
     public ClpTableLayoutHandle(
@@ -41,14 +43,14 @@ public class ClpTableLayoutHandle
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
             @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
-            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames,
+            @JsonProperty("splitMetadataColumnNames") Optional<Set<String>> splitMetadataColumnNames,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = metadataQueryOnly;
-        this.splitMetaColumnNames = splitMetaColumnNames;
+        this.splitMetadataColumnNames = splitMetadataColumnNames;
         this.topN = topN;
     }
 
@@ -61,19 +63,19 @@ public class ClpTableLayoutHandle
         this.kqlQuery = kqlQuery;
         this.metadataExpression = metadataExpression;
         this.metadataQueryOnly = false;
-        this.splitMetaColumnNames = Optional.empty();
+        this.splitMetadataColumnNames = Optional.empty();
         this.topN = Optional.empty();
     }
 
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
-            @JsonProperty("splitMetaColumnNames") Optional<Set<String>> splitMetaColumnNames)
+            @JsonProperty("splitMetadataColumnNames") Optional<Set<String>> splitMetadataColumnNames)
     {
         this.table = table;
         this.kqlQuery = Optional.empty();
         this.metadataExpression = Optional.empty();
         this.metadataQueryOnly = false;
-        this.splitMetaColumnNames = splitMetaColumnNames;
+        this.splitMetadataColumnNames = splitMetadataColumnNames;
         this.topN = Optional.empty();
     }
 
@@ -102,9 +104,12 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Optional<Set<String>> getSplitMetaColumnNames()
+    public Set<String> getSplitMetadataColumnNames()
     {
-        return splitMetaColumnNames;
+        if (!splitMetadataColumnNames.isPresent()) {
+            splitMetadataColumnNames = Optional.of(new HashSet<>());
+        }
+        return splitMetadataColumnNames.get();
     }
 
     @JsonProperty
@@ -127,7 +132,7 @@ public class ClpTableLayoutHandle
                 Objects.equals(kqlQuery, that.kqlQuery) &&
                 Objects.equals(metadataExpression, that.metadataExpression) &&
                 Objects.equals(metadataQueryOnly, that.metadataQueryOnly) &&
-                Objects.equals(splitMetaColumnNames, that.splitMetaColumnNames) &&
+                Objects.equals(splitMetadataColumnNames, that.splitMetadataColumnNames) &&
                 Objects.equals(topN, that.topN);
     }
 
@@ -135,7 +140,7 @@ public class ClpTableLayoutHandle
     public int hashCode()
     {
         return Objects.hash(
-                table, kqlQuery, metadataExpression, metadataQueryOnly, splitMetaColumnNames, topN);
+                table, kqlQuery, metadataExpression, metadataQueryOnly, splitMetadataColumnNames, topN);
     }
 
     @Override
@@ -146,7 +151,7 @@ public class ClpTableLayoutHandle
                 .add("kqlQuery", kqlQuery)
                 .add("metadataExpression", metadataExpression)
                 .add("metadataQueryOnly", metadataQueryOnly)
-                .add("splitMetaColumnNames", splitMetaColumnNames)
+                .add("splitMetaColumnNames", splitMetadataColumnNames)
                 .add("topN", topN)
                 .toString();
     }
