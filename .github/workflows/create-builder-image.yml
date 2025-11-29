@@ -17,10 +17,6 @@ name: create-builder-image
 on:
   workflow_call:
     inputs:
-      builder-tag:
-        description: 'Builder image tag (hash of dependencies)'
-        required: true
-        type: string
       builder-image:
         description: 'Full builder image URI with tag'
         required: true
@@ -37,7 +33,7 @@ jobs:
     # only one will run. The second will wait (cancel-in-progress: false means don't cancel).
     # This prevents duplicate builds of the same image.
     concurrency:
-      group: builder-image-${{ inputs.builder-tag }}
+      group: ${{ inputs.builder-image }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

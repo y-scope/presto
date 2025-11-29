@@ -12,9 +12,9 @@ name: ci
 # - prestissimo: Runtime name for prestocpp (Docker image and binary)
 #
 # Job Dependency Graph:
-#   compute-builder-tag ─► create-builder-image ─┬─► prestocpp ────┬─► integration-tests
-#                                                ├─► presto ───────┘
-#                                                └─► presto-tests
+#   config ─► create-builder-image ─┬─► prestocpp ────┬─► integration-tests
+#                                   ├─► presto ───────┘
+#                                   └─► presto-tests
 #
 # ==============================================================================
 # Key Design Decisions
@@ -36,7 +36,7 @@ name: ci
 #    providing a "latest" tag for development.
 #
 #    Solution: Every build gets two tags:
-#    - Immutable: <version>-<TYPE>-<timestamp>-<hash> (e.g., 0.293-BETA-20250522-abc123)
+#    - Immutable: <version>-<TYPE>-<timestamp>-<hash> (e.g., 0.293-BETA-20250522140509-abc123)
 #      Use for: Production deployments, reproducible environments
 #    - Mutable:  <version>-<TYPE>-SNAPSHOT (e.g., 0.293-BETA-SNAPSHOT)
 #      Use for: Always pulling latest without knowing exact version
@@ -47,6 +47,19 @@ name: ci
 #    -------------------------------------------------
 #    The unified-builder image tag is a hash of dependency files (setup scripts,
 #    pom.xml, etc.). Image is only rebuilt when dependencies change.
+#
+# 4. CENTRALIZED CONFIG JOB: Single source of truth
+#    -----------------------------------------------
+#    Problem: GitHub Actions doesn't allow `${{ env.* }}` in `with:` blocks when
+#    calling reusable workflows. Also, version tag computation was duplicated
+#    across presto-build.yml and prestocpp workflows.
+#
+#    Solution: A `config` job computes all shared configuration upfront:
+#    - builder-image: Hash-based tag for the builder image
+#    - runtime-version-tag: Immutable tag (e.g., 0.293-BETA-20250522140509-abc123)
+#    - runtime-snapshot-tag: Mutable tag (e.g., 0.293-BETA-SNAPSHOT)
+#
+#    All downstream jobs reference these outputs via `needs.config.outputs.*`.
 #
 # ==============================================================================
 # Comparison with Upstream (prestodb/presto)
@@ -126,13 +139,59 @@ concurrency:
 # ==============================================================================
 jobs:
   # ----------------------------------------------------------------------------
-  # Step 1: Compute Builder Image Tag
+  # Step 1: Config - Compute Builder Tag and Runtime Version Tags
   # ----------------------------------------------------------------------------
-  # Computes a hash of all dependency files to create a unique tag for the builder image.
-  # If dependencies haven't changed, we reuse the existing image (fast).
-  # If dependencies changed, we'll build a new image (slow, but rare).
-  compute-builder-tag:
-    uses: ./.github/workflows/compute-builder-tag.yml
+  # Centralizes all configuration computation:
+  # - builder-image: Hash-based tag for the builder image (only rebuilds when dependencies change)
+  # - runtime-version-tag: Immutable tag for runtime images (version-TYPE-timestamp-hash)
+  # - runtime-snapshot-tag: Mutable SNAPSHOT tag for runtime images (version-TYPE-SNAPSHOT)
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      builder-image: ${{ steps.builder.outputs.image }}
+      runtime-version-tag: ${{ steps.version.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ steps.version.outputs.runtime-snapshot-tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Initialize submodules (needed for velox scripts hash)
+        run: |
+          # Try shallow clone first (fast), fall back to full clone if pinned commit not in shallow history
+          git submodule update --init --recursive --depth=1 || \
+          git submodule update --init --recursive
+
+      - name: Compute builder image tag
+        id: builder
+        run: |
+          # Compute hash of files that affect the builder image:
+          # - Builder dockerfile itself
+          # - C++ setup scripts (native worker dependencies)
+          # - pom.xml files (Maven/Java dependencies)
+          # - download_nodejs script (Node.js/Yarn for frontend)
+          DOCKERFILE_HASH=$(sha256sum .github/dockerfiles/yscope-presto-builder.dockerfile | cut -c1-8)
+          SCRIPTS_HASH=$(find presto-native-execution/scripts presto-native-execution/velox/scripts -type f -exec sha256sum {} \; | sort | sha256sum | cut -c1-8)
+          POM_HASH=$(find . -name "pom.xml" -exec sha256sum {} \; | sort | sha256sum | cut -c1-8)
+          NODEJS_HASH=$(sha256sum .github/bin/download_nodejs | cut -c1-8)
+          TAG="${DOCKERFILE_HASH}-${SCRIPTS_HASH}-${POM_HASH}-${NODEJS_HASH}"
+          echo "image=ghcr.io/${{ github.repository }}/unified-builder:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Compute runtime version tags
+        id: version
+        run: |
+          # Extract base version from pom.xml (e.g., "0.293" from "0.293-SNAPSHOT")
+          BASE_VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>\(.*\)<\/version>.*/\1/' | sed 's/-SNAPSHOT//')
+
+          # Get commit timestamp for immutable tag
+          TIMESTAMP=$(git show -s --format=%cd --date=format:'%Y%m%d%H%M%S' HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+
+          # Output tags:
+          # - runtime-version-tag: e.g., 0.293-BETA-20250529140509-484b00e (immutable)
+          # - runtime-snapshot-tag: e.g., 0.293-BETA-SNAPSHOT (mutable, always latest)
+          echo "runtime-version-tag=${BASE_VERSION}-${{ env.IMAGE_VERSION_TYPE }}-${TIMESTAMP}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "runtime-snapshot-tag=${BASE_VERSION}-${{ env.IMAGE_VERSION_TYPE }}-SNAPSHOT" >> $GITHUB_OUTPUT
 
   # ----------------------------------------------------------------------------
   # Step 2: Create Builder Image (if needed)
@@ -140,11 +199,10 @@ jobs:
   # Checks if a builder image with this tag exists. If not, builds and pushes it.
   # The image contains all C++ and Java dependencies pre-installed.
   create-builder-image:
-    needs: compute-builder-tag  # Wait for tag computation to complete
+    needs: config
     uses: ./.github/workflows/create-builder-image.yml
     with:
-      builder-tag: ${{ needs.compute-builder-tag.outputs.builder-tag }}
-      builder-image: ${{ needs.compute-builder-tag.outputs.builder-image }}
+      builder-image: ${{ needs.config.outputs.builder-image }}
 
   # ----------------------------------------------------------------------------
   # Step 3a: Build Presto (Java)
@@ -155,7 +213,7 @@ jobs:
   # - Build and push the presto Docker image
   presto:
     name: presto${{ matrix.java-major }}
-    needs: [compute-builder-tag, create-builder-image]
+    needs: [config, create-builder-image]
     strategy:
       matrix:
         include:
@@ -165,11 +223,12 @@ jobs:
             java-version: '17.0.13'
     uses: ./.github/workflows/presto-build.yml
     with:
-      builder-image: ${{ needs.compute-builder-tag.outputs.builder-image }}
+      builder-image: ${{ needs.config.outputs.builder-image }}
       java-version: ${{ matrix.java-version }}
       should-upload-artifacts: ${{ matrix.java-major == (vars.ARTIFACT_JAVA_VERSION || '8') }}
       should-build-image: ${{ matrix.java-major == (vars.ARTIFACT_JAVA_VERSION || '8') }}
-      image-version-type: ${{ env.IMAGE_VERSION_TYPE }}
+      runtime-version-tag: ${{ needs.config.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ needs.config.outputs.runtime-snapshot-tag }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -179,10 +238,10 @@ jobs:
   # multiple test modules in parallel across Java 8 and Java 17.
   presto-tests:
     name: presto-tests
-    needs: [compute-builder-tag, create-builder-image]
+    needs: [config, create-builder-image]
     uses: ./.github/workflows/tests.yml
     with:
-      builder-image: ${{ needs.compute-builder-tag.outputs.builder-image }}
+      builder-image: ${{ needs.config.outputs.builder-image }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -194,11 +253,12 @@ jobs:
   # Uploads the compiled binary as an artifact for integration tests.
   prestocpp:
     name: prestocpp
-    needs: [compute-builder-tag, create-builder-image]
+    needs: [config, create-builder-image]
     uses: ./.github/workflows/prestocpp-linux-build-and-unit-test.yml
     with:
-      builder-image: ${{ needs.compute-builder-tag.outputs.builder-image }}
-      image-version-type: ${{ env.IMAGE_VERSION_TYPE }}
+      builder-image: ${{ needs.config.outputs.builder-image }}
+      runtime-version-tag: ${{ needs.config.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ needs.config.outputs.runtime-snapshot-tag }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -210,8 +270,8 @@ jobs:
   # - prestocpp: presto_server binary (C++ native worker)
   integration-tests:
     name: integration-tests
-    needs: [compute-builder-tag, create-builder-image, presto, prestocpp]
+    needs: [config, create-builder-image, presto, prestocpp]
     uses: ./.github/workflows/integration-tests.yml
     with:
-      builder-image: ${{ needs.compute-builder-tag.outputs.builder-image }}
+      builder-image: ${{ needs.config.outputs.builder-image }}
     secrets: inherit
