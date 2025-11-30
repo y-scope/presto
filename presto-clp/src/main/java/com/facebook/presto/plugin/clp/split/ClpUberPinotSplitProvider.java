@@ -118,7 +118,7 @@ public class ClpUberPinotSplitProvider
                 return filteredSplits;
             }
             List<String> metadataColumnNames = new ArrayList<>(
-                    clpTableLayoutHandle.getSplitMetadataColumnNamesOrEmpty());
+                    clpTableLayoutHandle.getOrInitializeSplitMetadataColumnNames());
             String splitQuery = buildSplitSelectionQuery(
                     tableName,
                     metadataColumnNames,

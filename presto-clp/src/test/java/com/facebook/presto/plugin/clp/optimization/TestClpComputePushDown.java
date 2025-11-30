@@ -160,7 +160,7 @@ public class TestClpComputePushDown
                 exposedToOriginalMap.get("hostname"),
                 exposedToOriginalMap.get("score"),
                 exposedToOriginalMap.get("status_code"));
-        assertEquals(layout.getSplitMetadataColumnNames(), expectedMetadataProjection);
+        assertEquals(layout.getOrInitializeSplitMetadataColumnNames(), expectedMetadataProjection);
     }
 
     /**
@@ -231,7 +231,7 @@ public class TestClpComputePushDown
                 exposedToOriginalMap.get("hostname"),
                 exposedToOriginalMap.get("score"),
                 exposedToOriginalMap.get("status_code"));
-        assertEquals(layout.getSplitMetadataColumnNames(), expectedMetadataProjection);
+        assertEquals(layout.getOrInitializeSplitMetadataColumnNames(), expectedMetadataProjection);
     }
 
     /**

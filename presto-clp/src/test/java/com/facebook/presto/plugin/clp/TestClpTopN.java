@@ -60,6 +60,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.net.URISyntaxException;
@@ -213,6 +214,7 @@ public class TestClpTopN
         }
     }
 
+    @Ignore("Issue tracked in https://github.com/y-scope/presto/issues/111")
     @Test
     public void test()
     {

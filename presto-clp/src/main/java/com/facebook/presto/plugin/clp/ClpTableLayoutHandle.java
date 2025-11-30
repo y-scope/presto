@@ -109,8 +109,7 @@ public class ClpTableLayoutHandle
         return splitMetadataColumnNames;
     }
 
-    // Add a separate method without @JsonProperty for internal use
-    public Set<String> getSplitMetadataColumnNamesOrEmpty()
+    public Set<String> getOrInitializeSplitMetadataColumnNames()
     {
         if (!splitMetadataColumnNames.isPresent()) {
             splitMetadataColumnNames = Optional.of(new HashSet<>());

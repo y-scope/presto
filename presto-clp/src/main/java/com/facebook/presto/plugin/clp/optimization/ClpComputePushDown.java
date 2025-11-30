@@ -165,7 +165,7 @@ public class ClpComputePushDown
             if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
                 ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
                 for (String metadataProjection : metadataProjections) {
-                    cl.getSplitMetadataColumnNamesOrEmpty().add(metadataProjection);
+                    cl.getOrInitializeSplitMetadataColumnNames().add(metadataProjection);
                 }
                 return node;
             }
