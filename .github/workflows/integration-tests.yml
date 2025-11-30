@@ -41,10 +41,22 @@ on:
 jobs:
   # Upstream: prestocpp-linux-presto-e2e-tests
   # Tests: TestPrestoNative*.java in presto-native-execution module
+  # Parallelized by test category for faster execution
   integration-e2e-java:
-    name: "integration-e2e-java"
+    name: "integration-e2e-java (${{ matrix.group }})"
     runs-on: self-hosted
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: iceberg
+            test-pattern: "TestPrestoNativeIceberg*"
+          - group: tpch-tpcds
+            test-pattern: "TestPrestoNativeTpc*"
+          - group: general
+            # All TestPrestoNative* except iceberg and tpch-tpcds
+            test-pattern: "TestPrestoNative*,!TestPrestoNativeIceberg*,!TestPrestoNativeTpc*"
     container:
       image: ${{ inputs.builder-image }}
       credentials:
@@ -167,17 +179,7 @@ jobs:
           fi
           echo "Found presto_server binary at: ${PRESTO_SERVER_PATH}"
 
-          export TESTFILES=`find ./presto-native-execution/src/test -type f -name 'TestPrestoNative*.java'`
-          # Convert file paths to comma separated class names
-          export TESTCLASSES=
-          for test_file in $TESTFILES
-          do
-            tmp=${test_file##*/}
-            test_class=${tmp%%\.*}
-            export TESTCLASSES="${TESTCLASSES},$test_class"
-          done
-          export TESTCLASSES=${TESTCLASSES#,}
-          echo "TESTCLASSES = $TESTCLASSES"
+          echo "Running test pattern: ${{ matrix.test-pattern }}"
 
           # Add presto-server JARs to classpath for tests
           export PRESTO_CLASSPATH="${PRESTO_SERVER_DIR}/plugin/*:${PRESTO_SERVER_DIR}/lib/*"
@@ -190,7 +192,7 @@ jobs:
             ${MAVEN_TEST} \
             -Dmaven.repo.local=${{ env.MAVEN_REPO }} \
             -pl 'presto-native-execution' \
-            -Dtest="${TESTCLASSES}" \
+            -Dtest="${{ matrix.test-pattern }}" \
             -DPRESTO_SERVER=${PRESTO_SERVER_PATH} \
             -DPRESTO_SERVER_DIR=${PRESTO_SERVER_DIR} \
             -DDATA_DIR=${RUNNER_TEMP} \

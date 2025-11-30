@@ -46,10 +46,15 @@ on:
         required: false
         default: true
         type: boolean
-      image-version-type:
-        description: 'Docker image version type (RELEASE, BETA, DEV)'
+      runtime-version-tag:
+        description: 'Immutable runtime image tag (e.g., 0.293-BETA-20250529140509-484b00e)'
         required: false
-        default: 'RELEASE'
+        default: ''
+        type: string
+      runtime-snapshot-tag:
+        description: 'Mutable SNAPSHOT tag (e.g., 0.293-BETA-SNAPSHOT)'
+        required: false
+        default: ''
         type: string
       should-build-image:
         description: 'Whether to build and push Docker image'
@@ -170,31 +175,12 @@ jobs:
           name: presto-cli
           path: ./docker
 
-      # Extract version info for Docker image tags
-      # We need both the base version (for build args) and full version (for tags)
-      - name: "Extract version and commit info"
+      # Extract base version from artifact filename (needed for Docker build args)
+      - name: "Extract base version"
         id: "extract-version"
         run: |
-          # Extract version from artifact filename (already built with version)
           VERSION=$(ls docker/presto-server-*.tar.gz | sed 's/.*presto-server-\(.*\)\.tar\.gz/\1/')
-
-          # Get short commit hash from GitHub context
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-
-          # Get commit timestamp - use head_commit.timestamp for push events,
-          # fall back to current time for pull_request events (where head_commit is not available)
-          if [ -n "${{ github.event.head_commit.timestamp }}" ]; then
-            TIMESTAMP=$(date -u -d "${{ github.event.head_commit.timestamp }}" +%Y%m%d%H%M%S)
-          else
-            TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
-          fi
-
-          # Output versions:
-          # - base-version: e.g., 0.293 (from artifact filename, used for Docker build args)
-          # - version: e.g., 0.293-RELEASE-20250522140509-484b00e
-          #   Format: <version>-<TYPE>-<timestamp>-<hash>
           echo "base-version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}-${{ inputs.image-version-type }}-${TIMESTAMP}-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       # Login to GitHub Container Registry (ghcr.io)
       # GITHUB_TOKEN is automatically provided by GitHub Actions
@@ -205,19 +191,18 @@ jobs:
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
 
-      # docker/metadata-action automatically generates Docker image tags and labels
-      # based on GitHub context (repo name, branch, etc.)
+      # docker/metadata-action generates Docker image tags and labels
       - name: "Set up container image metadata"
         id: "meta"
         uses: "docker/metadata-action@v5"
         with:
           images: "ghcr.io/${{github.repository}}/presto"
-          # Generate two tags:
-          # 1. Full version with timestamp and hash (immutable, for deployments)
-          # 2. SNAPSHOT tag (mutable, always points to latest build of this type)
+          # Two tags passed from config job:
+          # 1. runtime-version-tag: Immutable (e.g., 0.293-BETA-20250529140509-484b00e)
+          # 2. runtime-snapshot-tag: Mutable (e.g., 0.293-BETA-SNAPSHOT)
           tags: |
-            type=raw,value=${{steps.extract-version.outputs.version}}
-            type=raw,value=${{steps.extract-version.outputs.base-version}}-${{inputs.image-version-type}}-SNAPSHOT
+            type=raw,value=${{inputs.runtime-version-tag}}
+            type=raw,value=${{inputs.runtime-snapshot-tag}}
 
       # Build the Docker image and push to registry
       # Note: push is disabled for pull_request events (security: PRs shouldn't push images)
