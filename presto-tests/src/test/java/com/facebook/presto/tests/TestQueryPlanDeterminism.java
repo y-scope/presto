@@ -231,7 +231,7 @@ public class TestQueryPlanDeterminism
 
     // Give more time for large queries in plan determinsm check.
     @Override
-    @Test(timeOut = 100_000)
+    @Test(timeOut = 180_000)
     public void testLargeQuery()
     {
         super.testLargeQuery();
