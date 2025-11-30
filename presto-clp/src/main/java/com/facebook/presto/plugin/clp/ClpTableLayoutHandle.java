@@ -31,17 +31,17 @@ public class ClpTableLayoutHandle
 {
     private final ClpTableHandle table;
     private final Optional<String> kqlQuery;
-    private final Optional<RowExpression> metadataExpression;
+    private final RowExpression metadataExpression;
     private final boolean metadataQueryOnly;
     private final Optional<ClpTopNSpec> topN;
 
-    private final Optional<Set<String>> splitMetadataColumnNames;
+    private Optional<Set<String>> splitMetadataColumnNames;
 
     @JsonCreator
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression,
+            @JsonProperty("metadataExpression") RowExpression metadataExpression,
             @JsonProperty("metadataQueryOnly") boolean metadataQueryOnly,
             @JsonProperty("splitMetadataColumnNames") Optional<Set<String>> splitMetadataColumnNames,
             @JsonProperty("topN") Optional<ClpTopNSpec> topN)
@@ -57,7 +57,7 @@ public class ClpTableLayoutHandle
     public ClpTableLayoutHandle(
             @JsonProperty("table") ClpTableHandle table,
             @JsonProperty("kqlQuery") Optional<String> kqlQuery,
-            @JsonProperty("metadataExpression") Optional<RowExpression> metadataExpression)
+            @JsonProperty("metadataExpression") RowExpression metadataExpression)
     {
         this.table = table;
         this.kqlQuery = kqlQuery;
@@ -73,7 +73,7 @@ public class ClpTableLayoutHandle
     {
         this.table = table;
         this.kqlQuery = Optional.empty();
-        this.metadataExpression = Optional.empty();
+        this.metadataExpression = null;
         this.metadataQueryOnly = false;
         this.splitMetadataColumnNames = splitMetadataColumnNames;
         this.topN = Optional.empty();
@@ -92,7 +92,7 @@ public class ClpTableLayoutHandle
     }
 
     @JsonProperty
-    public Optional<RowExpression> getMetadataExpression()
+    public RowExpression getMetadataExpression()
     {
         return metadataExpression;
     }
@@ -113,7 +113,7 @@ public class ClpTableLayoutHandle
     public Set<String> getSplitMetadataColumnNamesOrEmpty()
     {
         if (!splitMetadataColumnNames.isPresent()) {
-            return new HashSet<>();
+            splitMetadataColumnNames = Optional.of(new HashSet<>());
         }
         return splitMetadataColumnNames.get();
     }

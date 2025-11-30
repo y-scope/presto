@@ -152,7 +152,7 @@ public class TestClpSplit
         ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
                 new ClpTableHandle(new SchemaTableName(DEFAULT_SCHEMA_NAME, tableName), tablePath),
                 Optional.empty(),
-                metadataSql.map(sql -> getRowExpression(sql, typeProvider, new SessionHolder())));
+                metadataSql.map(sql -> getRowExpression(sql, typeProvider, new SessionHolder())).orElse(null));
         List<String> expectedSplitPaths = expectedSplitIndexes.stream()
                 .map(expectedSplitIndex -> format("%s/%s", tablePath, entry.getValue().getIds().get(expectedSplitIndex)))
                 .collect(toImmutableList());

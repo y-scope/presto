@@ -193,7 +193,7 @@ public class TestClpComputePushDown
         ClpColumnHandle fareHandle = new ClpColumnHandle("fare", DOUBLE);
 
         ClpTableLayoutHandle existingLayout = new ClpTableLayoutHandle(
-                clpTableHandle, Optional.of("existing-kql"), Optional.empty());
+                clpTableHandle, Optional.of("existing-kql"), null);
 
         TableHandle tableHandle = new TableHandle(
                 connectorId,

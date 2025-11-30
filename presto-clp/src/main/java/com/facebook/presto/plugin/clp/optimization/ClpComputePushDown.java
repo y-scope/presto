@@ -229,7 +229,7 @@ public class ClpComputePushDown
                 ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
                 metadataOnly = cl.isMetadataQueryOnly();
                 kql = cl.getKqlQuery();
-                metadataSql = cl.getMetadataExpression();
+                metadataSql = Optional.ofNullable(cl.getMetadataExpression());
                 existingTopN = cl.getTopN();
                 clpTableHandle = cl.getTable();
             }
@@ -278,7 +278,7 @@ public class ClpComputePushDown
                 ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.getOrderings());
                 ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
                 ClpTableLayoutHandle newLayout =
-                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.empty(), Optional.of(tightened));
+                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(tightened));
 
                 TableScanNode newScan = new TableScanNode(
                         scan.getSourceLocation(),
@@ -314,7 +314,7 @@ public class ClpComputePushDown
             ClpTopNSpec spec = new ClpTopNSpec(node.getCount(), newOrderings);
             ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpTableLayoutHandle newLayout =
-                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql, true, Optional.empty(), Optional.of(spec));
+                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(spec));
 
             TableScanNode newScanNode = new TableScanNode(
                     scan.getSourceLocation(),
@@ -370,7 +370,7 @@ public class ClpComputePushDown
                 kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                        clpTableHandle, kqlQuery, metadataExpression, allInMetadata, Optional.empty(), Optional.empty());
+                        clpTableHandle, kqlQuery, metadataExpression.orElse(null), allInMetadata, Optional.empty(), Optional.empty());
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,

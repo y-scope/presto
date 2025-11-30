@@ -94,7 +94,7 @@ public class ClpMySqlSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+        if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpMySqlSplitMetadataExpressionConverter converter =
                     new ClpMySqlSplitMetadataExpressionConverter(
                             functionManager,
@@ -102,7 +102,7 @@ public class ClpMySqlSplitProvider
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             dataColumnRangeMapping,
                             metadataConfig.getRequiredColumns(schemaTableName));
-            String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression().get());
+            String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {

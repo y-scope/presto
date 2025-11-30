@@ -184,7 +184,7 @@ public class ClpPinotSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+        if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpPinotSplitMetadataExpressionConverter converter =
                     new ClpPinotSplitMetadataExpressionConverter(
                             functionManager,
@@ -192,7 +192,7 @@ public class ClpPinotSplitProvider
                             metadataConfig.getExposedToOriginalMapping(schemaTableName),
                             dataColumnRangeMapping,
                             metadataConfig.getRequiredColumns(schemaTableName));
-            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression().get()));
+            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression()));
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
             throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");

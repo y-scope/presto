@@ -289,10 +289,10 @@ public class TestClpTopN
         ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(
                 table,
                 Optional.of(kql),
-                Optional.of(getRowExpression(
+                getRowExpression(
                         metadataSql,
                         TypeProvider.viewOf(ImmutableMap.of("msg.timestamp", BIGINT)),
-                        session)),
+                        session),
                 true,
                 Optional.empty(),
                 Optional.of(new ClpTopNSpec(
