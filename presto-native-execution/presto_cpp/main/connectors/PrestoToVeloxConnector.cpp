@@ -1563,7 +1563,6 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
   auto clpSplit = dynamic_cast<const protocol::clp::ClpSplit*>(connectorSplit);
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
-
   return std::make_unique<connector::clp::ClpConnectorSplit>(
       catalogId,
       clpSplit->path,
