@@ -496,6 +496,16 @@ public class ClpPinotSplitProvider
         return format(SQL_SELECT_SPLIT_META_TEMPLATE, tableName, filterSql, orderByColumn, orderDirection);
     }
 
+    /**
+     * Executes a SQL query against a Pinot database via HTTP POST and returns the results as a list of row maps.
+     *
+     * @param url the Pinot broker HTTP endpoint URL
+     * @param sql the SQL query string to execute
+     * @return a list where each element represents one row from the query results. Each row is a map that allows
+     *         looking up the column value of that row through the column name (e.g., map.get("columnName") returns
+     *         the value for that column for the row as a JsonNode). Returns an empty list if the query fails or
+     *         encounters an error.
+     */
     protected static List<Map<String, JsonNode>> getQueryResult(URL url, String sql)
     {
         try {
