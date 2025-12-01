@@ -16,17 +16,28 @@ name: create-builder-image
 #
 # Fork PR Handling:
 # -----------------
-# Fork PRs have restricted permissions and cannot push to ghcr.io by default.
-# To handle this securely:
-# 1. check-builder-image: Fast job to check if image exists (no special permissions)
-# 2. build-builder-image: Only runs if image doesn't exist
-#    - For fork PRs: Requires manual approval via "builder-image" environment
-#    - For same-repo PRs/pushes: Runs automatically
+# Fork PRs cannot push to ghcr.io because GitHub restricts GITHUB_TOKEN to
+# read-only for fork PRs (security measure to prevent malicious forks from
+# pushing artifacts).
 #
-# Setup Required:
-# 1. Create GitHub Environment "builder-image" in repo settings
-# 2. Add required reviewers to that environment
-# 3. This ensures fork PRs that change dependencies get maintainer review
+# References:
+# - GitHub Docs - fork PRs use "GITHUB_TOKEN with read-only permission":
+#   https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository
+# - GitHub Docs - "typically you can't grant write access" to forks:
+#   https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
+# - Upstream prestodb/presto uses pinned dependency images built out-of-band:
+#   https://github.com/prestodb/presto/blob/master/presto-native-execution/scripts/dockerfiles/README.md
+#
+# When a fork PR requires a new builder image (dependencies changed):
+#
+# For y-scope members:
+#   Submit from a branch on y-scope/presto directly (not from a fork).
+#
+# For external contributors:
+#   1. Create a separate PR containing ONLY the dependency changes
+#   2. Ask a y-scope maintainer to review and merge that dependency-only PR
+#   3. Wait for the merge commit to build and push the new builder image
+#   4. Re-run CI on your original PR - it will now find the image and proceed
 
 on:
   workflow_call:
@@ -38,14 +49,13 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1: Check if builder image exists (fast, no approval needed)
+  # Check if builder image exists and handle fork PRs
   # ---------------------------------------------------------------------------
   check-builder-image:
     name: "check-builder-image"
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.check-image.outputs.exists }}
-      is-fork: ${{ steps.check-fork.outputs.is-fork }}
     steps:
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -66,38 +76,55 @@ jobs:
             echo "Builder image does not exist: $IMAGE_TAG"
           fi
 
-      - name: Check if PR is from fork
-        id: check-fork
+      # Fail early with clear instructions if fork PR needs a new builder image
+      - name: Fail if fork PR needs new builder image
+        if: steps.check-image.outputs.exists == 'false'
         run: |
-          # For pull_request events, check if head repo differs from base repo
-          # For push events, this is always false (same repo)
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
             BASE_REPO="${{ github.repository }}"
             if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
-              echo "is-fork=true" >> $GITHUB_OUTPUT
-              echo "PR is from fork: $HEAD_REPO"
-            else
-              echo "is-fork=false" >> $GITHUB_OUTPUT
-              echo "PR is from same repo"
+              echo "::error::Builder image does not exist and cannot be built from fork PRs."
+              echo ""
+              echo "========================================================================"
+              echo "FORK PR: New builder image required"
+              echo "========================================================================"
+              echo ""
+              echo "This PR requires a new builder image that does not exist:"
+              echo "  ${{ inputs.builder-image }}"
+              echo ""
+              echo "Fork PRs cannot push to ghcr.io (GITHUB_TOKEN is read-only for forks)."
+              echo ""
+              echo "HOW TO RESOLVE:"
+              echo ""
+              echo "  For y-scope members:"
+              echo "    Submit from a branch on y-scope/presto directly (not from a fork)."
+              echo ""
+              echo "  For external contributors:"
+              echo "    1. Create a separate PR containing ONLY the dependency changes"
+              echo "    2. Ask a y-scope maintainer to review and merge that PR"
+              echo "    3. Wait for the merge to build the new builder image (~1 hour)"
+              echo "    4. Re-run CI on your original PR - it will now find the image"
+              echo ""
+              echo "REFERENCES:"
+              echo "  - GitHub Docs on fork PR permissions:"
+              echo "    https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs"
+              echo "  - Upstream prestodb/presto uses the same approach:"
+              echo "    https://github.com/prestodb/presto/blob/master/presto-native-execution/scripts/dockerfiles/README.md"
+              echo ""
+              echo "========================================================================"
+              exit 1
             fi
-          else
-            echo "is-fork=false" >> $GITHUB_OUTPUT
-            echo "Not a pull_request event"
           fi
+          echo "Not a fork PR, proceeding to build image..."
 
   # ---------------------------------------------------------------------------
-  # Job 2: Build and push builder image (only if doesn't exist)
+  # Build and push builder image (only for same-repo PRs/pushes when needed)
   # ---------------------------------------------------------------------------
   build-builder-image:
     name: "build-builder-image"
     needs: check-builder-image
-    # Only run if image doesn't exist
     if: needs.check-builder-image.outputs.exists == 'false'
-    # For fork PRs, require approval via "builder-image" environment
-    # For same-repo, no environment (runs automatically)
-    # NOTE: Create "builder-image" environment in GitHub repo settings with required reviewers
-    environment: ${{ needs.check-builder-image.outputs.is-fork == 'true' && 'builder-image' || '' }}
     runs-on: [self-hosted, cores=32]
     timeout-minutes: 180
     # Concurrency control: prevent duplicate builds of the same image
