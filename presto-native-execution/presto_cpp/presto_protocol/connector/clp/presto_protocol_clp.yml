@@ -32,8 +32,13 @@ AbstractClasses:
     subclasses:
       - { name: ClpSplit,            key: clp }
 
+UpdateFields:
+  ClpTableLayoutHandle:
+    std::shared_ptr<RowExpression>: metadataExpression
+
 JavaClasses:
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpColumnHandle.java
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpTableHandle.java
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpTableLayoutHandle.java
   - presto-clp/src/main/java/com/facebook/presto/plugin/clp/ClpSplit.java
+  - presto-clp/src/main/java/com/facebook/presto/plugin/clp/optimization/ClpTopNSpec.java

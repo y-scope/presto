@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+#include <msgpack.hpp>
+
 #include "presto_cpp/main/connectors/PrestoToVeloxConnector.h"
 #include "presto_cpp/main/types/PrestoToVeloxExpr.h"
 #include "presto_cpp/main/types/TypeParser.h"
@@ -32,6 +34,7 @@
 #include "velox/connectors/hive/iceberg/IcebergSplit.h"
 #include "velox/connectors/tpch/TpchConnector.h"
 #include "velox/connectors/tpch/TpchConnectorSplit.h"
+#include "velox/common/encode/Base64.h"
 #include "velox/type/Filter.h"
 
 namespace facebook::presto {
@@ -1555,6 +1558,67 @@ TpchPrestoToVeloxConnector::createConnectorProtocol() const {
   return std::make_unique<protocol::tpch::TpchConnectorProtocol>();
 }
 
+namespace {
+
+using ColumnValue = std::variant<std::string, int64_t, double>;
+
+std::map<std::string, ColumnValue> deserializeProjectionMap(
+    const std::string& base64EncodedMsgpack) {
+  std::map<std::string, ColumnValue> result;
+  if (base64EncodedMsgpack.empty()) {
+    return result;
+  }
+
+  std::string msgpackData;
+  try {
+    msgpackData = velox::encoding::Base64::decode(base64EncodedMsgpack);
+  } catch (const std::exception& e) {
+    VELOX_FAIL("Failed to decode projectionNameValue: {}", e.what());
+  }
+
+  msgpack::object_handle oh;
+  try {
+    oh = msgpack::unpack(msgpackData.data(), msgpackData.size());
+  } catch (const std::exception& e) {
+    VELOX_FAIL("Failed to unpack projectionNameValue: {}", e.what());
+  }
+
+  auto obj = oh.get();
+  VELOX_CHECK(
+      obj.type == msgpack::type::MAP,
+      "Expected map for projectionNameValue, found {}",
+      static_cast<int>(obj.type));
+
+  auto map = obj.via.map;
+  for (uint32_t i = 0; i < map.size; ++i) {
+    auto key = map.ptr[i].key.as<std::string>();
+    auto& val = map.ptr[i].val;
+
+    switch (val.type) {
+      case msgpack::type::POSITIVE_INTEGER:
+      case msgpack::type::NEGATIVE_INTEGER:
+        result.emplace(std::move(key), val.as<int64_t>());
+        break;
+      case msgpack::type::FLOAT32:
+      case msgpack::type::FLOAT64:
+        result.emplace(std::move(key), val.as<double>());
+        break;
+      case msgpack::type::STR:
+        result.emplace(std::move(key), val.as<std::string>());
+        break;
+      default:
+        VELOX_FAIL(
+            "Unsupported MessagePack type {} for projection key {}",
+            static_cast<int>(val.type),
+            key);
+    }
+  }
+
+  return result;
+}
+
+} // namespace
+
 std::unique_ptr<velox::connector::ConnectorSplit>
 ClpPrestoToVeloxConnector::toVeloxSplit(
     const protocol::ConnectorId& catalogId,
@@ -1563,11 +1627,19 @@ ClpPrestoToVeloxConnector::toVeloxSplit(
   auto clpSplit = dynamic_cast<const protocol::clp::ClpSplit*>(connectorSplit);
   VELOX_CHECK_NOT_NULL(
       clpSplit, "Unexpected split type {}", connectorSplit->_type);
+
+  auto projectionMap =
+      deserializeProjectionMap(clpSplit->metadataProjectionNameValue);
+  auto projectionMapPtr =
+      std::make_shared<std::map<std::string, ColumnValue>>(
+          std::move(projectionMap));
+
   return std::make_unique<connector::clp::ClpConnectorSplit>(
       catalogId,
       clpSplit->path,
       static_cast<int>(clpSplit->type),
-      clpSplit->kqlQuery);
+      clpSplit->kqlQuery,
+      projectionMapPtr);
 }
 
 std::unique_ptr<velox::connector::ColumnHandle>
