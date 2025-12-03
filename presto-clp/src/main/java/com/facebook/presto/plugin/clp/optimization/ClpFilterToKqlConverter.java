@@ -329,7 +329,6 @@ public class ClpFilterToKqlConverter
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
             kql = String.format(kqlPredicate, variable, lowerBound, variable, upperBound);
-
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
