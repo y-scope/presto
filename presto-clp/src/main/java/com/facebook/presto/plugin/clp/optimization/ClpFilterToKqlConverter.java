@@ -111,6 +111,9 @@ public class ClpFilterToKqlConverter
     private static final Set<OperatorType> LOGICAL_BINARY_OPS_FILTER =
             ImmutableSet.of(EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL);
 
+    private static final String KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT = "%s >= %s AND %s <= %s";
+    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= '%s' AND %s <= '%s'";
+
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
@@ -322,12 +325,11 @@ public class ClpFilterToKqlConverter
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
             String upperBound = getLiteralString((ConstantExpression) upper);
-            if (isClpCompatibleNumericType(lhs.getType())) {
-                kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
-            }
-            else {
-                kql = String.format("%s >= '%s' AND %s <= '%s'", variable, lowerBound, variable, upperBound);
-            }
+            String kqlPredicate = isClpCompatibleNumericType(lhs.getType()) ?
+                    KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
+                    KQL_BETWEEN_PREDICATE_STRING_FORMAT;
+            kql = String.format(kqlPredicate, variable, lowerBound, variable, upperBound);
+
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
