@@ -324,7 +324,8 @@ public class ClpFilterToKqlConverter
             String upperBound = getLiteralString((ConstantExpression) upper);
             if (isClpCompatibleNumericType(lower.getType())) {
                 kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
-            } else {
+            }
+            else {
                 kql = String.format("%s >= '%s' AND %s <= '%s'", variable, lowerBound, variable, upperBound);
             }
         }
