@@ -279,22 +279,6 @@ public class ClpFilterToKqlConverter
         String variable = variableOpt.get();
         boolean isMetadataColumn = metadataFilterColumns.contains(variable);
 
-        // Type validation
-        boolean numericCompatible =
-                isClpCompatibleNumericType(lhs.getType())
-                        && isClpCompatibleNumericType(lower.getType())
-                        && isClpCompatibleNumericType(upper.getType());
-
-        if (!numericCompatible) {
-            if (isMetadataColumn) {
-                throw new PrestoException(
-                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                        "Metadata BETWEEN requires numeric-compatible types. Received: " + node);
-            }
-            // Non-metadata columns just fallback (cannot push down)
-            return new ClpExpression(node);
-        }
-
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
                 (!(lower instanceof ConstantExpression) || !(upper instanceof ConstantExpression))) {
@@ -338,7 +322,11 @@ public class ClpFilterToKqlConverter
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
             String upperBound = getLiteralString((ConstantExpression) upper);
-            kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+            if (isClpCompatibleNumericType(lower.getType())) {
+                kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+            } else {
+                kql = String.format("%s >= '%s' AND %s <= '%s'", variable, lowerBound, variable, upperBound);
+            }
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
@@ -1048,10 +1036,8 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Checks if the type is one of the numeric types that can be pushed down to CLP.
-     *
      * @param type the type to check
-     * @return whether the type can be pushed down.
+     * @return whether the type is one of the numeric types compatible with CLP.
      */
     public static boolean isClpCompatibleNumericType(Type type)
     {
