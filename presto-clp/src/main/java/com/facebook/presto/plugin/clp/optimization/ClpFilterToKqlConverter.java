@@ -322,7 +322,7 @@ public class ClpFilterToKqlConverter
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
             String upperBound = getLiteralString((ConstantExpression) upper);
-            if (isClpCompatibleNumericType(lower.getType())) {
+            if (isClpCompatibleNumericType(lhs.getType())) {
                 kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
             }
             else {
