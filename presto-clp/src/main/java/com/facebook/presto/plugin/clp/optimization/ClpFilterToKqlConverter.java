@@ -324,11 +324,13 @@ public class ClpFilterToKqlConverter
         String kql = null;
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
+            String escapedLower = escapeKqlSpecialCharsForStringValue(lowerBound);
             String upperBound = getLiteralString((ConstantExpression) upper);
+            String escapedUpper = escapeKqlSpecialCharsForStringValue(upperBound);
             String kqlPredicate = isClpCompatibleNumericType(lhs.getType()) ?
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
-            kql = String.format(kqlPredicate, variable, lowerBound, variable, upperBound);
+            kql = String.format(kqlPredicate, variable, escapedLower, variable, escapedUpper);
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
