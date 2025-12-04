@@ -51,6 +51,9 @@ import java.util.Set;
 
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
@@ -69,6 +72,7 @@ public class TestClpComputePushDown
     private SchemaTableName schemaTableName;
     private ClpTableHandle clpTableHandle;
     private ConnectorId connectorId;
+    private ClpMetadata mockClpMetadata;
 
     @BeforeMethod
     public void setUp()
@@ -88,19 +92,14 @@ public class TestClpComputePushDown
 
         metadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
-        // Create a stub ClpMetadata that returns the columns from TestClpQueryBase
-        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
-            @Override
-            public Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
-            {
-                return ImmutableMap.of(
+        mockClpMetadata = mock(ClpMetadata.class);
+        when(mockClpMetadata.getColumnHandles(any(), any()))
+                .thenReturn(ImmutableMap.of(
                         TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
                         TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
-                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
-            }
-        };
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday));
 
-        optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataConfig, stubMetadata);
+        optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataConfig, mockClpMetadata);
         idAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
         schemaTableName = new SchemaTableName("default", "table_1");

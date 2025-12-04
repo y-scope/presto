@@ -139,7 +139,6 @@ public class TestClpUdfRewriter
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
 
-        // Create mock ClpMetadata
         mockClpMetadata = mock(ClpMetadata.class);
         when(mockClpMetadata.getColumnHandles(any(), any()))
                 .thenReturn(ImmutableMap.of(

@@ -89,8 +89,17 @@ public class TestClpQueryBase
                             RowType.field("Name", VARCHAR)))))));
     protected static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE);
     protected static final ClpColumnHandle isHoliday = new ClpColumnHandle("isHoliday", BOOLEAN);
+    protected static final ClpColumnHandle cityRegionId = new ClpColumnHandle("city.Region.Id", BIGINT);
+    // Columns for testing exposed-to-data column mapping:
+    protected static final ClpColumnHandle timestampExposed = new ClpColumnHandle("timestampExposed", VARCHAR);
+    protected static final ClpColumnHandle timestampData = new ClpColumnHandle("timestampData", VARCHAR);
+    protected static final ClpColumnHandle valueExposed = new ClpColumnHandle("valueExposed", BIGINT);
+    protected static final ClpColumnHandle valueData = new ClpColumnHandle("valueData", BIGINT);
+    protected static final ClpColumnHandle varCharExposed = new ClpColumnHandle("varCharExposed", VARCHAR);
+    protected static final ClpColumnHandle bigIntData = new ClpColumnHandle("bigIntData", BIGINT);
+
     protected static final Map<VariableReferenceExpression, ColumnHandle> variableToColumnHandleMap =
-            Stream.of(city, fare, isHoliday)
+            Stream.of(city, fare, isHoliday, cityRegionId, timestampExposed, timestampData, valueExposed, valueData, varCharExposed, bigIntData)
                     .collect(toMap(
                             ch -> new VariableReferenceExpression(Optional.empty(), ch.getColumnName(), ch.getColumnType()),
                             ch -> ch));

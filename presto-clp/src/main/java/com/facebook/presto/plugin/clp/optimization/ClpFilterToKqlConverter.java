@@ -115,7 +115,7 @@ public class ClpFilterToKqlConverter
             ImmutableSet.of(EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL);
 
     private static final String KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT = "%s >= %s AND %s <= %s";
-    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= '%s' AND %s <= '%s'";
+    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= \"%s\" AND %s <= \"%s\"";
 
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
@@ -578,9 +578,8 @@ public class ClpFilterToKqlConverter
 
         boolean isDataColumnsWithRangeBounds =
                 metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
-        boolean isVarchar = variableType instanceof VarcharType;
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
-        String formattedLiteral = isVarchar
+        String formattedLiteral = variableType instanceof VarcharType
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
 
@@ -593,8 +592,8 @@ public class ClpFilterToKqlConverter
             else if (operator.equals(NOT_EQUAL)) {
                 pushDownExpression = format("NOT %s: %s", variableName, formattedLiteral);
             }
-            else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !isVarchar) {
-                pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), literalString);
+            else if (LOGICAL_BINARY_OPS_FILTER.contains(operator)) {
+                pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), formattedLiteral);
             }
 
             if (pushDownExpression == null) {
