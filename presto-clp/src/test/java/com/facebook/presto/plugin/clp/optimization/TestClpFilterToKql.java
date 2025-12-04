@@ -116,7 +116,11 @@ public class TestClpFilterToKql
 
         // If the last two arguments of BETWEEN are not numeric constants, then the CLP connector
         // won't push them down.
-        testPushDown(sessionHolder, "city.Name BETWEEN 'a' AND 'b'", null, "city.Name BETWEEN 'a' AND 'b'");
+        testPushDown(
+                sessionHolder,
+                "city.Name BETWEEN 'a' AND 'b'",
+                "city.Name >= 'a' AND city.Name <= 'b'",
+                null);
     }
 
     @Test
