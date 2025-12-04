@@ -66,7 +66,7 @@ public class ClpConnector
     @Override
     public ConnectorPlanOptimizerProvider getConnectorPlanOptimizerProvider()
     {
-        return new ClpPlanOptimizerProvider(functionManager, functionResolution, clpSplitMetadataConfig);
+        return new ClpPlanOptimizerProvider(functionManager, functionResolution, clpSplitMetadataConfig, metadata);
     }
 
     @Override
