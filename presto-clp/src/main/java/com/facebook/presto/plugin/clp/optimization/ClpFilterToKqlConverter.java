@@ -21,6 +21,8 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
+import com.facebook.presto.plugin.clp.ClpMetadata;
+import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
@@ -129,14 +131,24 @@ public class ClpFilterToKqlConverter
             Map<VariableReferenceExpression, ColumnHandle> assignments,
             ClpSplitMetadataConfig metadataConfig,
             SchemaTableName schemaTableName,
-            Map<String, Type> allColumnTypes)
+            ClpMetadata clpMetadata,
+            ClpTableHandle clpTableHandle)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
-        this.allColumnTypes = requireNonNull(allColumnTypes, "allColumnTypes is null");
+
+        // Build column type map from clpMetadata
+        requireNonNull(clpMetadata, "clpMetadata is null");
+        requireNonNull(clpTableHandle, "clpTableHandle is null");
+        this.allColumnTypes = new java.util.HashMap<>();
+        Map<String, ColumnHandle> columnHandles = clpMetadata.getColumnHandles(null, clpTableHandle);
+        for (Map.Entry<String, ColumnHandle> entry : columnHandles.entrySet()) {
+            ClpColumnHandle columnHandle = (ClpColumnHandle) entry.getValue();
+            this.allColumnTypes.put(columnHandle.getOriginalColumnName(), columnHandle.getColumnType());
+        }
     }
 
     /**
@@ -353,11 +365,13 @@ public class ClpFilterToKqlConverter
         String kql = null;
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
+            String escapedLower = escapeKqlSpecialCharsForStringValue(lowerBound);
             String upperBound = getLiteralString((ConstantExpression) upper);
+            String escapedUpper = escapeKqlSpecialCharsForStringValue(upperBound);
             String kqlPredicate = isClpCompatibleNumericType(variableType) ?
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
-            kql = String.format(kqlPredicate, variable, lowerBound, variable, upperBound);
+            kql = String.format(kqlPredicate, variable, escapedLower, variable, escapedUpper);
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
