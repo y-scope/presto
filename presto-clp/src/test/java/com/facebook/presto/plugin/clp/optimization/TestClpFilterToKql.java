@@ -354,7 +354,7 @@ public class TestClpFilterToKql
                 dataColumnsWithRangeBounds,
                 exposedToRangeMapping);
 
-        // Test multiple exposed columns in logical binary expression
+        // Test multiple exposed columns in the logical binary expression
         testPushDownWithExposedRangeBound(
                 sessionHolder,
                 "timestampExposed >= '100'",
