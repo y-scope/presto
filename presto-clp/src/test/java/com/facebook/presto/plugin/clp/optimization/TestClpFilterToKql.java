@@ -27,16 +27,15 @@ import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -427,15 +426,6 @@ public class TestClpFilterToKql
         when(mockMetadataConfig.getExposedToRangeMapping(any(SchemaTableName.class)))
                 .thenReturn(exposedToRangeMapping);
 
-        // Add data columns with range bounds to columnHandles if not already present
-        Map<String, ColumnHandle> extendedColumnHandles = new HashMap<>(columnHandles);
-        for (String dataColumn : dataColumnsWithRangeBounds) {
-            if (!extendedColumnHandles.containsKey(dataColumn)) {
-                // Create a mock ClpColumnHandle for the missing data column
-                extendedColumnHandles.put(dataColumn, new ClpColumnHandle(dataColumn, BIGINT));
-            }
-        }
-
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
@@ -443,7 +433,7 @@ public class TestClpFilterToKql
                         assignments,
                         mockMetadataConfig,
                         testTableName,
-                        extendedColumnHandles),
+                        columnHandles),
                 null);
     }
 

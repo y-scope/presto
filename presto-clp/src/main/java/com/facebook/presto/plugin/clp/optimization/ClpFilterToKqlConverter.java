@@ -141,24 +141,6 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Gets the type of a data column from the full table schema.
-     *
-     * @param columnName the name of the data column
-     * @return the type of the column
-     * @throws PrestoException if the column is not found in the table schema
-     */
-    private Type getDataColumnType(String columnName)
-    {
-        ColumnHandle handle = columnHandles.get(columnName);
-        if (handle == null) {
-            throw new PrestoException(
-                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                    "Data column not found in table schema: " + columnName);
-        }
-        return ((ClpColumnHandle) handle).getColumnType();
-    }
-
-    /**
      * Resolves an exposed variable name and type to its underlying data column representation.
      * <p>
      * Certain exposed metadata columns map to actual data columns with range bounds stored in
@@ -178,7 +160,13 @@ public class ClpFilterToKqlConverter
         if (exposedToRangeMapping.containsKey(variableName)) {
             // Resolve to the actual data column name and retrieve its type from the table schema
             String dataColumnName = exposedToRangeMapping.get(variableName);
-            Type dataColumnType = getDataColumnType(dataColumnName);
+            ColumnHandle handle = columnHandles.get(dataColumnName);
+            if (handle == null) {
+                throw new PrestoException(
+                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "Data column not found in table schema: " + dataColumnName);
+            }
+            Type dataColumnType = ((ClpColumnHandle) handle).getColumnType();
             return new SimpleImmutableEntry<>(dataColumnName, dataColumnType);
         }
         return new SimpleImmutableEntry<>(variableName, variableType);
