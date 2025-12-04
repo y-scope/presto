@@ -21,8 +21,6 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
-import com.facebook.presto.plugin.clp.ClpMetadata;
-import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
@@ -123,7 +121,7 @@ public class ClpFilterToKqlConverter
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
     private final ClpSplitMetadataConfig metadataConfig;
     private final SchemaTableName schemaTableName;
-    private final Map<String, Type> allColumnTypes;
+    private final Map<String, ColumnHandle> columnHandles;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
@@ -131,24 +129,14 @@ public class ClpFilterToKqlConverter
             Map<VariableReferenceExpression, ColumnHandle> assignments,
             ClpSplitMetadataConfig metadataConfig,
             SchemaTableName schemaTableName,
-            ClpMetadata clpMetadata,
-            ClpTableHandle clpTableHandle)
+            Map<String, ColumnHandle> columnHandles)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
-
-        // Build column type map from clpMetadata
-        requireNonNull(clpMetadata, "clpMetadata is null");
-        requireNonNull(clpTableHandle, "clpTableHandle is null");
-        this.allColumnTypes = new java.util.HashMap<>();
-        Map<String, ColumnHandle> columnHandles = clpMetadata.getColumnHandles(null, clpTableHandle);
-        for (Map.Entry<String, ColumnHandle> entry : columnHandles.entrySet()) {
-            ClpColumnHandle columnHandle = (ClpColumnHandle) entry.getValue();
-            this.allColumnTypes.put(columnHandle.getOriginalColumnName(), columnHandle.getColumnType());
-        }
+        this.columnHandles = requireNonNull(columnHandles, "columnHandles is null");
     }
 
     /**
@@ -160,13 +148,13 @@ public class ClpFilterToKqlConverter
      */
     private Type getDataColumnType(String columnName)
     {
-        Type type = allColumnTypes.get(columnName);
-        if (type == null) {
+        ColumnHandle handle = columnHandles.get(columnName);
+        if (handle == null) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Data column not found in table schema: " + columnName);
         }
-        return type;
+        return ((ClpColumnHandle) handle).getColumnType();
     }
 
     @Override

@@ -353,6 +353,8 @@ public class ClpComputePushDown
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
 
+            Map<String, ColumnHandle> columnHandles = clpMetadata.getColumnHandles(null, clpTableHandle);
+
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
@@ -360,8 +362,7 @@ public class ClpComputePushDown
                             assignments,
                             metadataConfig,
                             schemaTableName,
-                            clpMetadata,
-                            clpTableHandle),
+                            columnHandles),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();

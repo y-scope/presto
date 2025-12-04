@@ -15,8 +15,6 @@ package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
-import com.facebook.presto.plugin.clp.ClpMetadata;
-import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
@@ -406,21 +404,12 @@ public class TestClpFilterToKql
             }
         };
 
-        // Create a stub ClpMetadata that returns the column handles
-        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
-            @Override
-            public Map<String, ColumnHandle> getColumnHandles(
-                    com.facebook.presto.spi.ConnectorSession session,
-                    com.facebook.presto.spi.ConnectorTableHandle tableHandle)
-            {
-                return ImmutableMap.copyOf(variableToColumnHandleMap.entrySet().stream()
+        // Build column handles map from variableToColumnHandleMap
+        Map<String, ColumnHandle> columnHandles = ImmutableMap.copyOf(
+                variableToColumnHandleMap.entrySet().stream()
                         .collect(java.util.stream.Collectors.toMap(
                                 e -> ((ClpColumnHandle) e.getValue()).getOriginalColumnName(),
                                 Map.Entry::getValue)));
-            }
-        };
-
-        ClpTableHandle clpTableHandle = new ClpTableHandle(testTableName, "test");
 
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
@@ -429,8 +418,7 @@ public class TestClpFilterToKql
                         assignments,
                         stubConfig,
                         testTableName,
-                        stubMetadata,
-                        clpTableHandle),
+                        columnHandles),
                 null);
     }
 
