@@ -559,9 +559,17 @@ public class ClpFilterToKqlConverter
             Type variableType,
             CallExpression originalNode)
     {
-        boolean isVarchar = constant.getType() instanceof VarcharType;
+        boolean isDataColumnsWithRangeBounds = false;
+
+        Map<String, String> metadataColumnWithRangeBounds = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        if (metadataColumnWithRangeBounds.containsKey(variableName)) {
+            variableName = metadataColumnWithRangeBounds.get(variableName);
+            variableType = getDataColumnType(variableName);
+            isDataColumnsWithRangeBounds = true;
+        }
+
+        boolean isVarchar = variableType instanceof VarcharType;
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
-        boolean isDataColumnsWithRangeBounds = metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
         String formattedLiteral = isVarchar
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
