@@ -111,6 +111,9 @@ public class ClpFilterToKqlConverter
     private static final Set<OperatorType> LOGICAL_BINARY_OPS_FILTER =
             ImmutableSet.of(EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL);
 
+    private static final String KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT = "%s >= %s AND %s <= %s";
+    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= '%s' AND %s <= '%s'";
+
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
@@ -279,22 +282,6 @@ public class ClpFilterToKqlConverter
         String variable = variableOpt.get();
         boolean isMetadataColumn = metadataFilterColumns.contains(variable);
 
-        // Type validation
-        boolean numericCompatible =
-                isClpCompatibleNumericType(lhs.getType())
-                        && isClpCompatibleNumericType(lower.getType())
-                        && isClpCompatibleNumericType(upper.getType());
-
-        if (!numericCompatible) {
-            if (isMetadataColumn) {
-                throw new PrestoException(
-                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
-                        "Metadata BETWEEN requires numeric-compatible types. Received: " + node);
-            }
-            // Non-metadata columns just fallback (cannot push down)
-            return new ClpExpression(node);
-        }
-
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
                 (!(lower instanceof ConstantExpression) || !(upper instanceof ConstantExpression))) {
@@ -337,8 +324,13 @@ public class ClpFilterToKqlConverter
         String kql = null;
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
+            String escapedLower = escapeKqlSpecialCharsForStringValue(lowerBound);
             String upperBound = getLiteralString((ConstantExpression) upper);
-            kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+            String escapedUpper = escapeKqlSpecialCharsForStringValue(upperBound);
+            String kqlPredicate = isClpCompatibleNumericType(lhs.getType()) ?
+                    KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
+                    KQL_BETWEEN_PREDICATE_STRING_FORMAT;
+            kql = String.format(kqlPredicate, variable, escapedLower, variable, escapedUpper);
         }
 
         return new ClpExpression(kql, metadataExpr, variableExpression.getPushDownVariables());
@@ -1048,10 +1040,8 @@ public class ClpFilterToKqlConverter
     }
 
     /**
-     * Checks if the type is one of the numeric types that can be pushed down to CLP.
-     *
      * @param type the type to check
-     * @return whether the type can be pushed down.
+     * @return whether the type is one of the numeric types compatible with CLP.
      */
     public static boolean isClpCompatibleNumericType(Type type)
     {
