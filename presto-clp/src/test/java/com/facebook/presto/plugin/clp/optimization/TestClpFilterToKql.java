@@ -13,13 +13,18 @@
  */
 package com.facebook.presto.plugin.clp.optimization;
 
+import com.facebook.presto.common.type.Type;
+import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.util.HashMap;
@@ -28,6 +33,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -36,6 +44,25 @@ import static org.testng.Assert.assertTrue;
 public class TestClpFilterToKql
         extends TestClpQueryBase
 {
+    private ClpSplitMetadataConfig mockMetadataConfig;
+    private SchemaTableName testTableName;
+    private Map<String, ColumnHandle> columnHandles;
+
+    @BeforeMethod
+    public void setUp()
+    {
+        testTableName = new SchemaTableName("test", "table");
+
+        // Build table schema
+        columnHandles = ImmutableMap.copyOf(
+                variableToColumnHandleMap.entrySet().stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                e -> ((ClpColumnHandle) e.getValue()).getOriginalColumnName(),
+                                Map.Entry::getValue)));
+
+        mockMetadataConfig = mock(ClpSplitMetadataConfig.class);
+    }
+
     @Test
     public void testStringMatchPushDown()
     {
@@ -119,7 +146,7 @@ public class TestClpFilterToKql
         testPushDown(
                 sessionHolder,
                 "city.Name BETWEEN 'a' AND 'b'",
-                "city.Name >= 'a' AND city.Name <= 'b'",
+                "city.Name >= \"a\" AND city.Name <= \"b\"",
                 null);
     }
 
@@ -238,6 +265,7 @@ public class TestClpFilterToKql
     {
         SessionHolder sessionHolder = new SessionHolder();
         Set<String> testMetadataFilterColumns = ImmutableSet.of("fare");
+        // Assuming no exposed name, directly reference the bounded data column
         Set<String> testDataColumnsWithRangeBounds = ImmutableSet.of("city.Region.Id");
 
         // Normal case
@@ -290,6 +318,101 @@ public class TestClpFilterToKql
                 TypeProvider.viewOf(ImmutableMap.of("city.Region.Id", BIGINT)),
                 testMetadataFilterColumns,
                 testDataColumnsWithRangeBounds);
+    }
+
+    @Test
+    public void testExposedRangeBoundColumnResolutionToDataColumn()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+
+        // Define explicit mapping: exposed column name -> data column name
+        Map<String, String> exposedToRangeMapping = ImmutableMap.of(
+                "timestampExposed", "timestampData",
+                "valueExposed", "valueData",
+                "varCharExposed", "bigIntData");  // Different types: exposed is VARCHAR, data is BIGINT
+
+        // The data columns that have range bounds in metadata
+        Set<String> dataColumnsWithRangeBounds = ImmutableSet.of("timestampData", "valueData", "bigIntData");
+
+        // Test BETWEEN with VARCHAR exposed columns
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed BETWEEN '100' AND '200'",
+                "timestampData >= \"100\" AND timestampData <= \"200\"",
+                null,  // no remaining expression
+                ImmutableSet.of(),  // no metadata-only columns
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        // Test comparison with the BIGINT exposed column
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "valueExposed >= 50",
+                "valueData >= 50",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        // Test multiple exposed columns in the logical binary expression
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed >= '100'",
+                "timestampData >= \"100\"",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed = '100'",
+                "timestampData: \"100\"",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed <= '200'",
+                "timestampData <= \"200\"",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        // Test multiple exposed columns in compound expression
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed >= '100' AND valueExposed < 200",
+                "(timestampData >= \"100\" AND valueData < 200)",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        // Test exposed column with different type from data column
+        // varCharExposed is VARCHAR (metadata type), but bigIntData is BIGINT (actual data type)
+        // The generated KQL should use bigIntData with BIGINT type
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "varCharExposed >= '10'",
+                "bigIntData >= 10",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        // Test compound expression with type-mismatched exposed column
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "varCharExposed > '50' AND varCharExposed < '1000'",
+                "(bigIntData > 50 AND bigIntData < 1000)",
+                null,
+                ImmutableSet.of(),
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
     }
 
     @Test
@@ -349,6 +472,19 @@ public class TestClpFilterToKql
                 dataColumnsWithRangeBounds);
     }
 
+    private void testPushDownWithExposedRangeBound(
+            SessionHolder sessionHolder,
+            String sql,
+            String expectedKql,
+            String expectedRemaining,
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds,
+            Map<String, String> exposedToRangeMapping)
+    {
+        ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, dataColumnsWithRangeBounds, exposedToRangeMapping);
+        testFilter(clpExpression, expectedKql, expectedRemaining, sessionHolder);
+    }
+
     private void testPushDown(
             SessionHolder sessionHolder,
             String sql,
@@ -360,6 +496,7 @@ public class TestClpFilterToKql
     {
         ClpExpression clpExpression = tryPushDown(sql, sessionHolder, metadataFilterColumns, dataColumnsWithRangeBounds);
         testFilter(clpExpression, expectedKql, null, sessionHolder);
+        // verify metadata split pruning
         if (expectedMetadataSqlQuery != null) {
             assertTrue(clpExpression.getMetadataExpression().isPresent());
             assertEquals(
@@ -371,21 +508,55 @@ public class TestClpFilterToKql
         }
     }
 
+    /**
+     * Test helper for filter pushdown with default identity mapping for exposed columns.
+     */
     private ClpExpression tryPushDown(
             String sqlExpression,
             SessionHolder sessionHolder,
             Set<String> metadataFilterColumns,
             Set<String> dataColumnsWithRangeBounds)
     {
+        // Build identity mapping: exposed name -> data column name (same name)
+        Map<String, String> exposedToRangeMapping = new HashMap<>();
+        for (String dataColumn : dataColumnsWithRangeBounds) {
+            exposedToRangeMapping.put(dataColumn, dataColumn);
+        }
+        return tryPushDown(sqlExpression, sessionHolder, metadataFilterColumns, dataColumnsWithRangeBounds, exposedToRangeMapping);
+    }
+
+    /**
+     * Test helper for filter pushdown with explicit exposed-to-data column mapping.
+     */
+    private ClpExpression tryPushDown(
+            String sqlExpression,
+            SessionHolder sessionHolder,
+            Set<String> metadataFilterColumns,
+            Set<String> dataColumnsWithRangeBounds,
+            Map<String, String> exposedToRangeMapping)
+    {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
+
+        Map<String, Type> metadataColumnsMap = new HashMap<>();
+        for (String col : metadataFilterColumns) {
+            metadataColumnsMap.put(col, BIGINT);
+        }
+        when(mockMetadataConfig.getMetadataColumns(any(SchemaTableName.class)))
+                .thenReturn(metadataColumnsMap);
+        when(mockMetadataConfig.getDataColumnsWithRangeBounds(any(SchemaTableName.class)))
+                .thenReturn(dataColumnsWithRangeBounds);
+        when(mockMetadataConfig.getExposedToRangeMapping(any(SchemaTableName.class)))
+                .thenReturn(exposedToRangeMapping);
+
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
                         assignments,
-                        metadataFilterColumns,
-                        dataColumnsWithRangeBounds),
+                        mockMetadataConfig,
+                        testTableName,
+                        columnHandles),
                 null);
     }
 

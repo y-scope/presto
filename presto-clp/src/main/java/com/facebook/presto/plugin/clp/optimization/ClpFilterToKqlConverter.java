@@ -21,8 +21,10 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -39,6 +41,7 @@ import io.airlift.slice.Slice;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -112,26 +115,61 @@ public class ClpFilterToKqlConverter
             ImmutableSet.of(EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL);
 
     private static final String KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT = "%s >= %s AND %s <= %s";
-    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= '%s' AND %s <= '%s'";
+    private static final String KQL_BETWEEN_PREDICATE_STRING_FORMAT = "%s >= \"%s\" AND %s <= \"%s\"";
 
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
-    private final Set<String> metadataFilterColumns;
-    private final Set<String> dataColumnsWithRangeBounds;
+    private final ClpSplitMetadataConfig metadataConfig;
+    private final SchemaTableName schemaTableName;
+    private final Map<String, ColumnHandle> columnHandles;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
             Map<VariableReferenceExpression, ColumnHandle> assignments,
-            Set<String> metadataFilterColumns,
-            Set<String> dataColumnsWithRangeBounds)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName,
+            Map<String, ColumnHandle> columnHandles)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
-        this.metadataFilterColumns = requireNonNull(metadataFilterColumns, "metadataFilterColumns is null");
-        this.dataColumnsWithRangeBounds = requireNonNull(dataColumnsWithRangeBounds, "dataColumnsWithRangeBounds is null");
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
+        this.columnHandles = requireNonNull(columnHandles, "columnHandles is null");
+    }
+
+    /**
+     * Resolves an exposed variable name and type to its underlying data column representation.
+     * <p>
+     * Certain exposed metadata columns map to actual data columns with range bounds stored in
+     * the metadata database. When such a mapping exists, this method resolves the exposed column
+     * name to the underlying data column name and updates the type accordingly to facilitate
+     * data push down. This resolution is necessary because exposed metadata column types may
+     * differ from their corresponding data column types in the archive.
+     *
+     * @param variableName the exposed column name to resolve
+     * @param variableType the type of the exposed column
+     * @return a pair (Map.Entry) containing the resolved column name (key) and its type (value).
+     *         If no mapping exists, returns the original name and type unchanged.
+     */
+    private Map.Entry<String, Type> resolveExposedRangeBoundVariableAndType(String variableName, Type variableType)
+    {
+        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        if (exposedToRangeMapping.containsKey(variableName)) {
+            // Resolve to the actual data column name and retrieve its type from the table schema
+            String dataColumnName = exposedToRangeMapping.get(variableName);
+            ColumnHandle handle = columnHandles.get(dataColumnName);
+            if (handle == null) {
+                throw new PrestoException(
+                        CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                        "Data column not found in table schema: " + dataColumnName);
+            }
+            Type dataColumnType = ((ClpColumnHandle) handle).getColumnType();
+            return new SimpleImmutableEntry<>(dataColumnName, dataColumnType);
+        }
+        return new SimpleImmutableEntry<>(variableName, variableType);
     }
 
     @Override
@@ -279,8 +317,11 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
-        String variable = variableOpt.get();
-        boolean isMetadataColumn = metadataFilterColumns.contains(variable);
+        // Resolve range-bound column mapping with exposed name
+        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableOpt.get(), lhs.getType());
+        String variable = resolution.getKey();
+        Type variableType = resolution.getValue();
+        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
 
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
@@ -296,7 +337,7 @@ public class ClpFilterToKqlConverter
         }
 
         RowExpression metadataExpr = null;
-        if (isMetadataColumn || dataColumnsWithRangeBounds.contains(variable)) {
+        if (isMetadataColumn || metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variable)) {
             VariableReferenceExpression varExpr =
                     new VariableReferenceExpression(lhs.getSourceLocation(), variable, lhs.getType());
             ConstantExpression lowerConst = (ConstantExpression) lower;
@@ -327,7 +368,7 @@ public class ClpFilterToKqlConverter
             String escapedLower = escapeKqlSpecialCharsForStringValue(lowerBound);
             String upperBound = getLiteralString((ConstantExpression) upper);
             String escapedUpper = escapeKqlSpecialCharsForStringValue(upperBound);
-            String kqlPredicate = isClpCompatibleNumericType(lhs.getType()) ?
+            String kqlPredicate = isClpCompatibleNumericType(variableType) ?
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
             kql = String.format(kqlPredicate, variable, escapedLower, variable, escapedUpper);
@@ -399,7 +440,7 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for LIKE predicate" + node);
@@ -530,10 +571,15 @@ public class ClpFilterToKqlConverter
             Type variableType,
             CallExpression originalNode)
     {
-        boolean isVarchar = constant.getType() instanceof VarcharType;
-        boolean isMetadataColumn = metadataFilterColumns.contains(variableName);
-        boolean isDataColumnsWithRangeBounds = dataColumnsWithRangeBounds.contains(variableName);
-        String formattedLiteral = isVarchar
+        // Resolve range-bound column mapping with exposed name
+        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableName, variableType);
+        variableName = resolution.getKey();
+        variableType = resolution.getValue();
+
+        boolean isDataColumnsWithRangeBounds =
+                metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
+        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
+        String formattedLiteral = variableType instanceof VarcharType
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
 
@@ -546,8 +592,8 @@ public class ClpFilterToKqlConverter
             else if (operator.equals(NOT_EQUAL)) {
                 pushDownExpression = format("NOT %s: %s", variableName, formattedLiteral);
             }
-            else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !isVarchar) {
-                pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), literalString);
+            else if (LOGICAL_BINARY_OPS_FILTER.contains(operator)) {
+                pushDownExpression = format("%s %s %s", variableName, operator.getOperator(), formattedLiteral);
             }
 
             if (pushDownExpression == null) {
@@ -626,7 +672,7 @@ public class ClpFilterToKqlConverter
         }
 
         String varName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(varName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(varName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for substr call" + callExpression);
@@ -902,7 +948,7 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
         String variableName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for IN predicate" + node);
@@ -951,7 +997,7 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = expression.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for IN predicate" + node);

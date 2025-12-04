@@ -68,15 +68,18 @@ public class ClpComputePushDown
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
     private final ClpSplitMetadataConfig metadataConfig;
+    private final ClpMetadata clpMetadata;
 
     public ClpComputePushDown(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            ClpSplitMetadataConfig metadataConfig)
+            ClpSplitMetadataConfig metadataConfig,
+            ClpMetadata clpMetadata)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
         this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.clpMetadata = requireNonNull(clpMetadata, "clpMetadata is null");
     }
 
     @Override
@@ -349,20 +352,24 @@ public class ClpComputePushDown
 
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
-            Set<String> dataColumnsWithRangeBounds = metadataConfig.getDataColumnsWithRangeBounds(schemaTableName);
+
+            Map<String, ColumnHandle> columnHandles = clpMetadata.getColumnHandles(null, clpTableHandle);
+
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataColumns,
-                            dataColumnsWithRangeBounds),
+                            metadataConfig,
+                            schemaTableName,
+                            columnHandles),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
             Set<String> pushDownVariables = clpExpression.getPushDownVariables();
+            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
+            Set<String> dataColumnsWithRangeBounds = metadataConfig.getDataColumnsWithRangeBounds(schemaTableName);
             boolean allInMetadata = pushDownVariables.stream().allMatch(
                     v -> metadataColumns.contains(v) || dataColumnsWithRangeBounds.contains(v));
 

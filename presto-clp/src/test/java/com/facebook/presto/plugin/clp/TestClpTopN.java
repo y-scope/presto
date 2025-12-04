@@ -88,6 +88,9 @@ import static com.facebook.presto.sql.planner.assertions.MatchResult.match;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
@@ -109,6 +112,7 @@ public class TestClpTopN
     private ClpSplitProvider splitProvider;
     private PlanNodeIdAllocator planNodeIdAllocator;
     private VariableAllocator variableAllocator;
+    private ClpMetadata mockClpMetadata;
 
     @BeforeMethod
     public void setUp()
@@ -203,6 +207,10 @@ public class TestClpTopN
         SchemaTableName schemaTableName = new SchemaTableName("defualt", "test");
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
+
+        mockClpMetadata = mock(ClpMetadata.class);
+        when(mockClpMetadata.getColumnHandles(any(), any()))
+                .thenReturn(ImmutableMap.of());
     }
 
     @AfterMethod
@@ -284,7 +292,11 @@ public class TestClpTopN
                 session,
                 sql,
                 WarningCollector.NOOP);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, clpSplitMetadataConfig);
+        mockClpMetadata = mock(ClpMetadata.class);
+        when(mockClpMetadata.getColumnHandles(any(), any()))
+                .thenReturn(ImmutableMap.of());
+
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, clpSplitMetadataConfig, mockClpMetadata);
         PlanNode optimizedPlan = optimizer.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
         PlanNode optimizedPlanWithUniqueId = freshenIds(optimizedPlan, new PlanNodeIdAllocator());
 
