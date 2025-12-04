@@ -404,7 +404,6 @@ public class TestClpFilterToKql
                 dataColumnsWithRangeBounds,
                 exposedToRangeMapping);
 
-
         // Test compound expression with type-mismatched exposed column
         testPushDownWithExposedRangeBound(
                 sessionHolder,
