@@ -21,8 +21,10 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -117,21 +119,21 @@ public class ClpFilterToKqlConverter
     private final StandardFunctionResolution standardFunctionResolution;
     private final FunctionMetadataManager functionMetadataManager;
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
-    private final Set<String> metadataFilterColumns;
-    private final Set<String> dataColumnsWithRangeBounds;
+    private final ClpSplitMetadataConfig metadataConfig;
+    private final SchemaTableName schemaTableName;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
             Map<VariableReferenceExpression, ColumnHandle> assignments,
-            Set<String> metadataFilterColumns,
-            Set<String> dataColumnsWithRangeBounds)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
-        this.metadataFilterColumns = requireNonNull(metadataFilterColumns, "metadataFilterColumns is null");
-        this.dataColumnsWithRangeBounds = requireNonNull(dataColumnsWithRangeBounds, "dataColumnsWithRangeBounds is null");
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
     }
 
     @Override
@@ -280,7 +282,11 @@ public class ClpFilterToKqlConverter
         }
 
         String variable = variableOpt.get();
-        boolean isMetadataColumn = metadataFilterColumns.contains(variable);
+        Map<String, String> metadataColumnWithRangeBounds = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        if (metadataColumnWithRangeBounds.containsKey(variable)) {
+            variable = metadataColumnWithRangeBounds.get(variable);
+        }
+        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
 
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
@@ -296,7 +302,7 @@ public class ClpFilterToKqlConverter
         }
 
         RowExpression metadataExpr = null;
-        if (isMetadataColumn || dataColumnsWithRangeBounds.contains(variable)) {
+        if (isMetadataColumn || metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variable)) {
             VariableReferenceExpression varExpr =
                     new VariableReferenceExpression(lhs.getSourceLocation(), variable, lhs.getType());
             ConstantExpression lowerConst = (ConstantExpression) lower;
@@ -397,7 +403,7 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for LIKE predicate" + node);
@@ -529,8 +535,8 @@ public class ClpFilterToKqlConverter
             CallExpression originalNode)
     {
         boolean isVarchar = constant.getType() instanceof VarcharType;
-        boolean isMetadataColumn = metadataFilterColumns.contains(variableName);
-        boolean isDataColumnsWithRangeBounds = dataColumnsWithRangeBounds.contains(variableName);
+        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
+        boolean isDataColumnsWithRangeBounds = metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
         String formattedLiteral = isVarchar
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
@@ -624,7 +630,7 @@ public class ClpFilterToKqlConverter
         }
 
         String varName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(varName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(varName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for substr call" + callExpression);
@@ -900,7 +906,7 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
         String variableName = variable.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for IN predicate" + node);
@@ -949,7 +955,7 @@ public class ClpFilterToKqlConverter
         }
 
         String variableName = expression.getPushDownExpression().get();
-        if (metadataFilterColumns.contains(variableName)) {
+        if (metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName)) {
             throw new PrestoException(
                     CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
                     "Metadata filter columns are not supported for IN predicate" + node);

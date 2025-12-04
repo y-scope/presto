@@ -258,6 +258,22 @@ public class ClpSplitMetadataConfig
     }
 
     /**
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a map from exposed column name → range bound data column name
+     */
+    public Map<String, String> getExposedToRangeMapping(SchemaTableName name)
+    {
+        TableConfig cfg = getTableConfig(name);
+        Map<String, String> mapping = new HashMap<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null) {
+                mapping.put(c.exposedAs, c.asRangeBoundOf);
+            }
+        }
+        return mapping;
+    }
+
+    /**
      * Merges and returns the effective {@link TableConfig} for the given table, taking into account
      * the hierarchical configuration structure: global → schema → table.
      *

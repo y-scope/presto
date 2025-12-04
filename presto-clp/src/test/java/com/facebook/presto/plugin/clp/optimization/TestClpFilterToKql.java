@@ -13,8 +13,11 @@
  */
 package com.facebook.presto.plugin.clp.optimization;
 
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
@@ -379,13 +382,34 @@ public class TestClpFilterToKql
     {
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
+
+        // Create a stub ClpSplitMetadataConfig that returns the provided sets
+        SchemaTableName testTableName = new SchemaTableName("test", "table");
+        ClpSplitMetadataConfig stubConfig = new ClpSplitMetadataConfig(null, functionAndTypeManager) {
+            @Override
+            public Map<String, Type> getMetadataColumns(SchemaTableName name)
+            {
+                Map<String, Type> result = new HashMap<>();
+                for (String col : metadataFilterColumns) {
+                    result.put(col, BIGINT);
+                }
+                return result;
+            }
+
+            @Override
+            public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name)
+            {
+                return dataColumnsWithRangeBounds;
+            }
+        };
+
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
                         assignments,
-                        metadataFilterColumns,
-                        dataColumnsWithRangeBounds),
+                        stubConfig,
+                        testTableName),
                 null);
     }
 
