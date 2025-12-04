@@ -24,7 +24,12 @@ import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -40,6 +45,26 @@ import static org.testng.Assert.assertTrue;
 public class TestClpFilterToKql
         extends TestClpQueryBase
 {
+    private ClpSplitMetadataConfig mockMetadataConfig;
+    private SchemaTableName testTableName;
+    private Map<String, ColumnHandle> columnHandles;
+
+    @BeforeMethod
+    public void setUp()
+    {
+        testTableName = new SchemaTableName("test", "table");
+
+        // Build column handles map from variableToColumnHandleMap
+        columnHandles = ImmutableMap.copyOf(
+                variableToColumnHandleMap.entrySet().stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                e -> ((ClpColumnHandle) e.getValue()).getOriginalColumnName(),
+                                Map.Entry::getValue)));
+
+        // Create mock ClpSplitMetadataConfig
+        mockMetadataConfig = mock(ClpSplitMetadataConfig.class);
+    }
+
     @Test
     public void testStringMatchPushDown()
     {
@@ -384,41 +409,41 @@ public class TestClpFilterToKql
         RowExpression pushDownExpression = getRowExpression(sqlExpression, sessionHolder);
         Map<VariableReferenceExpression, ColumnHandle> assignments = new HashMap<>(variableToColumnHandleMap);
 
-        // Create a stub ClpSplitMetadataConfig that returns the provided sets
-        SchemaTableName testTableName = new SchemaTableName("test", "table");
-        ClpSplitMetadataConfig stubConfig = new ClpSplitMetadataConfig(null, functionAndTypeManager) {
-            @Override
-            public Map<String, Type> getMetadataColumns(SchemaTableName name)
-            {
-                Map<String, Type> result = new HashMap<>();
-                for (String col : metadataFilterColumns) {
-                    result.put(col, BIGINT);
-                }
-                return result;
-            }
+        // Configure the mock for this test case
+        Map<String, Type> metadataColumnsMap = new HashMap<>();
+        for (String col : metadataFilterColumns) {
+            metadataColumnsMap.put(col, BIGINT);
+        }
+        when(mockMetadataConfig.getMetadataColumns(any(SchemaTableName.class)))
+                .thenReturn(metadataColumnsMap);
+        when(mockMetadataConfig.getDataColumnsWithRangeBounds(any(SchemaTableName.class)))
+                .thenReturn(dataColumnsWithRangeBounds);
 
-            @Override
-            public Set<String> getDataColumnsWithRangeBounds(SchemaTableName name)
-            {
-                return dataColumnsWithRangeBounds;
-            }
-        };
+        // Build identity mapping: exposed name -> data column name (same name)
+        Map<String, String> exposedToRangeMapping = new HashMap<>();
+        for (String dataColumn : dataColumnsWithRangeBounds) {
+            exposedToRangeMapping.put(dataColumn, dataColumn);
+        }
+        when(mockMetadataConfig.getExposedToRangeMapping(any(SchemaTableName.class)))
+                .thenReturn(exposedToRangeMapping);
 
-        // Build column handles map from variableToColumnHandleMap
-        Map<String, ColumnHandle> columnHandles = ImmutableMap.copyOf(
-                variableToColumnHandleMap.entrySet().stream()
-                        .collect(java.util.stream.Collectors.toMap(
-                                e -> ((ClpColumnHandle) e.getValue()).getOriginalColumnName(),
-                                Map.Entry::getValue)));
+        // Add data columns with range bounds to columnHandles if not already present
+        Map<String, ColumnHandle> extendedColumnHandles = new HashMap<>(columnHandles);
+        for (String dataColumn : dataColumnsWithRangeBounds) {
+            if (!extendedColumnHandles.containsKey(dataColumn)) {
+                // Create a mock ClpColumnHandle for the missing data column
+                extendedColumnHandles.put(dataColumn, new ClpColumnHandle(dataColumn, BIGINT));
+            }
+        }
 
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
                         assignments,
-                        stubConfig,
+                        mockMetadataConfig,
                         testTableName,
-                        columnHandles),
+                        extendedColumnHandles),
                 null);
     }
 

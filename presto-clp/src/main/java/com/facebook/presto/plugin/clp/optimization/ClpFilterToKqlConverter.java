@@ -41,6 +41,7 @@ import io.airlift.slice.Slice;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +156,32 @@ public class ClpFilterToKqlConverter
                     "Data column not found in table schema: " + columnName);
         }
         return ((ClpColumnHandle) handle).getColumnType();
+    }
+
+    /**
+     * Resolves an exposed variable name and type to its underlying data column representation.
+     * <p>
+     * Certain exposed metadata columns map to actual data columns with range bounds stored in
+     * the metadata database. When such a mapping exists, this method resolves the exposed column
+     * name to the underlying data column name and updates the type accordingly to facilitate
+     * data push down. This resolution is necessary because exposed metadata column types may
+     * differ from their corresponding data column types in the archive.
+     *
+     * @param variableName the exposed column name to resolve
+     * @param variableType the type of the exposed column
+     * @return a pair (Map.Entry) containing the resolved column name (key) and its type (value).
+     *         If no mapping exists, returns the original name and type unchanged.
+     */
+    private Map.Entry<String, Type> resolveExposedRangeBoundVariableAndType(String variableName, Type variableType)
+    {
+        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        if (exposedToRangeMapping.containsKey(variableName)) {
+            // Resolve to the actual data column name and retrieve its type from the table schema
+            String dataColumnName = exposedToRangeMapping.get(variableName);
+            Type dataColumnType = getDataColumnType(dataColumnName);
+            return new SimpleImmutableEntry<>(dataColumnName, dataColumnType);
+        }
+        return new SimpleImmutableEntry<>(variableName, variableType);
     }
 
     @Override
@@ -302,13 +329,10 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
-        String variable = variableOpt.get();
-        Type variableType = lhs.getType();
-        Map<String, String> metadataColumnWithRangeBounds = metadataConfig.getExposedToRangeMapping(schemaTableName);
-        if (metadataColumnWithRangeBounds.containsKey(variable)) {
-            variable = metadataColumnWithRangeBounds.get(variable);
-            variableType = getDataColumnType(variable);
-        }
+        // Resolve range-bound column mapping with exposed name
+        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableOpt.get(), lhs.getType());
+        String variable = resolution.getKey();
+        Type variableType = resolution.getValue();
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
 
         // Metadata columns must have constant bounds
@@ -559,15 +583,13 @@ public class ClpFilterToKqlConverter
             Type variableType,
             CallExpression originalNode)
     {
-        boolean isDataColumnsWithRangeBounds = false;
+        // Resolve range-bound column mapping with exposed name
+        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableName, variableType);
+        variableName = resolution.getKey();
+        variableType = resolution.getValue();
 
-        Map<String, String> metadataColumnWithRangeBounds = metadataConfig.getExposedToRangeMapping(schemaTableName);
-        if (metadataColumnWithRangeBounds.containsKey(variableName)) {
-            variableName = metadataColumnWithRangeBounds.get(variableName);
-            variableType = getDataColumnType(variableName);
-            isDataColumnsWithRangeBounds = true;
-        }
-
+        boolean isDataColumnsWithRangeBounds =
+                metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
         boolean isVarchar = variableType instanceof VarcharType;
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
         String formattedLiteral = isVarchar
