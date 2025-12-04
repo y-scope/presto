@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
@@ -403,13 +404,21 @@ public class TestClpFilterToKql
             }
         };
 
+        // Build column type map from variableToColumnHandleMap
+        Map<String, Type> allColumnTypes = new HashMap<>();
+        for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : variableToColumnHandleMap.entrySet()) {
+            ClpColumnHandle columnHandle = (ClpColumnHandle) entry.getValue();
+            allColumnTypes.put(columnHandle.getOriginalColumnName(), columnHandle.getColumnType());
+        }
+
         return pushDownExpression.accept(
                 new ClpFilterToKqlConverter(
                         standardFunctionResolution,
                         functionAndTypeManager,
                         assignments,
                         stubConfig,
-                        testTableName),
+                        testTableName,
+                        allColumnTypes),
                 null);
     }
 

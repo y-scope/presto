@@ -158,7 +158,18 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
+        // Create a stub ClpMetadata for testing
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public java.util.Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                return com.google.common.collect.ImmutableMap.of(
+                        TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
+                        TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
+            }
+        };
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig, stubMetadata);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -197,7 +208,18 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
+        // Create a stub ClpMetadata for testing
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public java.util.Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                return com.google.common.collect.ImmutableMap.of(
+                        TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
+                        TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
+            }
+        };
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig, stubMetadata);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -246,7 +268,18 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
+        // Create a stub ClpMetadata for testing
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public java.util.Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                return com.google.common.collect.ImmutableMap.of(
+                        TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
+                        TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
+            }
+        };
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig, stubMetadata);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(
@@ -283,7 +316,18 @@ public class TestClpUdfRewriter
                 WarningCollector.NOOP);
         ClpUdfRewriter udfRewriter = new ClpUdfRewriter(functionAndTypeManager);
         PlanNode optimizedPlan = udfRewriter.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig);
+        // Create a stub ClpMetadata for testing
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public java.util.Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                return com.google.common.collect.ImmutableMap.of(
+                        TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
+                        TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
+            }
+        };
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitMetadataConfig, stubMetadata);
         optimizedPlan = optimizer.optimize(optimizedPlan, session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
 
         PlanAssert.assertPlan(

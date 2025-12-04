@@ -284,7 +284,17 @@ public class TestClpTopN
                 session,
                 sql,
                 WarningCollector.NOOP);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, clpSplitMetadataConfig);
+        // Create a stub ClpMetadata for testing
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                // Return empty map as this test doesn't need column schema
+                return ImmutableMap.of();
+            }
+        };
+
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, clpSplitMetadataConfig, stubMetadata);
         PlanNode optimizedPlan = optimizer.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
         PlanNode optimizedPlanWithUniqueId = freshenIds(optimizedPlan, new PlanNodeIdAllocator());
 

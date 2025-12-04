@@ -66,15 +66,18 @@ public class ClpComputePushDown
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
     private final ClpSplitMetadataConfig metadataConfig;
+    private final ClpMetadata clpMetadata;
 
     public ClpComputePushDown(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            ClpSplitMetadataConfig metadataConfig)
+            ClpSplitMetadataConfig metadataConfig,
+            ClpMetadata clpMetadata)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
         this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.clpMetadata = requireNonNull(clpMetadata, "clpMetadata is null");
     }
 
     @Override
@@ -347,13 +350,23 @@ public class ClpComputePushDown
 
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
             SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+
+            // Build column type map from ClpMetadata
+            Map<String, com.facebook.presto.common.type.Type> allColumnTypes = new java.util.HashMap<>();
+            Map<String, ColumnHandle> columnHandles = clpMetadata.getColumnHandles(null, clpTableHandle);
+            for (Map.Entry<String, ColumnHandle> entry : columnHandles.entrySet()) {
+                ClpColumnHandle columnHandle = (ClpColumnHandle) entry.getValue();
+                allColumnTypes.put(columnHandle.getOriginalColumnName(), columnHandle.getColumnType());
+            }
+
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
                             metadataConfig,
-                            schemaTableName),
+                            schemaTableName,
+                            allColumnTypes),
                     null);
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
             Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();

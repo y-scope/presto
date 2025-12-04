@@ -121,19 +121,40 @@ public class ClpFilterToKqlConverter
     private final Map<VariableReferenceExpression, ColumnHandle> assignments;
     private final ClpSplitMetadataConfig metadataConfig;
     private final SchemaTableName schemaTableName;
+    private final Map<String, Type> allColumnTypes;
 
     public ClpFilterToKqlConverter(
             StandardFunctionResolution standardFunctionResolution,
             FunctionMetadataManager functionMetadataManager,
             Map<VariableReferenceExpression, ColumnHandle> assignments,
             ClpSplitMetadataConfig metadataConfig,
-            SchemaTableName schemaTableName)
+            SchemaTableName schemaTableName,
+            Map<String, Type> allColumnTypes)
     {
         this.standardFunctionResolution = requireNonNull(standardFunctionResolution, "standardFunctionResolution is null");
         this.functionMetadataManager = requireNonNull(functionMetadataManager, "function metadata manager is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
+        this.allColumnTypes = requireNonNull(allColumnTypes, "allColumnTypes is null");
+    }
+
+    /**
+     * Gets the type of a data column from the full table schema.
+     *
+     * @param columnName the name of the data column
+     * @return the type of the column
+     * @throws PrestoException if the column is not found in the table schema
+     */
+    private Type getDataColumnType(String columnName)
+    {
+        Type type = allColumnTypes.get(columnName);
+        if (type == null) {
+            throw new PrestoException(
+                    CLP_PUSHDOWN_UNSUPPORTED_EXPRESSION,
+                    "Data column not found in table schema: " + columnName);
+        }
+        return type;
     }
 
     @Override
@@ -282,9 +303,11 @@ public class ClpFilterToKqlConverter
         }
 
         String variable = variableOpt.get();
+        Type variableType = lhs.getType();
         Map<String, String> metadataColumnWithRangeBounds = metadataConfig.getExposedToRangeMapping(schemaTableName);
         if (metadataColumnWithRangeBounds.containsKey(variable)) {
             variable = metadataColumnWithRangeBounds.get(variable);
+            variableType = getDataColumnType(variable);
         }
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
 
@@ -331,7 +354,7 @@ public class ClpFilterToKqlConverter
         if (!isMetadataColumn) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
             String upperBound = getLiteralString((ConstantExpression) upper);
-            String kqlPredicate = isClpCompatibleNumericType(lhs.getType()) ?
+            String kqlPredicate = isClpCompatibleNumericType(variableType) ?
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
             kql = String.format(kqlPredicate, variable, lowerBound, variable, upperBound);

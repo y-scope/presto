@@ -18,6 +18,7 @@ import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpConfig;
+import com.facebook.presto.plugin.clp.ClpMetadata;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
 import com.facebook.presto.plugin.clp.ClpTransactionHandle;
@@ -86,7 +87,20 @@ public class TestClpComputePushDown
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
 
         metadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
-        optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataConfig);
+
+        // Create a stub ClpMetadata that returns the columns from TestClpQueryBase
+        ClpMetadata stubMetadata = new ClpMetadata(null, null) {
+            @Override
+            public Map<String, ColumnHandle> getColumnHandles(com.facebook.presto.spi.ConnectorSession session, com.facebook.presto.spi.ConnectorTableHandle tableHandle)
+            {
+                return ImmutableMap.of(
+                        TestClpQueryBase.city.getColumnName(), TestClpQueryBase.city,
+                        TestClpQueryBase.fare.getColumnName(), TestClpQueryBase.fare,
+                        TestClpQueryBase.isHoliday.getColumnName(), TestClpQueryBase.isHoliday);
+            }
+        };
+
+        optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, metadataConfig, stubMetadata);
         idAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
         schemaTableName = new SchemaTableName("default", "table_1");
