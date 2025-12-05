@@ -64,7 +64,7 @@ public class ClpPinotSplitProvider
         implements ClpSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
-    private static final String SQL_SELECT_SPLIT_META_TEMPLATE = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) ORDER BY %s %s LIMIT 999999";
+    private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
     private final ClpConfig config;
 
     protected static final Logger log = Logger.get(ClpPinotSplitProvider.class);
@@ -202,18 +202,9 @@ public class ClpPinotSplitProvider
             ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
             if (topNSpecOptional.isPresent()) {
                 ClpTopNSpec topNSpec = topNSpecOptional.get();
-                // Only handles one range metadata column for now
                 ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
-                String columnName = ordering.getColumn();
-                String lowerBound = columnName;
-                String upperBound = columnName;
-                if (dataColumnRangeMapping.containsKey(columnName)) {
-                    lowerBound = dataColumnRangeMapping.get(columnName).getOrDefault("lowerBound", lowerBound);
-                    upperBound = dataColumnRangeMapping.get(columnName).getOrDefault("upperBound", upperBound);
-                }
 
-                String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
-                String splitMetaQuery = buildSplitMetadataQuery(tableName, metadataFilterQuery.orElse("1 = 1"), upperBound, dir);
+                String splitMetaQuery = buildSplitSelectionQueryWithTopN(tableName, metadataFilterQuery.orElse("1 = 1"));
                 List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(splitMetaQuery, ordering);
                 List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
@@ -303,7 +294,8 @@ public class ClpPinotSplitProvider
     }
 
     /**
-     * Fetches archive metadata from the database.
+     * Fetches archive metadata from the database for TopN processing.
+     * The query must select: tpath, creationtime, lastmodifiedtime, num_messages.
      *
      * @param query    SQL query string that selects the archives
      * @param ordering The top-N ordering specifying which columns contain lowerBound/upperBound
@@ -486,14 +478,12 @@ public class ClpPinotSplitProvider
      *
      * @param tableName the Pinot table name
      * @param filterSql the filter SQL expression
-     * @param orderByColumn the column to order by
-     * @param orderDirection the order direction (ASC or DESC)
      * @return the complete SQL query for selecting split metadata
      */
     @VisibleForTesting
-    protected String buildSplitMetadataQuery(String tableName, String filterSql, String orderByColumn, String orderDirection)
+    protected String buildSplitSelectionQueryWithTopN(String tableName, String filterSql)
     {
-        return format(SQL_SELECT_SPLIT_META_TEMPLATE, tableName, filterSql, orderByColumn, orderDirection);
+        return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN, tableName, filterSql);
     }
 
     /**

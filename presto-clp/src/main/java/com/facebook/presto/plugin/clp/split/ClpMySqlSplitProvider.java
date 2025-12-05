@@ -121,9 +121,6 @@ public class ClpMySqlSplitProvider
                 upperBound = dataColumnRangeMapping.get(columnName).getOrDefault("upperBound", upperBound);
             }
 
-            String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
-            archivePathQuery += " ORDER BY " + "`" + upperBound + "` " + dir;
-
             List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(archivePathQuery, lowerBound, upperBound);
             List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
