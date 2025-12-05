@@ -294,7 +294,8 @@ public class ClpPinotSplitProvider
     }
 
     /**
-     * Fetches archive metadata from the database.
+     * Fetches archive metadata from the database for TopN processing.
+     * The query must select: tpath, creationtime, lastmodifiedtime, num_messages.
      *
      * @param query    SQL query string that selects the archives
      * @param ordering The top-N ordering specifying which columns contain lowerBound/upperBound
