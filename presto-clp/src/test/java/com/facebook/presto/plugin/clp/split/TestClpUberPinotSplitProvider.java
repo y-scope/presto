@@ -228,7 +228,7 @@ public class TestClpUberPinotSplitProvider
         assertTrue(query.contains("tpath"));
 
         // Test buildSplitMetadataQuery (inherited from parent)
-        String metaQuery = splitProvider.buildSplitMetadataQuery("rta.logging.events", "timestamp > 1000", "timestamp", "DESC");
+        String metaQuery = splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000", "timestamp", "DESC");
         assertTrue(metaQuery.contains("rta.logging.events"));
         assertTrue(metaQuery.contains("timestamp > 1000"));
         assertTrue(metaQuery.contains("ORDER BY timestamp DESC"));

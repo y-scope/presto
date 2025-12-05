@@ -94,18 +94,9 @@ public class ClpUberPinotSplitProvider
             ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
             if (topNSpecOptional.isPresent()) {
                 ClpTopNSpec topNSpec = topNSpecOptional.get();
-                // Only handles one range metadata column for now
                 ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
-                String columnName = ordering.getColumn();
-                String lowerBound = columnName;
-                String upperBound = columnName;
-                if (dataColumnRangeMapping.containsKey(columnName)) {
-                    lowerBound = dataColumnRangeMapping.get(columnName).getOrDefault("lowerBound", lowerBound);
-                    upperBound = dataColumnRangeMapping.get(columnName).getOrDefault("upperBound", upperBound);
-                }
 
-                String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
-                String splitMetaQuery = buildSplitMetadataQuery(tableName, metadataFilterQuery.orElse("1 = 1"), upperBound, dir);
+                String splitMetaQuery = buildSplitSelectionQueryWithTopN(tableName, metadataFilterQuery.orElse("1 = 1"));
                 List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(splitMetaQuery, ordering);
                 List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
