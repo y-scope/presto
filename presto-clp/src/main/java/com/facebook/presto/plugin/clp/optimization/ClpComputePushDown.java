@@ -26,7 +26,6 @@ import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
-import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -55,7 +54,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
@@ -151,9 +149,10 @@ public class ClpComputePushDown
                     // After extracting values from the metadata database, these will be mapped back to exposed names
                     // for projection.
                     String originalColumnName = exposedToOriginalMap.get(columnName);
+                    // Skip retreiving any value for the range-bound columns; currently, the expected behavior is to
+                    // return NULL for these columns if projected.
                     if (metadataColumnsWithRangeBound.contains(originalColumnName)) {
-                        throw new PrestoException(CLP_UNSUPPORTED_METADATA_PROJECTION,
-                                format("Unsupported metadata projection column: %s", columnName));
+                        continue;
                     }
                     metadataProjections.add(originalColumnName);
                 }

@@ -26,7 +26,6 @@ import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorId;
-import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
@@ -50,14 +49,12 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
-import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_UNSUPPORTED_METADATA_PROJECTION;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.fail;
 
 @Test(singleThreaded = true)
 public class TestClpComputePushDown
@@ -248,13 +245,13 @@ public class TestClpComputePushDown
     }
 
     /**
-     * Validates that attempting to project a metadata column backed by a range-bound field raises a
-     * CLP_UNSUPPORTED_METADATA_PROJECTION PrestoException with the offending column name in the message.
+     * Validates that projecting a metadata column backed by a range-bound field is handled gracefully
+     * by skipping it in the metadata projection (returning NULL for that column).
      */
     @Test
-    public void testMetadataProjectionWithErrorHandling()
+    public void testMetadataProjectionWithRangeBoundColumn()
     {
-        // Get a metadata column that has range bounds (should trigger the exception)
+        // Get a metadata column that has range bounds (should be skipped in metadata projection)
         Set<String> metadataColumnsWithRangeBound =
                 metadataConfig.getMetadataColumnsWithRangeBounds(schemaTableName);
         Map<String, String> exposedToOriginalMap =
@@ -297,20 +294,21 @@ public class TestClpComputePushDown
                 TupleDomain.all(),
                 Optional.empty());
 
-        // Verify that PrestoException is thrown with the correct error code and message
-        final String columnName = rangeBoundExposedColumn;
-        try {
-            optimizer.optimize(
-                    originalScan,
-                    new SessionHolder().getConnectorSession(),
-                    variableAllocator,
-                    idAllocator);
-            fail("Expected PrestoException to be thrown");
-        }
-        catch (PrestoException e) {
-            assertEquals(e.getErrorCode(), CLP_UNSUPPORTED_METADATA_PROJECTION.toErrorCode());
-            assertTrue(e.getMessage().contains(columnName),
-                    "Exception message should contain the column name: " + columnName);
+        // Verify that the optimizer completes successfully and skips the range-bound column
+        PlanNode optimized = optimizer.optimize(
+                originalScan,
+                new SessionHolder().getConnectorSession(),
+                variableAllocator,
+                idAllocator);
+
+        TableScanNode rewrittenScan = (TableScanNode) optimized;
+
+        // Verify that the layout is NOT present (since the only metadata column was range-bound and skipped)
+        if (rewrittenScan.getTable().getLayout().isPresent()) {
+            ClpTableLayoutHandle layout = (ClpTableLayoutHandle) rewrittenScan.getTable().getLayout().get();
+            Set<String> metadataProjections = layout.getOrInitializeSplitMetadataColumnNames();
+            assertTrue(metadataProjections.isEmpty(),
+                    "Range-bound columns should be skipped from metadata projection");
         }
     }
 }
