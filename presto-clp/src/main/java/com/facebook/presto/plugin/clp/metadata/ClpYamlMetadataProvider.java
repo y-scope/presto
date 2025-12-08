@@ -14,9 +14,11 @@
 package com.facebook.presto.plugin.clp.metadata;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -46,6 +48,7 @@ public class ClpYamlMetadataProvider
 {
     private static final Logger log = Logger.get(ClpYamlMetadataProvider.class);
     private final ClpConfig config;
+    private final ClpSplitMetadataConfig splitMetadataConfig;
     private final ObjectMapper yamlMapper;
 
     // Thread-safe cache for schema names to avoid repeated file parsing
@@ -57,9 +60,10 @@ public class ClpYamlMetadataProvider
     private final Map<String, Map<String, String>> tableSchemaYamlMapPerSchema = new HashMap<>();
 
     @Inject
-    public ClpYamlMetadataProvider(ClpConfig config)
+    public ClpYamlMetadataProvider(ClpConfig config, ClpSplitMetadataConfig splitMetadataConfig)
     {
         this.config = config;
+        this.splitMetadataConfig = splitMetadataConfig;
         // Reuse ObjectMapper instance for better performance
         this.yamlMapper = new ObjectMapper(new YAMLFactory());
     }
@@ -142,7 +146,6 @@ public class ClpYamlMetadataProvider
         String schemaName = schemaTableName.getSchemaName();
         String tableName = schemaTableName.getTableName();
 
-        // Get the schema-specific map
         Map<String, String> tablesInSchema;
         synchronized (tableSchemaYamlMapPerSchema) {
             tablesInSchema = tableSchemaYamlMapPerSchema.get(schemaName);
@@ -159,20 +162,35 @@ public class ClpYamlMetadataProvider
             return Collections.emptyList();
         }
 
-        Path tableSchemaPath = Paths.get(schemaPath);
+        List<ClpColumnHandle> yamlColumns = loadColumnsFromYaml(Paths.get(schemaPath));
+        return mergeMetadataColumns(schemaTableName, yamlColumns);
+    }
+
+    /**
+     * Loads column definitions from a table schema YAML file.
+     *
+     * @param tableSchemaPath path to the YAML file containing column definitions
+     * @return list of column handles parsed from the YAML file, or empty list on error
+     */
+    private List<ClpColumnHandle> loadColumnsFromYaml(Path tableSchemaPath)
+    {
         ClpSchemaTree schemaTree = new ClpSchemaTree(config.isPolymorphicTypeEnabled());
 
         try {
-            // Use the shared yamlMapper for better performance
             Map<String, Object> root = yamlMapper.readValue(
                     new File(tableSchemaPath.toString()),
                     new TypeReference<HashMap<String, Object>>() {});
             ImmutableList.Builder<String> namesBuilder = ImmutableList.builder();
             ImmutableList.Builder<Byte> typesBuilder = ImmutableList.builder();
+
+            // Flatten nested YAML structure into lists of names and type codes
             collectTypes(root, "", namesBuilder, typesBuilder);
             ImmutableList<String> names = namesBuilder.build();
             ImmutableList<Byte> types = typesBuilder.build();
-            // The names and types should have same sizes
+
+            // Rebuild structure from flat lists to be semantically compatible with a schema tree.
+            // Example: ["msg.timestamp", "msg.timestamp", "msg.content"], [0, 3, 3]
+            // becomes: msg: RowType[timestamp_bigint: BIGINT, timestamp_varchar: VARCHAR, content: VARCHAR]
             for (int i = 0; i < names.size(); i++) {
                 schemaTree.addColumn(names.get(i), types.get(i));
             }
@@ -180,14 +198,72 @@ public class ClpYamlMetadataProvider
         }
         catch (IOException e) {
             log.error(format("Failed to parse table schema file %s, error: %s", tableSchemaPath, e.getMessage()), e);
+            return Collections.emptyList();
         }
-        return Collections.emptyList();
+    }
+
+    /**
+     * Merges metadata columns from the split metadata configuration with columns loaded from YAML.
+     *
+     * @param schemaTableName the table to merge columns for
+     * @param yamlColumns columns loaded from the YAML schema file
+     * @return merged list of column handles
+     * @throws PrestoException if a column has conflicting type definitions
+     */
+    private List<ClpColumnHandle> mergeMetadataColumns(
+            SchemaTableName schemaTableName,
+            List<ClpColumnHandle> yamlColumns)
+    {
+        Map<String, Type> metadataColumns = splitMetadataConfig.getMetadataColumns(schemaTableName);
+        if (metadataColumns.isEmpty()) {
+            return yamlColumns;
+        }
+
+        Map<String, ClpColumnHandle> columnMap = new HashMap<>();
+        for (ClpColumnHandle handle : yamlColumns) {
+            columnMap.put(handle.getColumnName(), handle);
+        }
+
+        // Map exposed (user-facing) column names to original (internal) names for aliased metadata columns
+        Map<String, String> exposedToOriginalMap = splitMetadataConfig.getExposedToOriginalMapping(schemaTableName);
+
+        for (Map.Entry<String, Type> entry : metadataColumns.entrySet()) {
+            String exposedColumnName = entry.getKey();
+            Type metadataType = entry.getValue();
+
+            ClpColumnHandle existingColumn = columnMap.get(exposedColumnName);
+            if (existingColumn != null) {
+                // Column exists in YAML: allow if types match (YAML definition wins), error if types conflict
+                if (!existingColumn.getColumnType().equals(metadataType)) {
+                    throw new PrestoException(
+                            CLP_UNSUPPORTED_TABLE_SCHEMA_YAML,
+                            format("Column '%s' in table %s.%s has conflicting type definitions: " +
+                                    "YAML defines %s but split metadata config defines %s",
+                                    exposedColumnName,
+                                    schemaTableName.getSchemaName(),
+                                    schemaTableName.getTableName(),
+                                    existingColumn.getColumnType(),
+                                    metadataType));
+                }
+            }
+            else {
+                String originalColumnName = exposedToOriginalMap.getOrDefault(exposedColumnName, exposedColumnName);
+                ClpColumnHandle metadataColumnHandle = new ClpColumnHandle(
+                        exposedColumnName,
+                        originalColumnName,
+                        metadataType);
+                columnMap.put(exposedColumnName, metadataColumnHandle);
+                log.debug("Added metadata column '%s' to table %s.%s",
+                        exposedColumnName, schemaTableName.getSchemaName(), schemaTableName.getTableName());
+            }
+        }
+
+        return ImmutableList.copyOf(columnMap.values());
     }
 
     @Override
     public List<ClpTableHandle> listTableHandles(String schemaName)
     {
-        // Check if YAML path is configured
         if (config.getMetadataYamlPath() == null) {
             log.warn("Metadata YAML path not configured");
             return Collections.emptyList();
@@ -196,7 +272,6 @@ public class ClpYamlMetadataProvider
         Path tablesSchemaPath = Paths.get(config.getMetadataYamlPath());
 
         try {
-            // Use the shared yamlMapper for better performance
             Map<String, Object> root = yamlMapper.readValue(new File(tablesSchemaPath.toString()),
                     new TypeReference<HashMap<String, Object>>() {});
 
@@ -252,26 +327,39 @@ public class ClpYamlMetadataProvider
         return Collections.emptyList();
     }
 
+    /**
+     * Recursively collects column names and type codes from a nested YAML structure.
+     * <p>
+     * Supports three YAML patterns:
+     * - Leaf node (Number): single type for a column
+     * - List of Numbers: polymorphic column with multiple possible types
+     * - Nested Map: recurses to build dot-notation column names (e.g., "parent.child")
+     *
+     * @param node current node in the YAML tree being traversed
+     * @param prefix accumulated column name prefix from parent nodes
+     * @param namesBuilder accumulates column names in parallel with types
+     * @param typesBuilder accumulates type codes as bytes
+     */
     private void collectTypes(Object node, String prefix, ImmutableList.Builder<String> namesBuilder, ImmutableList.Builder<Byte> typesBuilder)
     {
         if (node instanceof Number) {
+            // Leaf node: single type for this column
             namesBuilder.add(prefix);
             typesBuilder.add(((Number) node).byteValue());
             return;
         }
         if (node instanceof List) {
+            // Polymorphic column: same column name with multiple type possibilities
             for (Number type : (List<Number>) node) {
                 namesBuilder.add(prefix);
                 typesBuilder.add(type.byteValue());
             }
             return;
         }
+        // Nested structure: recurse and build dot-notation names
         for (Map.Entry<String, Object> entry : ((Map<String, Object>) node).entrySet()) {
-            if (!prefix.isEmpty()) {
-                collectTypes(entry.getValue(), format("%s.%s", prefix, entry.getKey()), namesBuilder, typesBuilder);
-                continue;
-            }
-            collectTypes(entry.getValue(), entry.getKey(), namesBuilder, typesBuilder);
+            String nextPrefix = prefix.isEmpty() ? entry.getKey() : format("%s.%s", prefix, entry.getKey());
+            collectTypes(entry.getValue(), nextPrefix, namesBuilder, typesBuilder);
         }
     }
 }

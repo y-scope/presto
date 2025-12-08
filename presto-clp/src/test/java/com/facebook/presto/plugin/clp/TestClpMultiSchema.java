@@ -13,9 +13,13 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.common.type.TypeManager;
+import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpYamlMetadataProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.google.common.collect.ImmutableSet;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.File;
@@ -24,6 +28,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
+import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
 import static com.facebook.presto.plugin.clp.ClpConfig.MetadataProviderType.YAML;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static org.testng.Assert.assertEquals;
@@ -31,6 +36,19 @@ import static org.testng.Assert.assertTrue;
 
 public class TestClpMultiSchema
 {
+    private TypeManager typeManager;
+
+    @BeforeClass
+    public void setup()
+    {
+        FunctionAndTypeManager functionAndTypeManager = createTestFunctionAndTypeManager();
+        typeManager = functionAndTypeManager;
+    }
+
+    private ClpSplitMetadataConfig createSplitMetadataConfig(ClpConfig config)
+    {
+        return new ClpSplitMetadataConfig(config, typeManager);
+    }
     @Test
     public void testSingleSchemaDiscovery() throws IOException
     {
@@ -49,7 +67,7 @@ public class TestClpMultiSchema
                 .setMetadataProviderType(YAML)
                 .setMetadataYamlPath(tempFile.getAbsolutePath());
 
-        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config);
+        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config, createSplitMetadataConfig(config));
         List<String> schemas = provider.listSchemaNames();
 
         assertEquals(schemas.size(), 1);
@@ -77,7 +95,7 @@ public class TestClpMultiSchema
                 .setMetadataProviderType(YAML)
                 .setMetadataYamlPath(tempFile.getAbsolutePath());
 
-        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config);
+        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config, createSplitMetadataConfig(config));
         List<String> schemas = provider.listSchemaNames();
 
         assertEquals(schemas.size(), 3);
@@ -94,7 +112,7 @@ public class TestClpMultiSchema
                 .setMetadataProviderType(YAML);
         // Note: not setting metadataYamlPath
 
-        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config);
+        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config, createSplitMetadataConfig(config));
         List<String> schemas = provider.listSchemaNames();
 
         assertEquals(schemas.size(), 1);
@@ -108,7 +126,7 @@ public class TestClpMultiSchema
                 .setMetadataProviderType(YAML)
                 .setMetadataYamlPath("/nonexistent/path/to/metadata.yaml");
 
-        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config);
+        ClpMetadataProvider provider = new ClpYamlMetadataProvider(config, createSplitMetadataConfig(config));
         List<String> schemas = provider.listSchemaNames();
 
         assertEquals(schemas.size(), 1);

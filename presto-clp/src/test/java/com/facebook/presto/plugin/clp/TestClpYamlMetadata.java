@@ -69,13 +69,14 @@ public class TestClpYamlMetadata
                 .setMetadataDbUrl(PINOT_BROKER_URL)
                 .setMetadataProviderType(YAML)
                 .setMetadataYamlPath(tablesSchemaPath);
-        ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config);
+        ClpSplitMetadataConfig splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
+        ClpMetadataProvider metadataProvider = new ClpYamlMetadataProvider(config, splitMetadataConfig);
         metadata = new ClpMetadata(config, metadataProvider);
         clpSplitProvider = new ClpPinotSplitProvider(
                 config,
                 functionAndTypeManager,
                 standardFunctionResolution,
-                new ClpSplitMetadataConfig(config, functionAndTypeManager));
+                splitMetadataConfig);
     }
 
     @Test
