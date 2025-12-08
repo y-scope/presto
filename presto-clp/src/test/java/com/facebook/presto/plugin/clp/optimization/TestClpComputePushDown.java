@@ -54,6 +54,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 @Test(singleThreaded = true)
@@ -294,7 +295,6 @@ public class TestClpComputePushDown
                 TupleDomain.all(),
                 Optional.empty());
 
-        // Verify that the optimizer completes successfully and skips the range-bound column
         PlanNode optimized = optimizer.optimize(
                 originalScan,
                 new SessionHolder().getConnectorSession(),
@@ -304,11 +304,7 @@ public class TestClpComputePushDown
         TableScanNode rewrittenScan = (TableScanNode) optimized;
 
         // Verify that the layout is NOT present (since the only metadata column was range-bound and skipped)
-        if (rewrittenScan.getTable().getLayout().isPresent()) {
-            ClpTableLayoutHandle layout = (ClpTableLayoutHandle) rewrittenScan.getTable().getLayout().get();
-            Set<String> metadataProjections = layout.getOrInitializeSplitMetadataColumnNames();
-            assertTrue(metadataProjections.isEmpty(),
-                    "Range-bound columns should be skipped from metadata projection");
-        }
+        assertFalse(rewrittenScan.getTable().getLayout().isPresent(),
+                "Layout should not be present when only range-bound columns are projected");
     }
 }

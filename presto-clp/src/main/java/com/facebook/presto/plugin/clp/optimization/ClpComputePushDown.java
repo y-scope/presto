@@ -149,7 +149,7 @@ public class ClpComputePushDown
                     // After extracting values from the metadata database, these will be mapped back to exposed names
                     // for projection.
                     String originalColumnName = exposedToOriginalMap.get(columnName);
-                    // Skip retreiving any value for the range-bound columns; currently, the expected behavior is to
+                    // Skip retrieving any value for the range-bound columns; currently, the expected behavior is to
                     // return NULL for these columns if projected.
                     if (metadataColumnsWithRangeBound.contains(originalColumnName)) {
                         continue;
