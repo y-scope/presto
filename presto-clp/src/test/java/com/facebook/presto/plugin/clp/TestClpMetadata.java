@@ -19,6 +19,7 @@ import com.facebook.presto.plugin.clp.metadata.ClpMetadataProvider;
 import com.facebook.presto.plugin.clp.metadata.ClpMySqlMetadataProvider;
 import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
 import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
@@ -29,6 +30,10 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.FileNotFoundException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Optional;
 
@@ -36,6 +41,7 @@ import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
+import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
 import static com.facebook.presto.plugin.clp.ClpMetadata.DEFAULT_SCHEMA_NAME;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
@@ -54,7 +60,7 @@ public class TestClpMetadata
     private ClpMetadata metadata;
 
     @BeforeMethod
-    public void setUp()
+    public void setUp() throws FileNotFoundException, URISyntaxException
     {
         mockMetadataDatabase = ClpMockMetadataDatabase
                 .builder()
@@ -83,7 +89,15 @@ public class TestClpMetadata
                 .setMetadataDbUser(mockMetadataDatabase.getUsername())
                 .setMetadataDbPassword(mockMetadataDatabase.getPassword())
                 .setMetadataTablePrefix(mockMetadataDatabase.getTablePrefix());
-        ClpMetadataProvider metadataProvider = new ClpMySqlMetadataProvider(config);
+
+        URL resource = getClass().getClassLoader().getResource("test-mysql-split-metadata.json");
+        if (resource == null) {
+            throw new FileNotFoundException("test-mysql-split-metadata.json not found in resources");
+        }
+
+        config.setSplitMetadataConfigPath(Paths.get(resource.toURI()).toAbsolutePath().toString());
+        ClpMetadataProvider metadataProvider =
+                new ClpMySqlMetadataProvider(config, new ClpSplitMetadataConfig(config, createTestFunctionAndTypeManager()));
         metadata = new ClpMetadata(config, metadataProvider);
     }
 
@@ -115,6 +129,7 @@ public class TestClpMetadata
         ClpTableHandle clpTableHandle = (ClpTableHandle) metadata.getTableHandle(SESSION, new SchemaTableName(DEFAULT_SCHEMA_NAME, TABLE_NAME));
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(SESSION, clpTableHandle);
         ImmutableSet<ColumnMetadata> columnMetadata = ImmutableSet.<ColumnMetadata>builder()
+                // data columns
                 .add(ColumnMetadata.builder()
                         .setName("a_bigint")
                         .setType(BIGINT)
@@ -148,6 +163,17 @@ public class TestClpMetadata
                                 RowType.field("g",
                                         RowType.from(ImmutableList.of(
                                                 RowType.field("h", new ArrayType(VARCHAR))))))))
+                        .setNullable(true)
+                        .build())
+                // metadata columns
+                .add(ColumnMetadata.builder()
+                        .setName("level")
+                        .setType(BIGINT)
+                        .setNullable(true)
+                        .build())
+                .add(ColumnMetadata.builder()
+                        .setName("author")
+                        .setType(VARCHAR)
                         .setNullable(true)
                         .build())
                 .build();

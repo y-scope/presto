@@ -20,12 +20,13 @@ import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpMetadata;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.ConnectorPlanRewriter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -42,19 +43,16 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.facebook.presto.plugin.clp.ClpConnectorFactory.CONNECTOR_NAME;
 import static com.facebook.presto.spi.ConnectorPlanRewriter.rewriteWith;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
@@ -66,49 +64,33 @@ public class ClpComputePushDown
     private static final Logger log = Logger.get(ClpComputePushDown.class);
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpSplitFilterProvider splitFilterProvider;
+    private final ClpSplitMetadataConfig metadataConfig;
 
-    public ClpComputePushDown(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitFilterProvider splitFilterProvider)
+    public ClpComputePushDown(
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig metadataConfig)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.splitFilterProvider = requireNonNull(splitFilterProvider, "splitFilterProvider is null");
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
     }
 
     @Override
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
         Rewriter rewriter = new Rewriter(idAllocator);
-        PlanNode optimizedPlanNode = rewriteWith(rewriter, maxSubplan);
-
-        // Throw exception if any required split filters are missing
-        if (!rewriter.tableScopeSet.isEmpty() && !rewriter.hasVisitedFilter) {
-            splitFilterProvider.checkContainsRequiredFilters(rewriter.tableScopeSet, ImmutableSet.of());
-        }
-        return optimizedPlanNode;
+        return rewriteWith(rewriter, maxSubplan);
     }
 
     private class Rewriter
             extends ConnectorPlanRewriter<Void>
     {
         private final PlanNodeIdAllocator idAllocator;
-        private final Set<String> tableScopeSet;
-        private boolean hasVisitedFilter;
 
         public Rewriter(PlanNodeIdAllocator idAllocator)
         {
             this.idAllocator = idAllocator;
-            hasVisitedFilter = false;
-            tableScopeSet = new HashSet<>();
-        }
-
-        @Override
-        public PlanNode visitTableScan(TableScanNode node, RewriteContext<Void> context)
-        {
-            TableHandle tableHandle = node.getTable();
-            ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
-            tableScopeSet.add(format("%s.%s", CONNECTOR_NAME, clpTableHandle.getSchemaTableName()));
-            return super.visitTableScan(node, context);
         }
 
         @Override
@@ -152,7 +134,7 @@ public class ClpComputePushDown
             boolean metadataOnly = false;
             Optional<ConnectorTableLayoutHandle> layout = tableHandle.getLayout();
             Optional<String> kql = Optional.empty();
-            Optional<String> metadataSql = Optional.empty();
+            Optional<RowExpression> metadataSql = Optional.empty();
             Optional<ClpTopNSpec> existingTopN = Optional.empty();
             ClpTableHandle clpTableHandle = null;
 
@@ -160,7 +142,7 @@ public class ClpComputePushDown
                 ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
                 metadataOnly = cl.isMetadataQueryOnly();
                 kql = cl.getKqlQuery();
-                metadataSql = cl.getMetadataSql();
+                metadataSql = cl.getMetadataExpression();
                 existingTopN = cl.getTopN();
                 clpTableHandle = cl.getTable();
             }
@@ -185,11 +167,13 @@ public class ClpComputePushDown
                     return node.replaceChildren(ImmutableList.of(rewrittenSource));
                 }
 
-                String tableScope = CONNECTOR_NAME + "." + (clpTableHandle != null ?
-                        clpTableHandle.getSchemaTableName().toString() : ClpMetadata.DEFAULT_SCHEMA_NAME);
+                String tableScope = ClpMetadata.DEFAULT_SCHEMA_NAME;
+                if (clpTableHandle != null) {
+                    SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+                    tableScope = format("%s.%s", schemaTableName.getSchemaName(), schemaTableName.getTableName());
+                }
 
-                List<String> remappedColumnName = splitFilterProvider.remapColumnName(tableScope, columnNameOpt.get());
-                newOrderings.add(new ClpTopNSpec.Ordering(remappedColumnName, toClpOrder(ord.getSortOrder())));
+                newOrderings.add(new ClpTopNSpec.Ordering(columnNameOpt.get(), toClpOrder(ord.getSortOrder())));
             }
 
             if (existingTopN.isPresent()) {
@@ -273,47 +257,33 @@ public class ClpComputePushDown
 
         private PlanNode processFilter(FilterNode filterNode, TableScanNode tableScanNode)
         {
-            hasVisitedFilter = true;
-
             TableHandle tableHandle = tableScanNode.getTable();
             ClpTableHandle clpTableHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
 
-            String tableScope = CONNECTOR_NAME + "." + clpTableHandle.getSchemaTableName().toString();
             Map<VariableReferenceExpression, ColumnHandle> assignments = tableScanNode.getAssignments();
-            Set<String> metadataColumnNames = splitFilterProvider.getColumnNames(tableScope);
-
+            SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+            Set<String> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName).keySet();
+            Set<String> dataColumnsWithRangeBounds = metadataConfig.getDataColumnsWithRangeBounds(schemaTableName);
             ClpExpression clpExpression = filterNode.getPredicate().accept(
                     new ClpFilterToKqlConverter(
                             functionResolution,
                             functionManager,
                             assignments,
-                            metadataColumnNames),
+                            metadataColumns,
+                            dataColumnsWithRangeBounds),
                     null);
-
             Optional<String> kqlQuery = clpExpression.getPushDownExpression();
-            Optional<String> metadataSqlQuery = clpExpression.getMetadataSqlQuery();
+            Optional<RowExpression> metadataExpression = clpExpression.getMetadataExpression();
             Optional<RowExpression> remainingPredicate = clpExpression.getRemainingExpression();
+            Set<String> pushDownVariables = clpExpression.getPushDownVariables();
+            boolean allInMetadata = pushDownVariables.stream().allMatch(
+                    v -> metadataColumns.contains(v) || dataColumnsWithRangeBounds.contains(v));
 
-            // Perform required metadata filter checks before handling the KQL query (if kqlQuery
-            // isn't present, we'll return early, skipping subsequent checks).
-            splitFilterProvider.checkContainsRequiredFilters(ImmutableSet.of(tableScope), clpExpression.getPushDownVariables());
-            boolean hasMetadataFilter = metadataSqlQuery.isPresent() && !metadataSqlQuery.get().isEmpty();
-            if (hasMetadataFilter) {
-                metadataSqlQuery = Optional.of(splitFilterProvider.remapSplitFilterPushDownExpression(tableScope, metadataSqlQuery.get()));
-                log.debug("Metadata SQL query: %s", metadataSqlQuery.get());
-            }
-
-            if (kqlQuery.isPresent() || hasMetadataFilter) {
-                if (kqlQuery.isPresent()) {
-                    log.debug("KQL query: %s", kqlQuery.get());
-                }
+            if (kqlQuery.isPresent() || metadataExpression.isPresent()) {
+                kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                        clpTableHandle,
-                        kqlQuery,
-                        metadataSqlQuery,
-                        metadataColumnNames.equals(clpExpression.getPushDownVariables()),
-                        Optional.empty());
+                        clpTableHandle, kqlQuery, metadataExpression, allInMetadata, Optional.empty());
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,
@@ -353,7 +323,7 @@ public class ClpComputePushDown
             for (int i = 0; i < a.size(); i++) {
                 ClpTopNSpec.Ordering x = a.get(i);
                 ClpTopNSpec.Ordering y = b.get(i);
-                if (!Objects.equals(x.getColumns(), y.getColumns())) {
+                if (!Objects.equals(x.getColumn(), y.getColumn())) {
                     return false;
                 }
                 if (x.getOrder() != y.getOrder()) {

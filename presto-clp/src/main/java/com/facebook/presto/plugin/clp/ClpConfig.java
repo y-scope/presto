@@ -33,10 +33,8 @@ public class ClpConfig
     private long metadataRefreshInterval = 60;
     private long metadataExpireInterval = 600;
 
+    private String splitMetadataConfigPath;
     private String metadataYamlPath;
-
-    private String splitFilterConfig;
-    private SplitFilterProviderType splitFilterProviderType = SplitFilterProviderType.MYSQL;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
 
     public boolean isPolymorphicTypeEnabled()
@@ -165,27 +163,15 @@ public class ClpConfig
         return this;
     }
 
-    public String getSplitFilterConfig()
+    public String getSplitMetadataConfigPath()
     {
-        return splitFilterConfig;
+        return splitMetadataConfigPath;
     }
 
-    @Config("clp.split-filter-config")
-    public ClpConfig setSplitFilterConfig(String splitFilterConfig)
+    @Config("clp.split-metadata-config-path")
+    public ClpConfig setSplitMetadataConfigPath(String splitMetadataConfigPath)
     {
-        this.splitFilterConfig = splitFilterConfig;
-        return this;
-    }
-
-    public SplitFilterProviderType getSplitFilterProviderType()
-    {
-        return splitFilterProviderType;
-    }
-
-    @Config("clp.split-filter-provider-type")
-    public ClpConfig setSplitFilterProviderType(SplitFilterProviderType splitFilterProviderType)
-    {
-        this.splitFilterProviderType = splitFilterProviderType;
+        this.splitMetadataConfigPath = splitMetadataConfigPath;
         return this;
     }
 
@@ -205,13 +191,6 @@ public class ClpConfig
     {
         MYSQL,
         YAML
-    }
-
-    public enum SplitFilterProviderType
-    {
-        MYSQL,
-        PINOT,
-        PINOT_UBER
     }
 
     public enum SplitProviderType

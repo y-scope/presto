@@ -14,15 +14,28 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.plugin.clp.ClpConfig;
+import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
+import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.function.FunctionMetadataManager;
+import com.facebook.presto.spi.function.StandardFunctionResolution;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
+import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -43,9 +56,82 @@ public class ClpUberPinotSplitProvider
      * @param config the CLP configuration
      */
     @Inject
-    public ClpUberPinotSplitProvider(ClpConfig config)
+    public ClpUberPinotSplitProvider(
+            ClpConfig config,
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig metadataConfig)
     {
-        super(config);
+        super(config, functionManager, functionResolution, metadataConfig);
+    }
+
+    @Override
+    public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
+    {
+        ClpTableHandle clpTableHandle = clpTableLayoutHandle.getTable();
+        Optional<ClpTopNSpec> topNSpecOptional = clpTableLayoutHandle.getTopN();
+        String tableName = inferMetadataTableName(clpTableHandle);
+        Optional<String> metadataFilterQuery = Optional.empty();
+
+        SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
+        Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
+        if (clpTableLayoutHandle.getMetadataExpression().isPresent()) {
+            ClpUberPinotSplitMetadataExpressionConverter converter =
+                    new ClpUberPinotSplitMetadataExpressionConverter(
+                            functionManager,
+                            functionResolution,
+                            metadataConfig.getExposedToOriginalMapping(schemaTableName),
+                            dataColumnRangeMapping,
+                            metadataConfig.getRequiredColumns(schemaTableName));
+            metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression().get()));
+        }
+        else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {
+            throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "No required columns specified in the filter");
+        }
+
+        try {
+            ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
+            if (topNSpecOptional.isPresent()) {
+                ClpTopNSpec topNSpec = topNSpecOptional.get();
+                // Only handles one range metadata column for now
+                ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
+                String columnName = ordering.getColumn();
+                String lowerBound = columnName;
+                String upperBound = columnName;
+                if (dataColumnRangeMapping.containsKey(columnName)) {
+                    lowerBound = dataColumnRangeMapping.get(columnName).getOrDefault("lowerBound", lowerBound);
+                    upperBound = dataColumnRangeMapping.get(columnName).getOrDefault("upperBound", upperBound);
+                }
+
+                String dir = (ordering.getOrder() == ClpTopNSpec.Order.ASC) ? "ASC" : "DESC";
+                String splitMetaQuery = buildSplitMetadataQuery(tableName, metadataFilterQuery.orElse("1 = 1"), upperBound, dir);
+                List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(splitMetaQuery, ordering);
+                List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
+
+                for (ArchiveMeta a : selected) {
+                    String splitPath = a.id;
+                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+                }
+                List<ClpSplit> filteredSplits = splits.build();
+                log.debug("Number of topN filtered splits: %s", filteredSplits.size());
+                return filteredSplits;
+            }
+
+            String splitQuery = buildSplitSelectionQuery(tableName, metadataFilterQuery.orElse("1 = 1"));
+            List<JsonNode> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+            for (JsonNode row : splitRows) {
+                String splitPath = row.elements().next().asText();
+                splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery()));
+            }
+
+            List<ClpSplit> filteredSplits = splits.build();
+            log.debug("Number of filtered splits: %s", filteredSplits.size());
+            return filteredSplits;
+        }
+        catch (Exception e) {
+            log.error(e, "Failed to list splits for table %s", tableName);
+            throw new RuntimeException(format("Failed to list splits for table %s: %s", tableName, e.getMessage()), e);
+        }
     }
 
     /**

@@ -17,6 +17,7 @@ import com.facebook.airlift.log.Logger;
 import com.facebook.presto.plugin.clp.ClpColumnHandle;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.SchemaTableName;
 import com.google.common.collect.ImmutableList;
 
@@ -28,8 +29,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
 
 public class ClpMySqlMetadataProvider
@@ -56,9 +59,10 @@ public class ClpMySqlMetadataProvider
     private static final Logger log = Logger.get(ClpMySqlMetadataProvider.class);
 
     private final ClpConfig config;
+    private final ClpSplitMetadataConfig splitMetadataConfig;
 
     @Inject
-    public ClpMySqlMetadataProvider(ClpConfig config)
+    public ClpMySqlMetadataProvider(ClpConfig config, ClpSplitMetadataConfig splitMetadataConfig)
     {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -68,6 +72,7 @@ public class ClpMySqlMetadataProvider
             throw new RuntimeException("MySQL JDBC driver not found", e);
         }
         this.config = config;
+        this.splitMetadataConfig = splitMetadataConfig;
     }
 
     @Override
@@ -87,7 +92,16 @@ public class ClpMySqlMetadataProvider
         catch (SQLException e) {
             log.warn("Failed to load table schema for %s: %s", schemaTableName.getTableName(), e);
         }
-        return schemaTree.collectColumnHandles();
+
+        List<ClpColumnHandle> metadataColumns =
+                splitMetadataConfig.getMetadataColumns(schemaTableName).entrySet().stream()
+                .map(entry -> new ClpColumnHandle(entry.getKey(), entry.getValue()))
+                .collect(toImmutableList());
+        List<ClpColumnHandle> dataColumns = schemaTree.collectColumnHandles();
+        List<ClpColumnHandle> allColumns = new ArrayList<>(dataColumns);
+        allColumns.addAll(metadataColumns);
+
+        return allColumns;
     }
 
     @Override

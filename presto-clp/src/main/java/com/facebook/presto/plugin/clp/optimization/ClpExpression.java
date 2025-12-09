@@ -33,9 +33,9 @@ public class ClpExpression
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
 
-    // Optional SQL string extracted from the query plan, which is only made of up of columns in
+    // Optional SQL expression extracted from the query plan, which is only made of up of columns in
     // CLP's metadata database.
-    private final Optional<String> metadataSqlQuery;
+    private final Optional<RowExpression> metadataExpression;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
@@ -45,12 +45,12 @@ public class ClpExpression
 
     public ClpExpression(
             String pushDownExpression,
-            String metadataSqlQuery,
+            RowExpression metadataExpression,
             RowExpression remainingExpression,
             Set<String> pushDownVariables)
     {
         this.pushDownExpression = Optional.ofNullable(pushDownExpression);
-        this.metadataSqlQuery = Optional.ofNullable(metadataSqlQuery);
+        this.metadataExpression = Optional.ofNullable(metadataExpression);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
         this.pushDownVariables = ImmutableSet.copyOf(pushDownVariables);
     }
@@ -89,11 +89,11 @@ public class ClpExpression
      * metadata SQL string.
      *
      * @param pushDownExpression
-     * @param metadataSqlQuery
+     * @param metadataExpression
      */
-    public ClpExpression(String pushDownExpression, String metadataSqlQuery)
+    public ClpExpression(String pushDownExpression, RowExpression metadataExpression)
     {
-        this(pushDownExpression, metadataSqlQuery, null, ImmutableSet.of());
+        this(pushDownExpression, metadataExpression, null, ImmutableSet.of());
     }
 
     /**
@@ -101,12 +101,12 @@ public class ClpExpression
      * metadata SQL string.
      *
      * @param pushDownExpression
-     * @param metadataSqlQuery
+     * @param metadataExpression
      * @param pushDownVariables
      */
-    public ClpExpression(String pushDownExpression, String metadataSqlQuery, Set<String> pushDownVariables)
+    public ClpExpression(String pushDownExpression, RowExpression metadataExpression, Set<String> pushDownVariables)
     {
-        this(pushDownExpression, metadataSqlQuery, null, pushDownVariables);
+        this(pushDownExpression, metadataExpression, null, pushDownVariables);
     }
 
     /**
@@ -124,9 +124,9 @@ public class ClpExpression
         return pushDownExpression;
     }
 
-    public Optional<String> getMetadataSqlQuery()
+    public Optional<RowExpression> getMetadataExpression()
     {
-        return metadataSqlQuery;
+        return metadataExpression;
     }
 
     public Optional<RowExpression> getRemainingExpression()

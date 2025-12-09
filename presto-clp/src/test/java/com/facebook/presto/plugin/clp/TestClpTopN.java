@@ -22,12 +22,15 @@ import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsProvider;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.plugin.clp.mockdb.ClpMockMetadataDatabase;
+import com.facebook.presto.plugin.clp.mockdb.table.ArchivesTableRows;
+import com.facebook.presto.plugin.clp.mockdb.table.ColumnMetadataTableRows;
 import com.facebook.presto.plugin.clp.optimization.ClpComputePushDown;
 import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
 import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec.Order;
+import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
-import com.facebook.presto.plugin.clp.split.filter.ClpMySqlSplitFilterProvider;
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.VariableAllocator;
@@ -41,6 +44,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.Plan;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.assertions.MatchResult;
 import com.facebook.presto.sql.planner.assertions.Matcher;
 import com.facebook.presto.sql.planner.assertions.PlanAssert;
@@ -54,7 +58,6 @@ import com.facebook.presto.testing.LocalQueryRunner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.math3.util.Pair;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -71,14 +74,6 @@ import java.util.Set;
 import static com.facebook.presto.common.Utils.checkState;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.ARCHIVES_STORAGE_DIRECTORY_BASE;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_PASSWORD;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_TABLE_PREFIX;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_URL_TEMPLATE;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.METADATA_DB_USER;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.getDbHandle;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupMetadata;
-import static com.facebook.presto.plugin.clp.ClpMetadataDbSetUp.setupSplit;
 import static com.facebook.presto.plugin.clp.ClpSplit.SplitType.ARCHIVE;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
@@ -92,85 +87,119 @@ import static com.facebook.presto.sql.planner.assertions.MatchResult.match;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
-import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
 
 @Test(singleThreaded = true)
 public class TestClpTopN
         extends TestClpQueryBase
 {
+    private static final Logger log = Logger.get(TestClpTopN.class);
     private final Session defaultSession = testSessionBuilder()
             .setCatalog("clp")
             .setSchema(ClpMetadata.DEFAULT_SCHEMA_NAME)
             .build();
 
-    private ClpMetadataDbSetUp.DbHandle dbHandle;
-    ClpTableHandle table;
-
-    private static final Logger log = Logger.get(TestClpTopN.class);
-
+    private ClpMockMetadataDatabase mockMetadataDatabase;
+    private ClpTableHandle table;
     private LocalQueryRunner localQueryRunner;
+    private ClpSplitMetadataConfig clpSplitMetadataConfig;
     private FunctionAndTypeManager functionAndTypeManager;
     private FunctionResolution functionResolution;
     private ClpSplitProvider splitProvider;
-    private ClpSplitFilterProvider splitFilterProvider;
     private PlanNodeIdAllocator planNodeIdAllocator;
     private VariableAllocator variableAllocator;
 
     @BeforeMethod
     public void setUp()
+            throws URISyntaxException
     {
-        dbHandle = getDbHandle("topn_query_testdb");
         final String tableName = "test";
-        final String tablePath = ARCHIVES_STORAGE_DIRECTORY_BASE + tableName;
-        table = new ClpTableHandle(new SchemaTableName("default", tableName), tablePath);
+        table = new ClpTableHandle(new SchemaTableName("default", tableName), "test");
 
-        setupMetadata(dbHandle,
+        mockMetadataDatabase = ClpMockMetadataDatabase.builder().build();
+        mockMetadataDatabase.addTableToDatasetsTableIfNotExist(ImmutableList.of(tableName));
+        mockMetadataDatabase.addColumnMetadata(ImmutableMap.of(
+                tableName,
+                new ColumnMetadataTableRows(
+                        ImmutableList.of(
+                                "msg.timestamp",
+                                "city.Name",
+                                "city.Region.Id",
+                                "city.Region.Name",
+                                "fare",
+                                "isHoliday"),
+                        ImmutableList.of(
+                                Integer,
+                                ClpString,
+                                Integer,
+                                VarString,
+                                Float,
+                                Boolean))));
+
+        ImmutableList.Builder<String> idsBuilder = ImmutableList.builder();
+        ImmutableList.Builder<Long> beginTimestampsBuilder = ImmutableList.builder();
+        ImmutableList.Builder<Long> endTimestampsBuilder = ImmutableList.builder();
+
+        idsBuilder.add("0");
+        beginTimestampsBuilder.add(0L);
+        endTimestampsBuilder.add(100L);
+
+        idsBuilder.add("1");
+        beginTimestampsBuilder.add(50L);
+        endTimestampsBuilder.add(150L);
+
+        idsBuilder.add("2");
+        beginTimestampsBuilder.add(100L);
+        endTimestampsBuilder.add(200L);
+
+        idsBuilder.add("3");
+        beginTimestampsBuilder.add(201L);
+        endTimestampsBuilder.add(300L);
+
+        idsBuilder.add("4");
+        beginTimestampsBuilder.add(301L);
+        endTimestampsBuilder.add(400L);
+
+        ImmutableMap<String, ArchivesTableRows> tableSplits =
                 ImmutableMap.of(
                         tableName,
-                        ImmutableList.of(
-                                new Pair<>("msg.timestamp", Integer),
-                                new Pair<>("city.Name", ClpString),
-                                new Pair<>("city.Region.Id", Integer),
-                                new Pair<>("city.Region.Name", VarString),
-                                new Pair<>("fare", Float),
-                                new Pair<>("isHoliday", Boolean))));
+                        new ArchivesTableRows(
+                                idsBuilder.build(),
+                                beginTimestampsBuilder.build(),
+                                endTimestampsBuilder.build()));
 
-        splitProvider = setupSplit(dbHandle,
-                ImmutableMap.of(
-                        tableName,
-                        ImmutableList.of(
-                                new ClpMetadataDbSetUp.ArchivesTableRow("0", 100, 0, 100),
-                                new ClpMetadataDbSetUp.ArchivesTableRow("1", 100, 50, 150),
-                                new ClpMetadataDbSetUp.ArchivesTableRow("2", 100, 100, 200),
-                                new ClpMetadataDbSetUp.ArchivesTableRow("3", 100, 201, 300),
-                                new ClpMetadataDbSetUp.ArchivesTableRow("4", 100, 301, 400))));
+        mockMetadataDatabase.addTableToDatasetsTableIfNotExist(ImmutableList.of(tableName));
+        mockMetadataDatabase.addSplits(tableSplits);
 
-        URL resource = getClass().getClassLoader().getResource("test-topn-split-filter.json");
+        URL resource = getClass().getClassLoader().getResource("test-topn-split-metadata.json");
         if (resource == null) {
-            log.error("test-topn-split-filter.json not found in resources");
-            return;
-        }
-
-        String filterConfigPath;
-        try {
-            filterConfigPath = Paths.get(resource.toURI()).toAbsolutePath().toString();
-        }
-        catch (URISyntaxException e) {
-            log.error("test-topn-split-filter.json not found in resources");
+            log.error("test-topn-split-metadata.json not found in resources");
             return;
         }
 
         localQueryRunner = new LocalQueryRunner(defaultSession);
         localQueryRunner.createCatalog("clp", new ClpConnectorFactory(), ImmutableMap.of(
-                "clp.metadata-db-url", format(METADATA_DB_URL_TEMPLATE, dbHandle.getDbPath()),
-                "clp.metadata-db-user", METADATA_DB_USER,
-                "clp.metadata-db-password", METADATA_DB_PASSWORD,
-                "clp.metadata-table-prefix", METADATA_DB_TABLE_PREFIX));
+                "clp.metadata-db-url", mockMetadataDatabase.getUrl(),
+                "clp.metadata-db-user", mockMetadataDatabase.getUsername(),
+                "clp.metadata-db-password", mockMetadataDatabase.getPassword(),
+                "clp.metadata-table-prefix", mockMetadataDatabase.getTablePrefix()));
         localQueryRunner.getMetadata().registerBuiltInFunctions(extractFunctions(new ClpPlugin().getFunctions()));
         functionAndTypeManager = localQueryRunner.getMetadata().getFunctionAndTypeManager();
         functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
-        splitFilterProvider = new ClpMySqlSplitFilterProvider(new ClpConfig().setSplitFilterConfig(filterConfigPath));
+        ClpConfig config = new ClpConfig()
+                .setPolymorphicTypeEnabled(true)
+                .setMetadataDbUrl(mockMetadataDatabase.getUrl())
+                .setMetadataDbUser(mockMetadataDatabase.getUsername())
+                .setMetadataDbPassword(mockMetadataDatabase.getPassword())
+                .setMetadataTablePrefix(mockMetadataDatabase.getTablePrefix())
+                .setSplitMetadataConfigPath(Paths.get(resource.toURI()).toAbsolutePath().toString());
+        clpSplitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
+        splitProvider = new ClpMySqlSplitProvider(
+                config,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(config, functionAndTypeManager));
+        SchemaTableName schemaTableName = new SchemaTableName("defualt", "test");
         planNodeIdAllocator = new PlanNodeIdAllocator();
         variableAllocator = new VariableAllocator();
     }
@@ -179,7 +208,9 @@ public class TestClpTopN
     public void tearDown()
     {
         localQueryRunner.close();
-        ClpMetadataDbSetUp.tearDown(dbHandle);
+        if (null != mockMetadataDatabase) {
+            mockMetadataDatabase.teardown();
+        }
     }
 
     @Test
@@ -188,7 +219,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp > 120 AND msg.timestamp < 240 ORDER BY msg.timestamp DESC LIMIT 100",
                 "(msg.timestamp > 120 AND msg.timestamp < 240)",
-                "(end_timestamp > 120 AND begin_timestamp < 240)",
+                "(\"msg.timestamp\" > 120 AND \"msg.timestamp\" < 240)",
                 100,
                 DESC,
                 ImmutableSet.of("1", "2", "3"));
@@ -196,7 +227,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp > 120 AND msg.timestamp < 240 ORDER BY msg.timestamp ASC LIMIT 50",
                 "(msg.timestamp > 120 AND msg.timestamp < 240)",
-                "(end_timestamp > 120 AND begin_timestamp < 240)",
+                "(\"msg.timestamp\" > 120 AND \"msg.timestamp\" < 240)",
                 50,
                 ASC,
                 ImmutableSet.of("1", "2", "3"));
@@ -204,7 +235,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp >= 180 AND msg.timestamp <= 260 ORDER BY msg.timestamp DESC LIMIT 100",
                 "(msg.timestamp >= 180 AND msg.timestamp <= 260)",
-                "(end_timestamp >= 180 AND begin_timestamp <= 260)",
+                "(\"msg.timestamp\" >= 180 AND \"msg.timestamp\" <= 260)",
                 100,
                 DESC,
                 ImmutableSet.of("2", "3"));
@@ -212,7 +243,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp > 250 AND msg.timestamp < 290 ORDER BY msg.timestamp DESC LIMIT 10",
                 "(msg.timestamp > 250 AND msg.timestamp < 290)",
-                "(end_timestamp > 250 AND begin_timestamp < 290)",
+                "(\"msg.timestamp\" > 250 AND \"msg.timestamp\" < 290)",
                 10,
                 DESC,
                 ImmutableSet.of("3"));
@@ -220,7 +251,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp > 1000 AND msg.timestamp < 1100 ORDER BY msg.timestamp DESC LIMIT 10",
                 "(msg.timestamp > 1000 AND msg.timestamp < 1100)",
-                "(end_timestamp > 1000 AND begin_timestamp < 1100)",
+                "(\"msg.timestamp\" > 1000 AND \"msg.timestamp\" < 1100)",
                 10,
                 DESC,
                 ImmutableSet.of());
@@ -228,7 +259,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp <= 300 ORDER BY msg.timestamp DESC LIMIT 1000",
                 "msg.timestamp <= 300",
-                "begin_timestamp <= 300",
+                "\"msg.timestamp\" <= 300",
                 1000,
                 DESC,
                 ImmutableSet.of("0", "1", "2", "3"));
@@ -236,7 +267,7 @@ public class TestClpTopN
         testTopNQueryPlanAndSplits(
                 "SELECT * FROM test WHERE msg.timestamp <= 400 ORDER BY msg.timestamp DESC LIMIT 100",
                 "msg.timestamp <= 400",
-                "begin_timestamp <= 400",
+                "\"msg.timestamp\" <= 400",
                 100,
                 DESC,
                 ImmutableSet.of("3", "4"));
@@ -251,18 +282,21 @@ public class TestClpTopN
                 session,
                 sql,
                 WarningCollector.NOOP);
-        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, splitFilterProvider);
+        ClpComputePushDown optimizer = new ClpComputePushDown(functionAndTypeManager, functionResolution, clpSplitMetadataConfig);
         PlanNode optimizedPlan = optimizer.optimize(plan.getRoot(), session.toConnectorSession(), variableAllocator, planNodeIdAllocator);
         PlanNode optimizedPlanWithUniqueId = freshenIds(optimizedPlan, new PlanNodeIdAllocator());
 
         ClpTableLayoutHandle clpTableLayoutHandle = new ClpTableLayoutHandle(
                 table,
                 Optional.of(kql),
-                Optional.of(metadataSql),
+                Optional.of(getRowExpression(
+                        metadataSql,
+                        TypeProvider.viewOf(ImmutableMap.of("msg.timestamp", BIGINT)),
+                        session)),
                 true,
                 Optional.of(new ClpTopNSpec(
                         limit,
-                        ImmutableList.of(new ClpTopNSpec.Ordering(ImmutableList.of("begin_timestamp", "end_timestamp"), order)))));
+                        ImmutableList.of(new ClpTopNSpec.Ordering("msg.timestamp", order)))));
 
         PlanAssert.assertPlan(
                 session,
