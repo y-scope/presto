@@ -339,8 +339,9 @@ public class ClpFilterToKqlConverter
         // split pruning
         RowExpression metadataExpr = null;
         if (isMetadataColumn || isExposedWithRangeBounds) {
+            Type variableType = metadataConfig.getMetadataColumns(schemaTableName).get(variable);
             VariableReferenceExpression varExpr =
-                    new VariableReferenceExpression(lhs.getSourceLocation(), variable, lhs.getType());
+                    new VariableReferenceExpression(lhs.getSourceLocation(), variable, variableType);
             ConstantExpression lowerConst = (ConstantExpression) lower;
             ConstantExpression upperConst = (ConstantExpression) upper;
 
@@ -352,13 +353,13 @@ public class ClpFilterToKqlConverter
                             new CallExpression(
                                     GREATER_THAN_OR_EQUAL.name(),
                                     standardFunctionResolution.comparisonFunction(
-                                            GREATER_THAN_OR_EQUAL, varExpr.getType(), lowerConst.getType()),
+                                            GREATER_THAN_OR_EQUAL, lhs.getType(), lowerConst.getType()),
                                     BOOLEAN,
                                     ImmutableList.of(varExpr, lowerConst)),
                             new CallExpression(
                                     LESS_THAN_OR_EQUAL.name(),
                                     standardFunctionResolution.comparisonFunction(
-                                            LESS_THAN_OR_EQUAL, varExpr.getType(), upperConst.getType()),
+                                            LESS_THAN_OR_EQUAL, lhs.getType(), upperConst.getType()),
                                     BOOLEAN,
                                     ImmutableList.of(varExpr, upperConst))));
         }
@@ -583,6 +584,7 @@ public class ClpFilterToKqlConverter
         // split pruning
         CallExpression metadataExpression = null;
         if (isMetadataColumn || isExposedWithRangeBounds) {
+            variableType = metadataConfig.getMetadataColumns(schemaTableName).get(variableName);
             metadataExpression = new CallExpression(
                     operator.name(),
                     originalNode.getFunctionHandle(),

@@ -14,9 +14,11 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.Decimals;
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
@@ -122,6 +124,10 @@ public class ClpMySqlSplitMetadataExpressionConverter
                 String variableName = node.getArguments().get(0).accept(this, null);
                 String literalString = node.getArguments().get(1).accept(this, null);
 
+                Type columnType = node.getArguments().get(0).getType();
+                Type literalType = node.getArguments().get(1).getType();
+                literalString = coerceLiteralToColumnType(literalString, columnType, literalType);
+
                 String rewritten = rewriteComparisonWithBounds(variableName, operatorType, literalString);
                 if (rewritten != null) {
                     return rewritten;
@@ -181,8 +187,44 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         String exposed = node.getName();
         seenRequired.add(exposed);
+
+        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        String rangeMapped = exposedToRangeMapping.get(exposed);
+
         Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
-        return exposedToOriginal.getOrDefault(exposed, exposed);
+        String originalName = exposedToOriginal.getOrDefault(exposed, exposed);
+
+        return rangeMapped != null ? rangeMapped : originalName;
+    }
+
+    /**
+     * Coerces a literal string representation to match the expected column type when there is a
+     * type mismatch between the metadata column and the query literal.
+     * <p></p>
+     * This handles cases where:
+     * <ul>
+     *   <li>The column is VARCHAR but the literal is BIGINT: wraps the literal in single quotes
+     *       (e.g., {@code 123} becomes {@code '123'})</li>
+     *   <li>The column is BIGINT but the literal is VARCHAR: strips the surrounding single quotes
+     *       (e.g., {@code '123'} becomes {@code 123})</li>
+     * </ul>
+     *
+     * @param literalString the string representation of the literal value
+     * @param columnType    the type of the metadata column being compared
+     * @param literalType   the type of the literal value in the expression
+     * @return the coerced literal string suitable for SQL generation
+     */
+    protected String coerceLiteralToColumnType(String literalString, Type columnType, Type literalType)
+    {
+        if (columnType instanceof VarcharType && literalType instanceof BigintType) {
+            return "'" + literalString + "'";
+        }
+        if (columnType instanceof BigintType && literalType instanceof VarcharType) {
+            if (literalString.startsWith("'") && literalString.endsWith("'") && literalString.length() >= 2) {
+                return literalString.substring(1, literalString.length() - 1);
+            }
+        }
+        return literalString;
     }
 
     /**
@@ -204,10 +246,8 @@ public class ClpMySqlSplitMetadataExpressionConverter
      */
     protected String rewriteComparisonWithBounds(String variableName, OperatorType operator, String literal)
     {
-        Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
         Map<String, Map<String, String>> dataToMetadataBounds = metadataConfig.getDataColumnRangeMapping(schemaTableName);
-        String original = exposedToOriginal.getOrDefault(variableName, variableName);
-        Map<String, String> bounds = dataToMetadataBounds.get(original);
+        Map<String, String> bounds = dataToMetadataBounds.get(variableName);
         if (bounds == null) {
             return null;
         }
