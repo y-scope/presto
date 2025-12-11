@@ -317,11 +317,11 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
-        // Resolve range-bound column mapping with exposed name
-        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableOpt.get(), lhs.getType());
-        String variable = resolution.getKey();
-        Type variableType = resolution.getValue();
-        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
+        String variable = variableOpt.get();
+        boolean isMetadataColumn =
+                metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
+        boolean isExposedWithRangeBounds =
+                metadataConfig.getExposedToRangeMapping(schemaTableName).containsKey(variable);
 
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
@@ -336,10 +336,12 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(node);
         }
 
+        // split pruning
         RowExpression metadataExpr = null;
-        if (isMetadataColumn || metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variable)) {
+        if (isMetadataColumn || isExposedWithRangeBounds) {
+            Type variableType = metadataConfig.getMetadataColumns(schemaTableName).get(variable);
             VariableReferenceExpression varExpr =
-                    new VariableReferenceExpression(lhs.getSourceLocation(), variable, lhs.getType());
+                    new VariableReferenceExpression(lhs.getSourceLocation(), variable, variableType);
             ConstantExpression lowerConst = (ConstantExpression) lower;
             ConstantExpression upperConst = (ConstantExpression) upper;
 
@@ -351,24 +353,28 @@ public class ClpFilterToKqlConverter
                             new CallExpression(
                                     GREATER_THAN_OR_EQUAL.name(),
                                     standardFunctionResolution.comparisonFunction(
-                                            GREATER_THAN_OR_EQUAL, varExpr.getType(), lowerConst.getType()),
+                                            GREATER_THAN_OR_EQUAL, lhs.getType(), lowerConst.getType()),
                                     BOOLEAN,
                                     ImmutableList.of(varExpr, lowerConst)),
                             new CallExpression(
                                     LESS_THAN_OR_EQUAL.name(),
                                     standardFunctionResolution.comparisonFunction(
-                                            LESS_THAN_OR_EQUAL, varExpr.getType(), upperConst.getType()),
+                                            LESS_THAN_OR_EQUAL, lhs.getType(), upperConst.getType()),
                                     BOOLEAN,
                                     ImmutableList.of(varExpr, upperConst))));
         }
 
+        // predicate push down
         String kql = null;
-        if (!isMetadataColumn) {
+        // Resolve range-bound column mapping with exposed name
+        Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableOpt.get(), lhs.getType());
+        variable = resolution.getKey();
+        if (!isMetadataColumn || isExposedWithRangeBounds) {
             String lowerBound = getLiteralString((ConstantExpression) lower);
             String escapedLower = escapeKqlSpecialCharsForStringValue(lowerBound);
             String upperBound = getLiteralString((ConstantExpression) upper);
             String escapedUpper = escapeKqlSpecialCharsForStringValue(upperBound);
-            String kqlPredicate = isClpCompatibleNumericType(variableType) ?
+            String kqlPredicate = isClpCompatibleNumericType(resolution.getValue()) ?
                     KQL_BETWEEN_PREDICATE_NUMERIC_FORMAT :
                     KQL_BETWEEN_PREDICATE_STRING_FORMAT;
             kql = String.format(kqlPredicate, variable, escapedLower, variable, escapedUpper);
@@ -571,21 +577,33 @@ public class ClpFilterToKqlConverter
             Type variableType,
             CallExpression originalNode)
     {
+        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
+        boolean isExposedWithRangeBounds =
+                metadataConfig.getExposedToRangeMapping(schemaTableName).containsKey(variableName);
+
+        // split pruning
+        CallExpression metadataExpression = null;
+        if (isMetadataColumn || isExposedWithRangeBounds) {
+            Type metadataColumnType = metadataConfig.getMetadataColumns(schemaTableName).get(variableName);
+            metadataExpression = new CallExpression(
+                    operator.name(),
+                    originalNode.getFunctionHandle(),
+                    BOOLEAN,
+                    ImmutableList.of(
+                            new VariableReferenceExpression(Optional.empty(), variableName, metadataColumnType),
+                            constant));
+        }
+
+        // predicate push down
+        String pushDownExpression = null;
         // Resolve range-bound column mapping with exposed name
         Map.Entry<String, Type> resolution = resolveExposedRangeBoundVariableAndType(variableName, variableType);
         variableName = resolution.getKey();
         variableType = resolution.getValue();
-
-        boolean isDataColumnsWithRangeBounds =
-                metadataConfig.getDataColumnsWithRangeBounds(schemaTableName).contains(variableName);
-        boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
         String formattedLiteral = variableType instanceof VarcharType
                 ? "\"" + escapeKqlSpecialCharsForStringValue(literalString) + "\""
                 : literalString;
-
-        String pushDownExpression = null;
-        CallExpression metadataExpression = null;
-        if (!isMetadataColumn) {
+        if (!isMetadataColumn || isExposedWithRangeBounds) {
             if (operator.equals(EQUAL)) {
                 pushDownExpression = format("%s: %s", variableName, formattedLiteral);
             }
@@ -599,16 +617,6 @@ public class ClpFilterToKqlConverter
             if (pushDownExpression == null) {
                 return new ClpExpression(originalNode);
             }
-        }
-
-        if (isMetadataColumn || isDataColumnsWithRangeBounds) {
-            metadataExpression = new CallExpression(
-                    operator.name(),
-                    originalNode.getFunctionHandle(),
-                    BOOLEAN,
-                    ImmutableList.of(
-                            new VariableReferenceExpression(Optional.empty(), variableName, variableType),
-                            constant));
         }
 
         return new ClpExpression(pushDownExpression, metadataExpression, ImmutableSet.of(variableName));

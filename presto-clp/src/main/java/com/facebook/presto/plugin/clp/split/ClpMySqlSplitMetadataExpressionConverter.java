@@ -14,10 +14,13 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.BigintType;
 import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.Decimals;
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -62,23 +65,20 @@ public class ClpMySqlSplitMetadataExpressionConverter
 {
     protected final FunctionMetadataManager functionManager;
     protected final StandardFunctionResolution functionResolution;
-    private final Map<String, String> exposedToOriginal;
-    private final Map<String, Map<String, String>> dataToMetadataBounds;
-    private final Set<String> requiredColumns;
+    protected final ClpSplitMetadataConfig metadataConfig;
+    protected final SchemaTableName schemaTableName;
     private final Set<String> seenRequired = new HashSet<>();
 
     public ClpMySqlSplitMetadataExpressionConverter(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            Map<String, String> exposedToOriginal,
-            Map<String, Map<String, String>> dataToMetadataBounds,
-            Set<String> requiredColumns)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.exposedToOriginal = exposedToOriginal;
-        this.dataToMetadataBounds = dataToMetadataBounds;
-        this.requiredColumns = requiredColumns;
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
     }
 
     /**
@@ -95,7 +95,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         seenRequired.clear();
         String sql = expression.accept(this, null);
-        Set<String> missing = new HashSet<>(requiredColumns);
+        Set<String> missing = new HashSet<>(metadataConfig.getRequiredColumns(schemaTableName));
         missing.removeAll(seenRequired);
         if (!missing.isEmpty()) {
             throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "Missing required filter columns: " + missing);
@@ -123,6 +123,10 @@ public class ClpMySqlSplitMetadataExpressionConverter
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
                 String variableName = node.getArguments().get(0).accept(this, null);
                 String literalString = node.getArguments().get(1).accept(this, null);
+
+                Type columnType = node.getArguments().get(0).getType();
+                Type literalType = node.getArguments().get(1).getType();
+                literalString = coerceLiteralToColumnType(literalString, columnType, literalType);
 
                 String rewritten = rewriteComparisonWithBounds(variableName, operatorType, literalString);
                 if (rewritten != null) {
@@ -183,7 +187,44 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         String exposed = node.getName();
         seenRequired.add(exposed);
-        return exposedToOriginal.getOrDefault(exposed, exposed);
+
+        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        String rangeMapped = exposedToRangeMapping.get(exposed);
+
+        Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        String originalName = exposedToOriginal.getOrDefault(exposed, exposed);
+
+        return rangeMapped != null ? rangeMapped : originalName;
+    }
+
+    /**
+     * Coerces a literal string representation to match the expected column type when there is a
+     * type mismatch between the metadata column and the query literal.
+     * <p></p>
+     * This handles cases where:
+     * <ul>
+     *   <li>The column is VARCHAR but the literal is BIGINT: wraps the literal in single quotes
+     *       (e.g., {@code 123} becomes {@code '123'})</li>
+     *   <li>The column is BIGINT but the literal is VARCHAR: strips the surrounding single quotes
+     *       (e.g., {@code '123'} becomes {@code 123})</li>
+     * </ul>
+     *
+     * @param literalString the string representation of the literal value
+     * @param columnType    the type of the metadata column being compared
+     * @param literalType   the type of the literal value in the expression
+     * @return the coerced literal string suitable for SQL generation
+     */
+    protected String coerceLiteralToColumnType(String literalString, Type columnType, Type literalType)
+    {
+        if (columnType instanceof VarcharType && literalType instanceof BigintType) {
+            return "'" + literalString + "'";
+        }
+        if (columnType instanceof BigintType && literalType instanceof VarcharType) {
+            if (literalString.startsWith("'") && literalString.endsWith("'") && literalString.length() >= 2) {
+                return literalString.substring(1, literalString.length() - 1);
+            }
+        }
+        return literalString;
     }
 
     /**
@@ -205,8 +246,8 @@ public class ClpMySqlSplitMetadataExpressionConverter
      */
     protected String rewriteComparisonWithBounds(String variableName, OperatorType operator, String literal)
     {
-        String original = exposedToOriginal.getOrDefault(variableName, variableName);
-        Map<String, String> bounds = dataToMetadataBounds.get(original);
+        Map<String, Map<String, String>> dataToMetadataBounds = metadataConfig.getDataColumnRangeMapping(schemaTableName);
+        Map<String, String> bounds = dataToMetadataBounds.get(variableName);
         if (bounds == null) {
             return null;
         }

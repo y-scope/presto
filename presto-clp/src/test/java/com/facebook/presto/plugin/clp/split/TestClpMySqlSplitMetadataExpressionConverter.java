@@ -60,9 +60,8 @@ public class TestClpMySqlSplitMetadataExpressionConverter
         converter = new ClpMySqlSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
-                splitMetadataConfig.getExposedToOriginalMapping(schemaTableName),
-                splitMetadataConfig.getDataColumnRangeMapping(schemaTableName),
-                splitMetadataConfig.getRequiredColumns(schemaTableName));
+                splitMetadataConfig,
+                schemaTableName);
     }
 
     @Test
@@ -74,9 +73,8 @@ public class TestClpMySqlSplitMetadataExpressionConverter
         ClpMySqlSplitMetadataExpressionConverter converter = new ClpMySqlSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
-                splitMetadataConfig.getExposedToOriginalMapping(schemaTableName),
-                splitMetadataConfig.getDataColumnRangeMapping(schemaTableName),
-                splitMetadataConfig.getRequiredColumns(schemaTableName));
+                splitMetadataConfig,
+                schemaTableName);
 
         TypeProvider typeProvider = TypeProvider.viewOf(ImmutableMap.of("level", BIGINT, "msg.timestamp", BIGINT));
         assertThrows(PrestoException.class, ()
