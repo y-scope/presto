@@ -18,6 +18,7 @@ import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.Decimals;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -62,23 +63,20 @@ public class ClpMySqlSplitMetadataExpressionConverter
 {
     protected final FunctionMetadataManager functionManager;
     protected final StandardFunctionResolution functionResolution;
-    private final Map<String, String> exposedToOriginal;
-    private final Map<String, Map<String, String>> dataToMetadataBounds;
-    private final Set<String> requiredColumns;
+    protected final ClpSplitMetadataConfig metadataConfig;
+    protected final SchemaTableName schemaTableName;
     private final Set<String> seenRequired = new HashSet<>();
 
     public ClpMySqlSplitMetadataExpressionConverter(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            Map<String, String> exposedToOriginal,
-            Map<String, Map<String, String>> dataToMetadataBounds,
-            Set<String> requiredColumns)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName)
     {
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.exposedToOriginal = exposedToOriginal;
-        this.dataToMetadataBounds = dataToMetadataBounds;
-        this.requiredColumns = requiredColumns;
+        this.metadataConfig = requireNonNull(metadataConfig, "metadataConfig is null");
+        this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
     }
 
     /**
@@ -95,7 +93,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         seenRequired.clear();
         String sql = expression.accept(this, null);
-        Set<String> missing = new HashSet<>(requiredColumns);
+        Set<String> missing = new HashSet<>(metadataConfig.getRequiredColumns(schemaTableName));
         missing.removeAll(seenRequired);
         if (!missing.isEmpty()) {
             throw new PrestoException(CLP_MANDATORY_COLUMN_NOT_IN_FILTER, "Missing required filter columns: " + missing);
@@ -183,6 +181,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
     {
         String exposed = node.getName();
         seenRequired.add(exposed);
+        Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
         return exposedToOriginal.getOrDefault(exposed, exposed);
     }
 
@@ -205,6 +204,8 @@ public class ClpMySqlSplitMetadataExpressionConverter
      */
     protected String rewriteComparisonWithBounds(String variableName, OperatorType operator, String literal)
     {
+        Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        Map<String, Map<String, String>> dataToMetadataBounds = metadataConfig.getDataColumnRangeMapping(schemaTableName);
         String original = exposedToOriginal.getOrDefault(variableName, variableName);
         Map<String, String> bounds = dataToMetadataBounds.get(original);
         if (bounds == null) {

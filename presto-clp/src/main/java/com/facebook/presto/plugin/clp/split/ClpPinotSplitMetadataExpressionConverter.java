@@ -13,11 +13,9 @@
  */
 package com.facebook.presto.plugin.clp.split;
 
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
-
-import java.util.Map;
-import java.util.Set;
 
 public class ClpPinotSplitMetadataExpressionConverter
         extends ClpMySqlSplitMetadataExpressionConverter
@@ -25,10 +23,9 @@ public class ClpPinotSplitMetadataExpressionConverter
     public ClpPinotSplitMetadataExpressionConverter(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            Map<String, String> exposedToOriginal,
-            Map<String, Map<String, String>> dataToMetadataBounds,
-            Set<String> requiredColumns)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName)
     {
-        super(functionManager, functionResolution, exposedToOriginal, dataToMetadataBounds, requiredColumns);
+        super(functionManager, functionResolution, metadataConfig, schemaTableName);
     }
 }

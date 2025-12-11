@@ -99,9 +99,8 @@ public class ClpMySqlSplitProvider
                     new ClpMySqlSplitMetadataExpressionConverter(
                             functionManager,
                             functionResolution,
-                            metadataConfig.getExposedToOriginalMapping(schemaTableName),
-                            dataColumnRangeMapping,
-                            metadataConfig.getRequiredColumns(schemaTableName));
+                            metadataConfig,
+                            schemaTableName);
             String metadataFilterQuery = converter.transform(clpTableLayoutHandle.getMetadataExpression());
             archivePathQuery += " AND (" + metadataFilterQuery + ")";
         }

@@ -71,9 +71,8 @@ public class TestClpPinotSplitMetadataExpressionConverter
         defaultConverter = new ClpPinotSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
-                splitMetadataConfig.getExposedToOriginalMapping(table),
-                splitMetadataConfig.getDataColumnRangeMapping(table),
-                splitMetadataConfig.getRequiredColumns(table));
+                splitMetadataConfig,
+                table);
     }
 
     /**
