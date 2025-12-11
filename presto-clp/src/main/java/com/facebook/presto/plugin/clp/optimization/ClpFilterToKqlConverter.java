@@ -584,13 +584,13 @@ public class ClpFilterToKqlConverter
         // split pruning
         CallExpression metadataExpression = null;
         if (isMetadataColumn || isExposedWithRangeBounds) {
-            variableType = metadataConfig.getMetadataColumns(schemaTableName).get(variableName);
+            Type metadataColumnType = metadataConfig.getMetadataColumns(schemaTableName).get(variableName);
             metadataExpression = new CallExpression(
                     operator.name(),
                     originalNode.getFunctionHandle(),
                     BOOLEAN,
                     ImmutableList.of(
-                            new VariableReferenceExpression(Optional.empty(), variableName, variableType),
+                            new VariableReferenceExpression(Optional.empty(), variableName, metadataColumnType),
                             constant));
         }
 
