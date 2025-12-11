@@ -73,9 +73,8 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
         defaultConverter = new ClpUberPinotSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
-                splitMetadataConfig.getExposedToOriginalMapping(table),
-                splitMetadataConfig.getDataColumnRangeMapping(table),
-                splitMetadataConfig.getRequiredColumns(table));
+                splitMetadataConfig,
+                table);
     }
 
     /**

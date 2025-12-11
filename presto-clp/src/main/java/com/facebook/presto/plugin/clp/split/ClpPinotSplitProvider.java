@@ -183,15 +183,13 @@ public class ClpPinotSplitProvider
         Optional<String> metadataFilterQuery = Optional.empty();
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
-        Map<String, Map<String, String>> dataColumnRangeMapping = metadataConfig.getDataColumnRangeMapping(schemaTableName);
         if (clpTableLayoutHandle.getMetadataExpression() != null) {
             ClpPinotSplitMetadataExpressionConverter converter =
                     new ClpPinotSplitMetadataExpressionConverter(
                             functionManager,
                             functionResolution,
-                            metadataConfig.getExposedToOriginalMapping(schemaTableName),
-                            dataColumnRangeMapping,
-                            metadataConfig.getRequiredColumns(schemaTableName));
+                            metadataConfig,
+                            schemaTableName);
             metadataFilterQuery = Optional.of(converter.transform(clpTableLayoutHandle.getMetadataExpression()));
         }
         else if (!metadataConfig.getRequiredColumns(schemaTableName).isEmpty()) {

@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -22,9 +23,7 @@ import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.function.OperatorType.IS_DISTINCT_FROM;
@@ -50,11 +49,10 @@ public class ClpUberPinotSplitMetadataExpressionConverter
     public ClpUberPinotSplitMetadataExpressionConverter(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            Map<String, String> exposedToOriginal,
-            Map<String, Map<String, String>> dataToMetadataBounds,
-            Set<String> requiredColumns)
+            ClpSplitMetadataConfig metadataConfig,
+            SchemaTableName schemaTableName)
     {
-        super(functionManager, functionResolution, exposedToOriginal, dataToMetadataBounds, requiredColumns);
+        super(functionManager, functionResolution, metadataConfig, schemaTableName);
     }
 
     @Override
