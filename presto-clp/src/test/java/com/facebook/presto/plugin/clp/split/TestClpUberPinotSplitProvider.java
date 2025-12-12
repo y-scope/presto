@@ -17,6 +17,8 @@ import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
 import com.facebook.presto.spi.SchemaTableName;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -24,8 +26,10 @@ import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
-import static org.testng.Assert.assertEquals;
+import static com.facebook.presto.testing.assertions.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
@@ -68,10 +72,10 @@ public class TestClpUberPinotSplitProvider
         URL result = (URL) method.invoke(splitProvider, config);
 
         assertNotNull(result);
-        assertEquals(result.toString(), "https://neutrino.uber.com/v1/globalStatements");
+        assertEquals(result.toString(), "https://neutrino.uber.com/v1/globalStatement");
         assertEquals(result.getProtocol(), "https");
         assertEquals(result.getHost(), "neutrino.uber.com");
-        assertEquals(result.getPath(), "/v1/globalStatements");
+        assertEquals(result.getPath(), "/v1/globalStatement");
     }
 
     /**
@@ -86,17 +90,17 @@ public class TestClpUberPinotSplitProvider
         // Test with trailing slash
         config.setMetadataDbUrl("https://neutrino.uber.com/");
         URL result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://neutrino.uber.com//v1/globalStatements");
+        assertEquals(result.toString(), "https://neutrino.uber.com//v1/globalStatement");
 
         // Test without protocol (should work as URL constructor handles it)
         config.setMetadataDbUrl("http://neutrino-dev.uber.com");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "http://neutrino-dev.uber.com/v1/globalStatements");
+        assertEquals(result.toString(), "http://neutrino-dev.uber.com/v1/globalStatement");
 
         // Test with port
         config.setMetadataDbUrl("https://neutrino.uber.com:8080");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://neutrino.uber.com:8080/v1/globalStatements");
+        assertEquals(result.toString(), "https://neutrino.uber.com:8080/v1/globalStatement");
     }
 
     /**
@@ -257,5 +261,79 @@ public class TestClpUberPinotSplitProvider
                 standardFunctionResolution,
                 new ClpSplitMetadataConfig(newConfig, functionAndTypeManager));
         assertNotNull(newProvider);
+    }
+
+    /**
+     * Test parsing of Uber Neutrino query response format.
+     * Verifies that the JSON response with "columns" and "data" fields is correctly
+     * parsed into a list of row maps.
+     */
+    @Test
+    public void testParseQueryResponse() throws Exception
+    {
+        // Sample JSON in Uber Neutrino response format
+        String jsonResponse = String.join("\n",
+                "{",
+                "  'id': '20251211_200011_71046_z3qq5',",
+                "  'infoUri': '//localhost:5436/ui/query.html?20251211_200011_71046_z3qq5',",
+                "  'columns': [",
+                "    {",
+                "      'name': 'tpath',",
+                "      'type': 'varchar',",
+                "      'typeSignature': {",
+                "        'rawType': 'varchar',",
+                "        'typeArguments': [],",
+                "        'literalArguments': [],",
+                "        'arguments': [{'kind': 'LONG_LITERAL', 'value': 2147483647}]",
+                "      }",
+                "    },",
+                "    {",
+                "      'name': '_timestampMillis',",
+                "      'type': 'bigint',",
+                "      'typeSignature': {",
+                "        'rawType': 'bigint',",
+                "        'typeArguments': [],",
+                "        'literalArguments': [],",
+                "        'arguments': []",
+                "      }",
+                "    }",
+                "  ],",
+                "  'data': [",
+                "    ['/prod/logging/athena/table_a/dca/archive1.clp.zst', 1765483211084],",
+                "    ['/prod/logging/athena/table_b/dca/archive2.clp.zst', 1765483211043],",
+                "    ['/prod/logging/athena/table_c/dca/archive3.clp.zst', 1765483211043]",
+                "  ]",
+                "}").replace('\'', '"');
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode root = mapper.readTree(jsonResponse);
+
+        List<Map<String, JsonNode>> results = splitProvider.parseQueryResponse(root);
+
+        // Verify correct number of rows
+        assertEquals(results.size(), 3);
+
+        // Verify first row
+        Map<String, JsonNode> row0 = results.get(0);
+        assertEquals(row0.size(), 2);
+        assertEquals(row0.get("tpath").asText(), "/prod/logging/athena/table_a/dca/archive1.clp.zst");
+        assertEquals(row0.get("_timestampMillis").asLong(), 1765483211084L);
+
+        // Verify second row
+        Map<String, JsonNode> row1 = results.get(1);
+        assertEquals(row1.get("tpath").asText(), "/prod/logging/athena/table_b/dca/archive2.clp.zst");
+        assertEquals(row1.get("_timestampMillis").asLong(), 1765483211043L);
+
+        // Verify third row
+        Map<String, JsonNode> row2 = results.get(2);
+        assertEquals(row2.get("tpath").asText(), "/prod/logging/athena/table_c/dca/archive3.clp.zst");
+        assertEquals(row2.get("_timestampMillis").asLong(), 1765483211043L);
+
+        // Verify that non-existent columns return null
+        for (Map<String, JsonNode> row : results) {
+            assertEquals(row.get("nonExistentColumn"), null);
+            assertEquals(row.get("id"), null);
+            assertEquals(row.get("infoUri"), null);
+        }
     }
 }
