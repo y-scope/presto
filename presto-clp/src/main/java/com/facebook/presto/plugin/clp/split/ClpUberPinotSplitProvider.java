@@ -23,21 +23,26 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import javax.inject.Inject;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
  * Uber-specific implementation of CLP Pinot split provider.
@@ -112,7 +117,7 @@ public class ClpUberPinotSplitProvider
                     tableName,
                     metadataColumnNames,
                     metadataFilterQuery.orElse("1 = 1"));
-            List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+            List<Map<String, JsonNode>> splitRows = getQueryResult(splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
                 String splitPath = row.get("tpath").asText();
@@ -150,7 +155,7 @@ public class ClpUberPinotSplitProvider
     @Override
     protected URL buildPinotSqlQueryEndpointUrl(ClpConfig config) throws MalformedURLException
     {
-        return new URL(config.getMetadataDbUrl() + "/v1/globalStatements");
+        return new URL(config.getMetadataDbUrl() + "/v1/globalStatement");
     }
 
     /**
@@ -206,5 +211,116 @@ public class ClpUberPinotSplitProvider
     protected String buildUberTableName(String tableName)
     {
         return String.format("rta.logging.%s", tableName);
+    }
+
+    protected void addCustomQueryRequestHeader(HttpURLConnection conn)
+    {
+        conn.setRequestProperty("RPC-Service", "neutrino-logging");
+        conn.setRequestProperty("RPC-Caller", "logging-terrablob-connector");
+        conn.setRequestProperty("Content-Type", "text/plain");
+        conn.setRequestProperty("Accept", "text/plain");
+    }
+
+    /**
+     * Executes a SQL query against a Pinot database via HTTP POST and returns the results as a list of row maps.
+     *
+     * @param sql the SQL query string to execute
+     * @return a list where each element represents one row from the query results. Each row is a map that allows
+     *         looking up the column value of that row through the column name (e.g., map.get("columnName") returns
+     *         the value for that column for the row as a JsonNode). Returns an empty list if the query fails or
+     *         encounters an error.
+     */
+    @Override
+    protected List<Map<String, JsonNode>> getQueryResult(String sql)
+    {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) pinotSqlQueryEndpointUrl.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout((int) SECONDS.toMillis(5));
+            conn.setReadTimeout((int) SECONDS.toMillis(30));
+            addCustomQueryRequestHeader(conn);
+
+            log.info("Executing Pinot query: %s", sql);
+            ObjectMapper mapper = new ObjectMapper();
+            String body = sql;
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
+
+            int code = conn.getResponseCode();
+            InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+            if (is == null) {
+                throw new IOException("Pinot HTTP " + code + " with empty body");
+            }
+
+            JsonNode root;
+            try (InputStream in = is) {
+                root = mapper.readTree(in);
+            }
+
+            return parseQueryResponse(root);
+        }
+        catch (IOException e) {
+            log.error(e, "IO error executing Pinot query: %s", sql);
+            return Collections.emptyList();
+        }
+        catch (Exception e) {
+            log.error(e, "Unexpected error executing Pinot query: %s", sql);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Parses the JSON response from an Uber Neutrino query into a list of row maps.
+     * <p>
+     * The Uber Neutrino response format differs from standard Pinot:
+     * <ul>
+     *   <li><b>columns</b>: Array of column definitions, each containing "name", "type", and "typeSignature"</li>
+     *   <li><b>data</b>: Array of row arrays (equivalent to Pinot's "rows")</li>
+     * </ul>
+     * </p>
+     *
+     * @param root the root JSON node of the query response
+     * @return a list of maps where each map represents a row with column names as keys
+     * @throws IllegalStateException if the response is missing required fields
+     */
+    @VisibleForTesting
+    protected List<Map<String, JsonNode>> parseQueryResponse(JsonNode root)
+    {
+        JsonNode columnsNode = root.get("columns");
+        if (columnsNode == null) {
+            throw new IllegalStateException("Uber query response missing 'columns' field");
+        }
+
+        JsonNode dataNode = root.get("data");
+        if (dataNode == null) {
+            throw new IllegalStateException("Uber query response missing 'data' field");
+        }
+
+        ImmutableList.Builder<String> columnNamesBuilder = ImmutableList.builder();
+        for (Iterator<JsonNode> it = columnsNode.elements(); it.hasNext(); ) {
+            JsonNode columnDef = it.next();
+            JsonNode nameNode = columnDef.get("name");
+            if (nameNode == null) {
+                throw new IllegalStateException("Column definition missing 'name' field");
+            }
+            columnNamesBuilder.add(nameNode.asText());
+        }
+        List<String> columnNames = columnNamesBuilder.build();
+
+        ImmutableList.Builder<Map<String, JsonNode>> resultBuilder = ImmutableList.builder();
+        for (Iterator<JsonNode> it = dataNode.elements(); it.hasNext(); ) {
+            JsonNode row = it.next();
+            ImmutableMap.Builder<String, JsonNode> rowBuilder = ImmutableMap.builder();
+            for (int i = 0; i < columnNames.size(); i++) {
+                rowBuilder.put(columnNames.get(i), row.get(i));
+            }
+            resultBuilder.add(rowBuilder.build());
+        }
+
+        List<Map<String, JsonNode>> results = resultBuilder.build();
+        log.debug("Number of results: %s", results.size());
+        return results;
     }
 }
