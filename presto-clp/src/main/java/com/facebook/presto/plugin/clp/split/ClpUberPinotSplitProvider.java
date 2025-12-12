@@ -218,6 +218,11 @@ public class ClpUberPinotSplitProvider
         return String.format("rta.logging.%s", tableName);
     }
 
+    /**
+     * Adds Uber-specific HTTP headers required for Neutrino service authentication.
+     *
+     * @param conn the HTTP connection to add headers to
+     */
     protected void addCustomQueryRequestHeader(HttpURLConnection conn)
     {
         conn.setRequestProperty("RPC-Service", "neutrino-logging");
@@ -227,13 +232,11 @@ public class ClpUberPinotSplitProvider
     }
 
     /**
-     * Executes a SQL query against a Pinot database via HTTP POST and returns the results as a list of row maps.
-     *
-     * @param sql the SQL query string to execute
-     * @return a list where each element represents one row from the query results. Each row is a map that allows
-     *         looking up the column value of that row through the column name (e.g., map.get("columnName") returns
-     *         the value for that column for the row as a JsonNode). Returns an empty list if the query fails or
-     *         encounters an error.
+     * {@inheritDoc}
+     * <p>
+     * This Uber-specific implementation sends the SQL query as plain text to the Neutrino
+     * endpoint and parses the response using {@link #parseQueryResponse(JsonNode)}.
+     * </p>
      */
     @Override
     protected List<Map<String, JsonNode>> getQueryResult(String sql)

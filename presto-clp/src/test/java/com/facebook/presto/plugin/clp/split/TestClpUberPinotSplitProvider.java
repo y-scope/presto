@@ -310,21 +310,21 @@ public class TestClpUberPinotSplitProvider
 
         List<Map<String, JsonNode>> results = splitProvider.parseQueryResponse(root);
 
-        // Verify correct number of rows
+        // Verify the correct number of rows
         assertEquals(results.size(), 3);
 
-        // Verify first row
+        // Verify the first row
         Map<String, JsonNode> row0 = results.get(0);
         assertEquals(row0.size(), 2);
         assertEquals(row0.get("tpath").asText(), "/prod/logging/athena/table_a/dca/archive1.clp.zst");
         assertEquals(row0.get("_timestampMillis").asLong(), 1765483211084L);
 
-        // Verify second row
+        // Verify the second row
         Map<String, JsonNode> row1 = results.get(1);
         assertEquals(row1.get("tpath").asText(), "/prod/logging/athena/table_b/dca/archive2.clp.zst");
         assertEquals(row1.get("_timestampMillis").asLong(), 1765483211043L);
 
-        // Verify third row
+        // Verify the third row
         Map<String, JsonNode> row2 = results.get(2);
         assertEquals(row2.get("tpath").asText(), "/prod/logging/athena/table_c/dca/archive3.clp.zst");
         assertEquals(row2.get("_timestampMillis").asLong(), 1765483211043L);
