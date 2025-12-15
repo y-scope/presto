@@ -322,7 +322,10 @@ public class ClpUberPinotSplitProvider
             JsonNode row = it.next();
             ImmutableMap.Builder<String, JsonNode> rowBuilder = ImmutableMap.builder();
             for (int i = 0; i < columnNames.size(); i++) {
-                rowBuilder.put(columnNames.get(i), row.get(i));
+                JsonNode val = row.get(i);
+                if (val != null) {
+                    rowBuilder.put(columnNames.get(i), val);
+                }
             }
             resultBuilder.add(rowBuilder.build());
         }
