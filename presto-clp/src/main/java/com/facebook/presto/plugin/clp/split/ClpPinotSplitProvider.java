@@ -220,7 +220,7 @@ public class ClpPinotSplitProvider
                     tableName,
                     metadataColumnNames,
                     metadataFilterQuery.orElse("1 = 1"));
-            List<Map<String, JsonNode>> splitRows = getQueryResult(pinotSqlQueryEndpointUrl, splitQuery);
+            List<Map<String, JsonNode>> splitRows = getQueryResult(splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
                 JsonNode tpathNode = row.get("tpath");
@@ -302,7 +302,7 @@ public class ClpPinotSplitProvider
     protected List<ArchiveMeta> fetchArchiveMeta(String query, ClpTopNSpec.Ordering ordering)
     {
         ImmutableList.Builder<ArchiveMeta> archiveMetas = new ImmutableList.Builder<>();
-        List<Map<String, JsonNode>> results = getQueryResult(pinotSqlQueryEndpointUrl, query);
+        List<Map<String, JsonNode>> results = getQueryResult(query);
         for (Map<String, JsonNode> row : results) {
             JsonNode idNode = row.get("tpath");
             JsonNode lowerNode = row.get("creationtime");
@@ -337,7 +337,7 @@ public class ClpPinotSplitProvider
      * @param order ASC (earliest first) or DESC (latest first)
      * @return archives that must be scanned
      */
-    protected static List<ArchiveMeta> selectTopNArchives(List<ArchiveMeta> archives, long limit, ClpTopNSpec.Order order)
+    protected List<ArchiveMeta> selectTopNArchives(List<ArchiveMeta> archives, long limit, ClpTopNSpec.Order order)
     {
         if (archives == null || archives.isEmpty() || limit <= 0) {
             return ImmutableList.of();
@@ -487,17 +487,16 @@ public class ClpPinotSplitProvider
     /**
      * Executes a SQL query against a Pinot database via HTTP POST and returns the results as a list of row maps.
      *
-     * @param url the Pinot broker HTTP endpoint URL
      * @param sql the SQL query string to execute
      * @return a list where each element represents one row from the query results. Each row is a map that allows
      *         looking up the column value of that row through the column name (e.g., map.get("columnName") returns
      *         the value for that column for the row as a JsonNode). Returns an empty list if the query fails or
      *         encounters an error.
      */
-    protected static List<Map<String, JsonNode>> getQueryResult(URL url, String sql)
+    protected List<Map<String, JsonNode>> getQueryResult(String sql)
     {
         try {
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            HttpURLConnection conn = (HttpURLConnection) pinotSqlQueryEndpointUrl.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Accept", "application/json");

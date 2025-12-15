@@ -14,6 +14,7 @@
 package com.facebook.presto.plugin.clp.split;
 
 import com.facebook.presto.common.function.OperatorType;
+import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionHandle;
@@ -75,6 +76,10 @@ public class ClpUberPinotSplitMetadataExpressionConverter
             if (operatorType.isComparisonOperator() && operatorType != IS_DISTINCT_FROM) {
                 String variableName = node.getArguments().get(0).accept(this, null);
                 String literalString = node.getArguments().get(1).accept(this, null);
+
+                Type columnType = node.getArguments().get(0).getType();
+                Type literalType = node.getArguments().get(1).getType();
+                literalString = coerceLiteralToColumnType(literalString, columnType, literalType);
 
                 String rewritten = rewriteComparisonWithBounds(variableName, operatorType, literalString);
                 if (rewritten != null) {
