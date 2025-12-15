@@ -57,10 +57,18 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  * customizes the SQL query endpoint URL to use Neutrino's global statements API instead of
  * the standard Pinot query endpoint.
  * </p>
+ * <p>
+ * This implementation also handles Pinot's append-only data model where UPDATE operations
+ * don't modify existing rows but instead append new rows with updated values. To retrieve
+ * only the latest version of each record, this class uses the {@code LASTWITHTIME} aggregation
+ * function with {@code GROUP BY tpath} to deduplicate rows by their unique identifier.
+ * </p>
  */
 public class ClpUberPinotSplitProvider
         extends ClpPinotSplitProvider
 {
+    private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP =
+            "SELECT tpath, %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
     /**
      * Constructs an Uber CLP Pinot split provider with the given configuration.
      *
@@ -333,5 +341,48 @@ public class ClpUberPinotSplitProvider
         List<Map<String, JsonNode>> results = resultBuilder.build();
         log.debug("Number of results: %s", results.size());
         return results;
+    }
+
+    /**
+     * Builds a SQL query for split selection with deduplication using LASTWITHTIME.
+     * <p>
+     * Pinot uses an append-only data model where UPDATE operations don't modify existing
+     * rows but instead append new rows with updated values. This method constructs queries
+     * that use {@code LASTWITHTIME} aggregation with {@code GROUP BY tpath} to retrieve
+     * only the latest version of each record.
+     * </p>
+     *
+     * @param tableName the Pinot table name
+     * @param metadataProject the list of metadata columns to project
+     * @param filterSql the filter SQL expression
+     * @return the complete SQL query with deduplication for selecting splits
+     */
+    @Override
+    @VisibleForTesting
+    protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
+    {
+        // Build LASTWITHTIME expressions for each metadata column
+        List<String> lastWithTimeProjections = new ArrayList<>();
+        for (String column : metadataProject) {
+            lastWithTimeProjections.add(
+                    format("LASTWITHTIME(%s, \"_timestampMillis\", 'long') AS %s", column, column));
+        }
+
+        String projectionClause = lastWithTimeProjections.isEmpty()
+                ? ""
+                : String.join(", ", lastWithTimeProjections);
+
+        return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP, projectionClause, tableName, filterSql);
+    }
+
+    /**
+     * TopN optimization is not currently supported for Uber Pinot queries.
+     *
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    protected String buildSplitSelectionQueryWithTopN(String tableName, String filterSql)
+    {
+        throw new UnsupportedOperationException("TopN optimization is not supported for Uber Pinot queries");
     }
 }
