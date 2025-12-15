@@ -274,8 +274,8 @@ public class TestClpUberPinotSplitProvider
         // Sample JSON in Uber Neutrino response format
         String jsonResponse = String.join("\n",
                 "{",
-                "  'id': '20251211_200011_71046_z3qq5',",
-                "  'infoUri': '//localhost:5436/ui/query.html?20251211_200011_71046_z3qq5',",
+                "  'id': '12345',",
+                "  'uri': '//localhost:5436/query.html?12345',",
                 "  'columns': [",
                 "    {",
                 "      'name': 'tpath',",
@@ -299,9 +299,9 @@ public class TestClpUberPinotSplitProvider
                 "    }",
                 "  ],",
                 "  'data': [",
-                "    ['/prod/logging/athena/table_a/dca/archive1.clp.zst', 1765483211084],",
-                "    ['/prod/logging/athena/table_b/dca/archive2.clp.zst', 1765483211043],",
-                "    ['/prod/logging/athena/table_c/dca/archive3.clp.zst', 1765483211043]",
+                "    ['/path/to/table_a/archive1.clp.zst', 1765483211084],",
+                "    ['/path/to/table_b/archive2.clp.zst', 1765483211043],",
+                "    ['/path/to/table_c/archive3.clp.zst', 1765483211043]",
                 "  ]",
                 "}").replace('\'', '"');
 
@@ -316,24 +316,24 @@ public class TestClpUberPinotSplitProvider
         // Verify the first row
         Map<String, JsonNode> row0 = results.get(0);
         assertEquals(row0.size(), 2);
-        assertEquals(row0.get("tpath").asText(), "/prod/logging/athena/table_a/dca/archive1.clp.zst");
+        assertEquals(row0.get("tpath").asText(), "/path/to/table_a/archive1.clp.zst");
         assertEquals(row0.get("_timestampMillis").asLong(), 1765483211084L);
 
         // Verify the second row
         Map<String, JsonNode> row1 = results.get(1);
-        assertEquals(row1.get("tpath").asText(), "/prod/logging/athena/table_b/dca/archive2.clp.zst");
+        assertEquals(row1.get("tpath").asText(), "/path/to/table_b/archive2.clp.zst");
         assertEquals(row1.get("_timestampMillis").asLong(), 1765483211043L);
 
         // Verify the third row
         Map<String, JsonNode> row2 = results.get(2);
-        assertEquals(row2.get("tpath").asText(), "/prod/logging/athena/table_c/dca/archive3.clp.zst");
+        assertEquals(row2.get("tpath").asText(), "/path/to/table_c/archive3.clp.zst");
         assertEquals(row2.get("_timestampMillis").asLong(), 1765483211043L);
 
         // Verify that non-existent columns return null
         for (Map<String, JsonNode> row : results) {
             assertEquals(row.get("nonExistentColumn"), null);
             assertEquals(row.get("id"), null);
-            assertEquals(row.get("infoUri"), null);
+            assertEquals(row.get("uri"), null);
         }
     }
 }
