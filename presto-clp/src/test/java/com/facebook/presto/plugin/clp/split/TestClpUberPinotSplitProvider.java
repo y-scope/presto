@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp.split;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
+import com.facebook.presto.plugin.clp.mockdb.ClpMockPinotDatabase;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -218,27 +219,97 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test SQL query building methods inherited from parent.
+     * Test that buildSplitSelectionQuery generates deduplication queries using LASTWITHTIME.
+     * Pinot's append-only model requires GROUP BY tpath with LASTWITHTIME aggregation
+     * to retrieve only the latest version of each record.
      */
     @Test
-    public void testInheritedSqlQueryMethods()
+    public void testBuildSplitSelectionQueryWithDeduplication()
     {
-        // Test buildSplitSelectionQuery (inherited from parent)
         String query = splitProvider.buildSplitSelectionQuery(
                 "rta.logging.logs", new ArrayList<>(), "status = 200");
+
+        assertTrue(query.contains("SELECT tpath"));
         assertTrue(query.contains("rta.logging.logs"));
         assertTrue(query.contains("status = 200"));
-        assertTrue(query.contains("SELECT"));
-        assertTrue(query.contains("tpath"));
+        assertTrue(query.contains("GROUP BY tpath"));
+        assertTrue(query.contains("LIMIT 999999"));
+    }
 
-        // Test buildSplitSelectionQueryWithTopN (inherited from parent)
-        String metaQuery = splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000");
-        assertTrue(metaQuery.contains("rta.logging.events"));
-        assertTrue(metaQuery.contains("timestamp > 1000"));
-        assertTrue(metaQuery.contains("tpath"));
-        assertTrue(metaQuery.contains("creationtime"));
-        assertTrue(metaQuery.contains("lastmodifiedtime"));
-        assertTrue(metaQuery.contains("num_messages"));
+    /**
+     * Test that buildSplitSelectionQuery correctly wraps metadata columns with LASTWITHTIME.
+     * Each metadata column should be aggregated using LASTWITHTIME to get the latest value.
+     */
+    @Test
+    public void testBuildSplitSelectionQueryWithMetadataColumns()
+    {
+        List<String> metadataColumns = new ArrayList<>();
+        metadataColumns.add("hostname");
+        metadataColumns.add("creationtime");
+
+        String query = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", metadataColumns, "creationtime > 1000");
+
+        assertTrue(query.contains("SELECT tpath"));
+        assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'long') AS hostname"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'long') AS creationtime"));
+        assertTrue(query.contains("GROUP BY tpath"));
+        assertTrue(query.contains("rta.logging.logs"));
+        assertTrue(query.contains("creationtime > 1000"));
+    }
+
+    /**
+     * Test that TopN queries throw UnsupportedOperationException.
+     * TopN optimization is currently disabled for Uber Pinot queries.
+     */
+    @Test(expectedExceptions = UnsupportedOperationException.class)
+    public void testBuildSplitSelectionQueryWithTopNThrowsException()
+    {
+        splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000");
+    }
+
+    /**
+     * Test parsing of deduplicated query response from Pinot.
+     * Simulates a response where LASTWITHTIME has already deduplicated the rows,
+     * returning only the latest version of each tpath.
+     */
+    @Test
+    public void testParseDeduplicatedQueryResponse() throws Exception
+    {
+        // Simulates Pinot response after LASTWITHTIME deduplication:
+        // - archive1 has latest hostname="host-v2" (from timestamp 2000)
+        // - archive2 has latest hostname="host-b" (from timestamp 1500)
+        // Note: In real Pinot, duplicate rows would be aggregated by GROUP BY tpath
+        String jsonResponse = String.join("\n",
+                "{",
+                "  'columns': [",
+                "    {'name': 'tpath', 'type': 'varchar'},",
+                "    {'name': 'hostname', 'type': 'varchar'},",
+                "    {'name': 'creationtime', 'type': 'bigint'}",
+                "  ],",
+                "  'data': [",
+                "    ['/path/to/archive1.clp.zst', 'host-v2', 2000],",
+                "    ['/path/to/archive2.clp.zst', 'host-b', 1500]",
+                "  ]",
+                "}").replace('\'', '"');
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode root = mapper.readTree(jsonResponse);
+
+        List<Map<String, JsonNode>> results = splitProvider.parseQueryResponse(root);
+
+        // Verify deduplicated results: each tpath appears exactly once with latest values
+        assertEquals(results.size(), 2);
+
+        Map<String, JsonNode> row0 = results.get(0);
+        assertEquals(row0.get("tpath").asText(), "/path/to/archive1.clp.zst");
+        assertEquals(row0.get("hostname").asText(), "host-v2");
+        assertEquals(row0.get("creationtime").asLong(), 2000L);
+
+        Map<String, JsonNode> row1 = results.get(1);
+        assertEquals(row1.get("tpath").asText(), "/path/to/archive2.clp.zst");
+        assertEquals(row1.get("hostname").asText(), "host-b");
+        assertEquals(row1.get("creationtime").asLong(), 1500L);
     }
 
     /**
@@ -334,6 +405,171 @@ public class TestClpUberPinotSplitProvider
             assertEquals(row.get("nonExistentColumn"), null);
             assertEquals(row.get("id"), null);
             assertEquals(row.get("uri"), null);
+        }
+    }
+
+    /**
+     * Test deduplication query against a mock Pinot database with duplicate rows.
+     * Inserts multiple versions of the same tpath with different timestamps,
+     * then verifies that the query returns only the latest version.
+     */
+    @Test
+    public void testDeduplicationQueryWithMockDatabase() throws Exception
+    {
+        ClpMockPinotDatabase mockDb = ClpMockPinotDatabase.builder()
+                .setTableName("test_table")
+                .build();
+
+        // Insert duplicate rows for archive1 (simulating Pinot's append-only model)
+        // archive1 v1: old data with timestamp 1000
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-old", 1000, 100, 1000);
+        // archive1 v2: updated data with timestamp 2000 (latest)
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-new", 1500, 150, 2000);
+
+        // Insert single row for archive2
+        mockDb.insertRow("/path/to/archive2.clp.zst", "host-b", 1200, 200, 1500);
+
+        mockDb.start();
+
+        try {
+            ClpConfig mockConfig = new ClpConfig();
+            mockConfig.setMetadataDbUrl(mockDb.getUrl());
+            mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+
+            ClpUberPinotSplitProvider mockSplitProvider = new ClpUberPinotSplitProvider(
+                    mockConfig,
+                    functionAndTypeManager,
+                    standardFunctionResolution,
+                    new ClpSplitMetadataConfig(mockConfig, functionAndTypeManager));
+
+            List<String> metadataColumns = new ArrayList<>();
+            metadataColumns.add("hostname");
+
+            String query = mockSplitProvider.buildSplitSelectionQuery(
+                    "test_table",
+                    metadataColumns,
+                    "1 = 1");
+
+            // Verify query format includes LASTWITHTIME and GROUP BY
+            assertTrue(query.contains("LASTWITHTIME(hostname"));
+            assertTrue(query.contains("GROUP BY tpath"));
+
+            // Execute the query against mock database
+            List<Map<String, JsonNode>> results = mockSplitProvider.getQueryResult(query);
+
+            // Should get 2 rows (deduplicated), not 3
+            assertEquals(results.size(), 2);
+
+            // Find archive1 row and verify it has the LATEST hostname value
+            Map<String, JsonNode> archive1Row = null;
+            Map<String, JsonNode> archive2Row = null;
+            for (Map<String, JsonNode> row : results) {
+                String tpath = row.get("tpath").asText();
+                if (tpath.contains("archive1")) {
+                    archive1Row = row;
+                }
+                else if (tpath.contains("archive2")) {
+                    archive2Row = row;
+                }
+            }
+
+            assertNotNull(archive1Row, "archive1 row should exist");
+            assertNotNull(archive2Row, "archive2 row should exist");
+
+            // archive1 should have hostname from the LATEST version (timestamp 2000)
+            assertEquals(archive1Row.get("hostname").asText(), "host-new");
+
+            // archive2 should have its only hostname value
+            assertEquals(archive2Row.get("hostname").asText(), "host-b");
+        }
+        finally {
+            mockDb.stop();
+        }
+    }
+
+    /**
+     * Test deduplication with multiple metadata columns against mock database.
+     * Verifies that all columns are correctly deduplicated to their latest values.
+     */
+    @Test
+    public void testDeduplicationQueryWithMultipleColumnsAndMockDatabase() throws Exception
+    {
+        ClpMockPinotDatabase mockDb = ClpMockPinotDatabase.builder()
+                .setTableName("test_table")
+                .build();
+
+        // Insert multiple versions for archive1
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-v1", 1000, 100, 1000);
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-v2", 1100, 110, 1500);
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-v3", 1200, 120, 2000);  // Latest
+
+        // Insert multiple versions for archive2
+        mockDb.insertRow("/path/to/archive2.clp.zst", "host-a", 2000, 200, 1000);
+        mockDb.insertRow("/path/to/archive2.clp.zst", "host-b", 2500, 250, 3000);  // Latest
+
+        // Insert single version for archive3
+        mockDb.insertRow("/path/to/archive3.clp.zst", "host-c", 3000, 300, 2500);
+
+        mockDb.start();
+
+        try {
+            ClpConfig mockConfig = new ClpConfig();
+            mockConfig.setMetadataDbUrl(mockDb.getUrl());
+            mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+
+            ClpUberPinotSplitProvider mockSplitProvider = new ClpUberPinotSplitProvider(
+                    mockConfig,
+                    functionAndTypeManager,
+                    standardFunctionResolution,
+                    new ClpSplitMetadataConfig(mockConfig, functionAndTypeManager));
+
+            List<String> metadataColumns = new ArrayList<>();
+            metadataColumns.add("hostname");
+            metadataColumns.add("creationtime");
+            metadataColumns.add("num_messages");
+
+            String query = mockSplitProvider.buildSplitSelectionQuery(
+                    "test_table",
+                    metadataColumns,
+                    "1 = 1");
+
+            // Verify all columns are wrapped with LASTWITHTIME
+            assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'long') AS hostname"));
+            assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'long') AS creationtime"));
+            assertTrue(query.contains("LASTWITHTIME(num_messages, \"_timestampMillis\", 'long') AS num_messages"));
+            assertTrue(query.contains("GROUP BY tpath"));
+
+            // Execute query against mock database
+            List<Map<String, JsonNode>> results = mockSplitProvider.getQueryResult(query);
+
+            // Should get 3 rows (one per unique tpath), not 6
+            assertEquals(results.size(), 3);
+
+            // Verify each archive has the LATEST values
+            for (Map<String, JsonNode> row : results) {
+                String tpath = row.get("tpath").asText();
+                if (tpath.contains("archive1")) {
+                    // archive1 latest: host-v3, creationtime=1200, num_messages=120
+                    assertEquals(row.get("hostname").asText(), "host-v3");
+                    assertEquals(row.get("creationtime").asLong(), 1200L);
+                    assertEquals(row.get("num_messages").asLong(), 120L);
+                }
+                else if (tpath.contains("archive2")) {
+                    // archive2 latest: host-b, creationtime=2500, num_messages=250
+                    assertEquals(row.get("hostname").asText(), "host-b");
+                    assertEquals(row.get("creationtime").asLong(), 2500L);
+                    assertEquals(row.get("num_messages").asLong(), 250L);
+                }
+                else if (tpath.contains("archive3")) {
+                    // archive3 only version: host-c, creationtime=3000, num_messages=300
+                    assertEquals(row.get("hostname").asText(), "host-c");
+                    assertEquals(row.get("creationtime").asLong(), 3000L);
+                    assertEquals(row.get("num_messages").asLong(), 300L);
+                }
+            }
+        }
+        finally {
+            mockDb.stop();
         }
     }
 }
