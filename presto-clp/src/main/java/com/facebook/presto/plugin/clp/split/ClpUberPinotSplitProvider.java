@@ -76,6 +76,36 @@ public class ClpUberPinotSplitProvider
         super(config, functionManager, functionResolution, metadataConfig);
     }
 
+    /**
+     * Constructs the full split path by prepending the Terrablob storage URL prefix to the relative file path.
+     *
+     * @param relativePath the relative file path from the metadata database
+     * @return the full split path with protocol, host, and port prefix
+     * @throws IllegalArgumentException if the base URL is null, empty, or malformed
+     */
+    private String buildFullSplitPath(String relativePath)
+    {
+        String baseUrl = config.getUberTerrablobStorageBaseUrl();
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Terrablob storage base URL (clp.uber-terrablob-storage-base-url) must be configured for Uber" +
+                            " Pinot split provider");
+        }
+
+        try {
+            URL url = new URL(baseUrl);
+            int port = url.getPort();
+            if (port == -1) {
+                return url.getProtocol() + "://" + url.getHost() + relativePath;
+            }
+            return url.getProtocol() + "://" + url.getHost() + ":" + port + relativePath;
+        }
+        catch (MalformedURLException e) {
+            throw new IllegalArgumentException(
+                    format("Invalid Terrablob storage base URL: %s", baseUrl), e);
+        }
+    }
+
     @Override
     public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
     {
@@ -109,7 +139,7 @@ public class ClpUberPinotSplitProvider
                 List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
 
                 for (ArchiveMeta a : selected) {
-                    String splitPath = a.id;
+                    String splitPath = buildFullSplitPath(a.id);
                     splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
                 }
                 List<ClpSplit> filteredSplits = splits.build();
@@ -125,7 +155,7 @@ public class ClpUberPinotSplitProvider
             List<Map<String, JsonNode>> splitRows = getQueryResult(splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
-                String splitPath = row.get("tpath").asText();
+                String splitPath = buildFullSplitPath(row.get("tpath").asText());
                 Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
 
                 splits.add(new ClpSplit(
