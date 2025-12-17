@@ -63,8 +63,11 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class ClpPinotSplitProvider
         implements ClpSplitProvider
 {
-    private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
+    private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
     private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
+
+    private static final String DEDUPLICATION_COLUMN = "'lastmodifiedtime'";
+
     private final ClpConfig config;
 
     protected static final Logger log = Logger.get(ClpPinotSplitProvider.class);
@@ -449,25 +452,47 @@ public class ClpPinotSplitProvider
     }
 
     /**
-     * Factory method for building split selection SQL queries.
-     * Exposed for testing purposes.
+     * Returns the timestamp column reference used for LASTWITHTIME deduplication.
+     * Subclasses can override this to use a different timestamp column.
+     *
+     * @return the timestamp column reference with appropriate SQL quoting
+     */
+    protected String getDeduplicationColumn()
+    {
+        return DEDUPLICATION_COLUMN;
+    }
+
+    /**
+     * Builds a SQL query for split selection with deduplication using LASTWITHTIME.
+     * <p>
+     * Pinot uses an append-only data model where UPDATE operations don't modify existing
+     * rows but instead append new rows with updated values. This method constructs queries
+     * that use {@code LASTWITHTIME} aggregation with {@code GROUP BY tpath} to retrieve
+     * only the latest version of each record.
+     * </p>
      *
      * @param tableName the Pinot table name
+     * @param metadataProject the list of metadata columns to project
      * @param filterSql the filter SQL expression
-     * @return the complete SQL query for selecting splits
+     * @return the complete SQL query with deduplication for selecting splits
      */
     @VisibleForTesting
     protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
     {
         Set<String> allProjections = new LinkedHashSet<>();
         allProjections.addAll(requiredProjectionColumns);
-        allProjections.addAll(metadataProject);
 
-        String metadataColumns = allProjections.isEmpty()
+        // Build LASTWITHTIME expressions for each metadata column
+        for (String column : metadataProject) {
+            allProjections.add(
+                    format("LASTWITHTIME(%s, %s, 'long') AS %s", column, getDeduplicationColumn(), column));
+        }
+
+        String projectionClause = allProjections.isEmpty()
                 ? ""
                 : String.join(", ", allProjections);
 
-        return format(SQL_SELECT_SPLITS_TEMPLATE, metadataColumns, tableName, filterSql);
+        return format(SQL_SELECT_SPLITS_TEMPLATE, projectionClause, tableName, filterSql);
     }
 
     /**

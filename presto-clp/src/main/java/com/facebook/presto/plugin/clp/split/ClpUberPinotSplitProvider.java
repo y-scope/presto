@@ -61,8 +61,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class ClpUberPinotSplitProvider
         extends ClpPinotSplitProvider
 {
-    private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP =
-            "SELECT tpath, %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
+    private static final String DEDUPLICATION_COLUMN = "\"_timestampMillis\"";
+
     /**
      * Constructs an Uber CLP Pinot split provider with the given configuration.
      *
@@ -338,35 +338,16 @@ public class ClpUberPinotSplitProvider
     }
 
     /**
-     * Builds a SQL query for split selection with deduplication using LASTWITHTIME.
-     * <p>
-     * Pinot uses an append-only data model where UPDATE operations don't modify existing
-     * rows but instead append new rows with updated values. This method constructs queries
-     * that use {@code LASTWITHTIME} aggregation with {@code GROUP BY tpath} to retrieve
-     * only the latest version of each record.
-     * </p>
+     * Returns the timestamp column reference used for LASTWITHTIME deduplication.
+     * Uber uses "_timestampMillis" (with double quotes for identifier quoting)
+     * instead of the default "lastmodifiedtime".
      *
-     * @param tableName the Pinot table name
-     * @param metadataProject the list of metadata columns to project
-     * @param filterSql the filter SQL expression
-     * @return the complete SQL query with deduplication for selecting splits
+     * @return the timestamp column reference for Uber's Pinot infrastructure
      */
     @Override
-    @VisibleForTesting
-    protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
+    protected String getDeduplicationColumn()
     {
-        // Build LASTWITHTIME expressions for each metadata column
-        List<String> lastWithTimeProjections = new ArrayList<>();
-        for (String column : metadataProject) {
-            lastWithTimeProjections.add(
-                    format("LASTWITHTIME(%s, \"_timestampMillis\", 'long') AS %s", column, column));
-        }
-
-        String projectionClause = lastWithTimeProjections.isEmpty()
-                ? ""
-                : String.join(", ", lastWithTimeProjections);
-
-        return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP, projectionClause, tableName, filterSql);
+        return DEDUPLICATION_COLUMN;
     }
 
     /**
