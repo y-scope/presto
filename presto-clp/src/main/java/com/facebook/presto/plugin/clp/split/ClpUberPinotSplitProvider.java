@@ -155,7 +155,11 @@ public class ClpUberPinotSplitProvider
             List<Map<String, JsonNode>> splitRows = getQueryResult(splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
-                String splitPath = buildFullSplitPath(row.get("tpath").asText());
+                JsonNode tpathNode = row.get("tpath");
+                if (tpathNode == null || tpathNode.isNull()) {
+                    throw new RuntimeException("Missing required 'tpath' field in split metadata row");
+                }
+                String splitPath = buildFullSplitPath(tpathNode.asText());
                 Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
 
                 splits.add(new ClpSplit(
