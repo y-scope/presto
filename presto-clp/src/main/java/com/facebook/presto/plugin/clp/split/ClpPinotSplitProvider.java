@@ -65,7 +65,7 @@ public class ClpPinotSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
     private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
-    private final ClpConfig config;
+    protected final ClpConfig config;
 
     protected static final Logger log = Logger.get(ClpPinotSplitProvider.class);
     protected final URL pinotSqlQueryEndpointUrl;

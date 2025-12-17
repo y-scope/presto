@@ -264,6 +264,57 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
+     * Test that buildFullSplitPath correctly constructs the full path with URL prefix.
+     */
+    @Test
+    public void testBuildFullSplitPath() throws Exception
+    {
+        // Create a config with Terrablob storage base URL configured
+        ClpConfig testConfig = new ClpConfig();
+        testConfig.setMetadataDbUrl("https://neutrino.uber.com");
+        testConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+        testConfig.setUberTerrablobStorageBaseUrl("http://localhost:19617");
+
+        ClpUberPinotSplitProvider testProvider = new ClpUberPinotSplitProvider(
+                testConfig,
+                functionAndTypeManager,
+                standardFunctionResolution,
+                new ClpSplitMetadataConfig(testConfig, functionAndTypeManager));
+
+        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
+        method.setAccessible(true);
+
+        // Test with a typical relative path
+        String result = (String) method.invoke(testProvider, "/data/archives/table1/ir001.clp.zst");
+        assertEquals(result, "http://localhost:19617/data/archives/table1/ir001.clp.zst");
+
+        // Test with base URL without explicit port (should omit port in result)
+        testConfig.setUberTerrablobStorageBaseUrl("http://terrablob.uber.com");
+        result = (String) method.invoke(testProvider, "/ir.clp.zst");
+        assertEquals(result, "http://terrablob.uber.com/ir.clp.zst");
+    }
+
+    /**
+     * Test that buildFullSplitPath throws the exception when base URL is not configured.
+     */
+    @Test
+    public void testBuildFullSplitPathMissingConfig() throws Exception
+    {
+        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
+        method.setAccessible(true);
+
+        // config from setUp() does not have Terrablob URL configured
+        try {
+            method.invoke(splitProvider, "/some/path");
+            fail("Expected IllegalArgumentException for missing Terrablob storage base URL");
+        }
+        catch (Exception e) {
+            assertTrue(e.getCause() instanceof IllegalArgumentException);
+            assertTrue(e.getCause().getMessage().contains("clp.uber-terrablob-storage-base-url"));
+        }
+    }
+
+    /**
      * Test parsing of Uber Neutrino query response format.
      * Verifies that the JSON response with "columns" and "data" fields is correctly
      * parsed into a list of row maps.
