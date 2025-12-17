@@ -36,6 +36,7 @@ public class ClpConfig
     private String splitMetadataConfigPath;
     private String metadataYamlPath;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
+    private String uberTerrablobStorageBaseUrl;
 
     public boolean isPolymorphicTypeEnabled()
     {
@@ -184,6 +185,18 @@ public class ClpConfig
     public ClpConfig setSplitProviderType(SplitProviderType splitProviderType)
     {
         this.splitProviderType = splitProviderType;
+        return this;
+    }
+
+    public String getUberTerrablobStorageBaseUrl()
+    {
+        return uberTerrablobStorageBaseUrl;
+    }
+
+    @Config("clp.uber-terrablob-storage-base-url")
+    public ClpConfig setUberTerrablobStorageBaseUrl(String uberTerrablobStorageBaseUrl)
+    {
+        this.uberTerrablobStorageBaseUrl = uberTerrablobStorageBaseUrl;
         return this;
     }
 
