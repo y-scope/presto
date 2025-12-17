@@ -57,12 +57,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  * customizes the SQL query endpoint URL to use Neutrino's global statements API instead of
  * the standard Pinot query endpoint.
  * </p>
- * <p>
- * This implementation also handles Pinot's append-only data model where UPDATE operations
- * don't modify existing rows but instead append new rows with updated values. To retrieve
- * only the latest version of each record, this class uses the {@code LASTWITHTIME} aggregation
- * function with {@code GROUP BY tpath} to deduplicate rows by their unique identifier.
- * </p>
  */
 public class ClpUberPinotSplitProvider
         extends ClpPinotSplitProvider

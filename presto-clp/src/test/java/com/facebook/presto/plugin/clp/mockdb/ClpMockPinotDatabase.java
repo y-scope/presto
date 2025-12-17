@@ -212,7 +212,7 @@ public class ClpMockPinotDatabase
     }
 
     /**
-     * Executes the H2 query and formats the result as Uber Neutrino JSON response.
+     * Executes the H2 query and formats the result as Neutrino JSON response.
      */
     private String executeQueryAndFormat(String query) throws SQLException, IOException
     {
