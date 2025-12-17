@@ -203,4 +203,24 @@ public class TestClpPinotSplitProvider
         assertTrue(query.contains("test_table"));
         assertTrue(query.contains("creationtime > 1000"));
     }
+
+    /**
+     * Test that buildSplitSelectionQueryWithTopN correctly wraps TopN columns with LASTWITHTIME.
+     * The TopN query should include creationtime, lastmodifiedtime, and num_messages columns
+     * aggregated using LASTWITHTIME for deduplication.
+     */
+    @Test
+    public void testBuildSplitSelectionQueryWithTopN()
+    {
+        String query = splitProvider.buildSplitSelectionQueryWithTopN(
+                "test_table", "creationtime > 1000");
+
+        assertTrue(query.contains("tpath"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, 'lastmodifiedtime', 'long') AS creationtime"));
+        assertTrue(query.contains("LASTWITHTIME(lastmodifiedtime, 'lastmodifiedtime', 'long') AS lastmodifiedtime"));
+        assertTrue(query.contains("LASTWITHTIME(num_messages, 'lastmodifiedtime', 'long') AS num_messages"));
+        assertTrue(query.contains("GROUP BY tpath"));
+        assertTrue(query.contains("test_table"));
+        assertTrue(query.contains("creationtime > 1000"));
+    }
 }

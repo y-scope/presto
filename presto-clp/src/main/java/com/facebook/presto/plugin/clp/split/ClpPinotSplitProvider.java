@@ -64,7 +64,6 @@ public class ClpPinotSplitProvider
         implements ClpSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
-    private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN = "SELECT tpath, creationtime, lastmodifiedtime, num_messages FROM %s WHERE 1 = 1 AND (%s) LIMIT 999999";
 
     private static final String DEDUPLICATION_COLUMN = "'lastmodifiedtime'";
 
@@ -496,17 +495,23 @@ public class ClpPinotSplitProvider
     }
 
     /**
-     * Factory method for building split metadata SQL queries.
-     * Exposed for testing purposes.
+     * Builds a SQL query for TopN split selection with deduplication using LASTWITHTIME.
+     * <p>
+     * Similar to {@link #buildSplitSelectionQuery}, this method uses {@code LASTWITHTIME}
+     * aggregation with {@code GROUP BY tpath} to retrieve only the latest version of each record.
+     * The projected columns (creationtime, lastmodifiedtime, num_messages) are required for
+     * TopN archive selection logic.
+     * </p>
      *
      * @param tableName the Pinot table name
      * @param filterSql the filter SQL expression
-     * @return the complete SQL query for selecting split metadata
+     * @return the complete SQL query with deduplication for selecting split metadata
      */
     @VisibleForTesting
     protected String buildSplitSelectionQueryWithTopN(String tableName, String filterSql)
     {
-        return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_TOPN, tableName, filterSql);
+        List<String> topNColumns = Arrays.asList("creationtime", "lastmodifiedtime", "num_messages");
+        return buildSplitSelectionQuery(tableName, topNColumns, filterSql);
     }
 
     /**
