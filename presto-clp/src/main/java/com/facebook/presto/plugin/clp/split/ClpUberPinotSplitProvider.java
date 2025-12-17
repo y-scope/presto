@@ -337,13 +337,6 @@ public class ClpUberPinotSplitProvider
         return results;
     }
 
-    /**
-     * Returns the timestamp column reference used for LASTWITHTIME deduplication.
-     * Uber uses "_timestampMillis" (with double quotes for identifier quoting)
-     * instead of the default "lastmodifiedtime".
-     *
-     * @return the timestamp column reference for Uber's Pinot infrastructure
-     */
     @Override
     protected String getDeduplicationColumn()
     {
