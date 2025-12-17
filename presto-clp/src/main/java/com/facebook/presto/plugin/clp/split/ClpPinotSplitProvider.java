@@ -65,7 +65,7 @@ public class ClpPinotSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE = "SELECT %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
 
-    private static final String DEDUPLICATION_COLUMN = "'lastmodifiedtime'";
+    private static final String DEDUPLICATION_COLUMN = "lastmodifiedtime";
 
     private final ClpConfig config;
 

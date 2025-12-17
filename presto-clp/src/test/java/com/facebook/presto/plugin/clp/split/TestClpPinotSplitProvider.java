@@ -197,8 +197,8 @@ public class TestClpPinotSplitProvider
                 "test_table", metadataColumns, "creationtime > 1000");
 
         assertTrue(query.contains("tpath"));
-        assertTrue(query.contains("LASTWITHTIME(hostname, 'lastmodifiedtime', 'long') AS hostname"));
-        assertTrue(query.contains("LASTWITHTIME(creationtime, 'lastmodifiedtime', 'long') AS creationtime"));
+        assertTrue(query.contains("LASTWITHTIME(hostname, lastmodifiedtime, 'long') AS hostname"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, lastmodifiedtime, 'long') AS creationtime"));
         assertTrue(query.contains("GROUP BY tpath"));
         assertTrue(query.contains("test_table"));
         assertTrue(query.contains("creationtime > 1000"));
@@ -216,9 +216,9 @@ public class TestClpPinotSplitProvider
                 "test_table", "creationtime > 1000");
 
         assertTrue(query.contains("tpath"));
-        assertTrue(query.contains("LASTWITHTIME(creationtime, 'lastmodifiedtime', 'long') AS creationtime"));
-        assertTrue(query.contains("LASTWITHTIME(lastmodifiedtime, 'lastmodifiedtime', 'long') AS lastmodifiedtime"));
-        assertTrue(query.contains("LASTWITHTIME(num_messages, 'lastmodifiedtime', 'long') AS num_messages"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, lastmodifiedtime, 'long') AS creationtime"));
+        assertTrue(query.contains("LASTWITHTIME(lastmodifiedtime, lastmodifiedtime, 'long') AS lastmodifiedtime"));
+        assertTrue(query.contains("LASTWITHTIME(num_messages, lastmodifiedtime, 'long') AS num_messages"));
         assertTrue(query.contains("GROUP BY tpath"));
         assertTrue(query.contains("test_table"));
         assertTrue(query.contains("creationtime > 1000"));
