@@ -31,6 +31,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +40,7 @@ import java.util.Map;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class TestClpPinotSplitProvider
 {
@@ -178,5 +180,27 @@ public class TestClpPinotSplitProvider
             }
             throw e;
         }
+    }
+
+    /**
+     * Test that buildSplitSelectionQuery correctly wraps metadata columns with LASTWITHTIME.
+     * Each metadata column should be aggregated using LASTWITHTIME to get the latest value.
+     */
+    @Test
+    public void testBuildSplitSelectionQueryWithMetadataColumns()
+    {
+        List<String> metadataColumns = new ArrayList<>();
+        metadataColumns.add("hostname");
+        metadataColumns.add("creationtime");
+
+        String query = splitProvider.buildSplitSelectionQuery(
+                "test_table", metadataColumns, "creationtime > 1000");
+
+        assertTrue(query.contains("tpath"));
+        assertTrue(query.contains("LASTWITHTIME(hostname, 'lastmodifiedtime', 'long') AS hostname"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, 'lastmodifiedtime', 'long') AS creationtime"));
+        assertTrue(query.contains("GROUP BY tpath"));
+        assertTrue(query.contains("test_table"));
+        assertTrue(query.contains("creationtime > 1000"));
     }
 }
