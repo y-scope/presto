@@ -250,7 +250,6 @@ public class TestClpUberPinotSplitProvider
         splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000");
     }
 
-
     /**
      * Test configuration with different split provider types.
      */
