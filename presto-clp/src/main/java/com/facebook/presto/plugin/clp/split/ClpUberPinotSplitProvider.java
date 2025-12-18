@@ -384,15 +384,4 @@ public class ClpUberPinotSplitProvider
 
         return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP, projectionClause, tableName, filterSql);
     }
-
-    /**
-     * TopN optimization is not currently supported for Uber Pinot queries.
-     *
-     * @throws UnsupportedOperationException always
-     */
-    @Override
-    protected String buildSplitSelectionQueryWithTopN(String tableName, String filterSql)
-    {
-        throw new UnsupportedOperationException("TopN optimization is not supported for Uber Pinot queries");
-    }
 }

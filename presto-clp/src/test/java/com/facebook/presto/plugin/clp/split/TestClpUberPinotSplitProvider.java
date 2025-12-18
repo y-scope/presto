@@ -241,16 +241,6 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test that TopN queries throw UnsupportedOperationException.
-     * TopN optimization is currently disabled for Uber Pinot queries.
-     */
-    @Test(expectedExceptions = UnsupportedOperationException.class)
-    public void testBuildSplitSelectionQueryWithTopNThrowsException()
-    {
-        splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000");
-    }
-
-    /**
      * Test configuration with different split provider types.
      */
     @Test
