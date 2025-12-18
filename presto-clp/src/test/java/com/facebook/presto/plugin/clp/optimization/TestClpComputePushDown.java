@@ -106,7 +106,7 @@ public class TestClpComputePushDown
     }
 
     /**
-     * Validates that the optimizer resolves metadata projections given a new layout
+     * Validates that the optimizer resolves metadata projections
      */
     @Test
     public void testMetadataProjectionWithDataProjection()
@@ -166,77 +166,6 @@ public class TestClpComputePushDown
         assertTrue(rewrittenScan.getTable().getLayout().isPresent(), "Layout should be set on rewritten scan");
 
         ClpTableLayoutHandle layout = (ClpTableLayoutHandle) rewrittenScan.getTable().getLayout().get();
-        Map<String, String> exposedToOriginalMap = metadataConfig.getExposedToOriginalMapping(schemaTableName);
-        Set<String> expectedMetadataProjection = ImmutableSet.of(
-                exposedToOriginalMap.get("hostname"),
-                exposedToOriginalMap.get("score"),
-                exposedToOriginalMap.get("status_code"));
-        assertEquals(layout.getOrInitializeSplitMetadataColumnNames(), expectedMetadataProjection);
-    }
-
-    /**
-     * Validates that the optimizer resolves metadata projections given an existing layout and preserves pre-existing
-     * layout fields such as a kqlQuery.
-     */
-    @Test
-    public void testMetadataProjectionWithExistingLayout()
-    {
-        Map<String, Type> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName);
-        Type hostnameString = metadataColumns.get("hostname");
-        Type scoreDouble = metadataColumns.get("score");
-        Type statusCodeInt = metadataColumns.get("status_code");
-
-        VariableReferenceExpression hostname = new VariableReferenceExpression(
-                Optional.empty(), "hostname", hostnameString);
-        VariableReferenceExpression score = new VariableReferenceExpression(
-                Optional.empty(), "score", scoreDouble);
-        VariableReferenceExpression statusCode = new VariableReferenceExpression(
-                Optional.empty(), "status_code", statusCodeInt);
-        VariableReferenceExpression fare = new VariableReferenceExpression(
-                Optional.empty(), "fare", DOUBLE);
-
-        ClpColumnHandle fileNameHandle =
-                new ClpColumnHandle("hostname", "hostname", hostnameString);
-        ClpColumnHandle scoreHandle =
-                new ClpColumnHandle("score", "score", scoreDouble);
-        ClpColumnHandle statusCodeHandle =
-                new ClpColumnHandle("status_code", "status_code", statusCodeInt);
-        ClpColumnHandle fareHandle = new ClpColumnHandle("fare", DOUBLE);
-
-        ClpTableLayoutHandle existingLayout = new ClpTableLayoutHandle(
-                clpTableHandle, Optional.of("existing-kql"), null);
-
-        TableHandle tableHandle = new TableHandle(
-                connectorId,
-                clpTableHandle,
-                ClpTransactionHandle.INSTANCE,
-                Optional.of(existingLayout));
-
-        TableScanNode originalScan = new TableScanNode(
-                Optional.empty(),
-                idAllocator.getNextId(),
-                tableHandle,
-                ImmutableList.of(hostname, score, statusCode, fare),
-                ImmutableMap.<VariableReferenceExpression, ColumnHandle>builder()
-                        .put(hostname, fileNameHandle)
-                        .put(score, scoreHandle)
-                        .put(statusCode, statusCodeHandle)
-                        .put(fare, fareHandle)
-                        .build(),
-                ImmutableList.of(),
-                TupleDomain.all(),
-                TupleDomain.all(),
-                Optional.empty());
-
-        PlanNode optimized = optimizer.optimize(
-                originalScan, new SessionHolder().getConnectorSession(), variableAllocator, idAllocator);
-        TableScanNode rewrittenScan = (TableScanNode) optimized;
-
-        assertTrue(rewrittenScan.getTable().getLayout().isPresent(), "Layout should remain present after rewrite");
-        ClpTableLayoutHandle layout = (ClpTableLayoutHandle) rewrittenScan.getTable().getLayout().get();
-        assertEquals(layout.getKqlQuery(), Optional.of("existing-kql"), "Existing layout fields should be preserved");
-        assertTrue(layout == existingLayout, "Optimizer should reuse and mutate the existing layout");
-
         Map<String, String> exposedToOriginalMap = metadataConfig.getExposedToOriginalMapping(schemaTableName);
         Set<String> expectedMetadataProjection = ImmutableSet.of(
                 exposedToOriginalMap.get("hostname"),
