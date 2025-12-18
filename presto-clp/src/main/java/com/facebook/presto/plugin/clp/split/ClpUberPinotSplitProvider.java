@@ -17,7 +17,6 @@ import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpSplit;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
-import com.facebook.presto.plugin.clp.optimization.ClpTopNSpec;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -78,11 +77,40 @@ public class ClpUberPinotSplitProvider
         super(config, functionManager, functionResolution, metadataConfig);
     }
 
+    /**
+     * Constructs the full split path by prepending the Terrablob storage URL prefix to the relative file path.
+     *
+     * @param relativePath the relative file path from the metadata database
+     * @return the full split path with protocol, host, and port prefix
+     * @throws IllegalArgumentException if the base URL is null, empty, or malformed
+     */
+    private String buildFullSplitPath(String relativePath)
+    {
+        String baseUrl = config.getUberTerrablobStorageBaseUrl();
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Terrablob storage base URL (clp.uber-terrablob-storage-base-url) must be configured for Uber" +
+                            " Pinot split provider");
+        }
+
+        try {
+            URL url = new URL(baseUrl);
+            int port = url.getPort();
+            if (port == -1) {
+                return url.getProtocol() + "://" + url.getHost() + relativePath;
+            }
+            return url.getProtocol() + "://" + url.getHost() + ":" + port + relativePath;
+        }
+        catch (MalformedURLException e) {
+            throw new IllegalArgumentException(
+                    format("Invalid Terrablob storage base URL: %s", baseUrl), e);
+        }
+    }
+
     @Override
     public List<ClpSplit> listSplits(ClpTableLayoutHandle clpTableLayoutHandle)
     {
         ClpTableHandle clpTableHandle = clpTableLayoutHandle.getTable();
-        Optional<ClpTopNSpec> topNSpecOptional = clpTableLayoutHandle.getTopN();
         String tableName = inferMetadataTableName(clpTableHandle);
         Optional<String> metadataFilterQuery = Optional.empty();
 
@@ -102,22 +130,6 @@ public class ClpUberPinotSplitProvider
 
         try {
             ImmutableList.Builder<ClpSplit> splits = new ImmutableList.Builder<>();
-            if (topNSpecOptional.isPresent()) {
-                ClpTopNSpec topNSpec = topNSpecOptional.get();
-                ClpTopNSpec.Ordering ordering = topNSpec.getOrderings().get(0);
-
-                String splitMetaQuery = buildSplitSelectionQueryWithTopN(tableName, metadataFilterQuery.orElse("1 = 1"));
-                List<ArchiveMeta> archiveMetaList = fetchArchiveMeta(splitMetaQuery, ordering);
-                List<ArchiveMeta> selected = selectTopNArchives(archiveMetaList, topNSpec.getLimit(), ordering.getOrder());
-
-                for (ArchiveMeta a : selected) {
-                    String splitPath = a.id;
-                    splits.add(new ClpSplit(splitPath, determineSplitType(splitPath), clpTableLayoutHandle.getKqlQuery(), Optional.empty()));
-                }
-                List<ClpSplit> filteredSplits = splits.build();
-                log.debug("Number of topN filtered splits: %s", filteredSplits.size());
-                return filteredSplits;
-            }
             List<String> metadataColumnNames = new ArrayList<>(
                     clpTableLayoutHandle.getOrInitializeSplitMetadataColumnNames());
             String splitQuery = buildSplitSelectionQuery(
@@ -127,7 +139,11 @@ public class ClpUberPinotSplitProvider
             List<Map<String, JsonNode>> splitRows = getQueryResult(splitQuery);
 
             for (Map<String, JsonNode> row : splitRows) {
-                String splitPath = row.get("tpath").asText();
+                JsonNode tpathNode = row.get("tpath");
+                if (tpathNode == null || tpathNode.isNull()) {
+                    throw new RuntimeException("Missing required 'tpath' field in split metadata row");
+                }
+                String splitPath = buildFullSplitPath(tpathNode.asText());
                 Map<String, Object> metadataColumns = extractMetadataColumns(row, metadataColumnNames, schemaTableName);
 
                 splits.add(new ClpSplit(
