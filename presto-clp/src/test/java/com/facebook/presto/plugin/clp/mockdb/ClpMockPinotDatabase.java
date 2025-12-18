@@ -92,8 +92,9 @@ public class ClpMockPinotDatabase
     /**
      * Inserts a row into the mock Pinot table.
      * Multiple rows with the same tpath but different _timestampMillis simulate Pinot's append-only model.
+     * All columns are stored as strings to match Uber's Pinot schema.
      */
-    public void insertRow(String tpath, String hostname, long creationtime, long numMessages, long timestampMillis)
+    public void insertRow(String tpath, String hostname, String creationtime, String numMessages, String timestampMillis)
     {
         String sql = format(
                 "INSERT INTO %s (tpath, hostname, creationtime, num_messages, _timestampMillis) VALUES (?, ?, ?, ?, ?)",
@@ -102,9 +103,9 @@ public class ClpMockPinotDatabase
                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, tpath);
             pstmt.setString(2, hostname);
-            pstmt.setLong(3, creationtime);
-            pstmt.setLong(4, numMessages);
-            pstmt.setLong(5, timestampMillis);
+            pstmt.setString(3, creationtime);
+            pstmt.setString(4, numMessages);
+            pstmt.setString(5, timestampMillis);
             pstmt.executeUpdate();
         }
         catch (SQLException e) {
@@ -269,16 +270,16 @@ public class ClpMockPinotDatabase
             String dbName = UUID.randomUUID().toString();
             String h2Url = format(H2_URL_TEMPLATE, dbName);
 
-            // Create the table
+            // Create the table with all VARCHAR columns to match Uber's Pinot schema
             try (Connection conn = DriverManager.getConnection(h2Url);
                     Statement stmt = conn.createStatement()) {
                 stmt.execute(format(
                         "CREATE TABLE %s (" +
                                 "tpath VARCHAR(512) NOT NULL, " +
                                 "hostname VARCHAR(256), " +
-                                "creationtime BIGINT, " +
-                                "num_messages BIGINT, " +
-                                "_timestampMillis BIGINT NOT NULL)",
+                                "creationtime VARCHAR(64), " +
+                                "num_messages VARCHAR(64), " +
+                                "_timestampMillis VARCHAR(64) NOT NULL)",
                         tableName));
             }
 

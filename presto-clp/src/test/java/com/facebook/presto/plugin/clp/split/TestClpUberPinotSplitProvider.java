@@ -401,12 +401,12 @@ public class TestClpUberPinotSplitProvider
 
         // Insert duplicate rows for archive1 (simulating Pinot's append-only model)
         // archive1 v1: old data with timestamp 1000
-        mockDb.insertRow("/path/to/archive1.clp.zst", "host-old", 1000, 100, 1000);
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-old", "1000", "100", "1000");
         // archive1 v2: updated data with timestamp 2000 (latest)
-        mockDb.insertRow("/path/to/archive1.clp.zst", "host-new", 1500, 150, 2000);
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-new", "1500", "150", "2000");
 
         // Insert single row for archive2
-        mockDb.insertRow("/path/to/archive2.clp.zst", "host-b", 1200, 200, 1500);
+        mockDb.insertRow("/path/to/archive2.clp.zst", "host-b", "1200", "200", "1500");
 
         mockDb.start();
 
