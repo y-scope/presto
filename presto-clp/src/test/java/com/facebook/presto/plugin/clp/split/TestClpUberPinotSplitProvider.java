@@ -16,6 +16,7 @@ package com.facebook.presto.plugin.clp.split;
 import com.facebook.presto.plugin.clp.ClpConfig;
 import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.TestClpQueryBase;
+import com.facebook.presto.plugin.clp.mockdb.ClpMockPinotDatabase;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -218,27 +219,25 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test SQL query building methods inherited from parent.
+     * Test that buildSplitSelectionQuery correctly wraps metadata columns with LASTWITHTIME.
+     * Each metadata column should be aggregated using LASTWITHTIME to get the latest value.
      */
     @Test
-    public void testInheritedSqlQueryMethods()
+    public void testBuildSplitSelectionQueryWithMetadataColumns()
     {
-        // Test buildSplitSelectionQuery (inherited from parent)
-        String query = splitProvider.buildSplitSelectionQuery(
-                "rta.logging.logs", new ArrayList<>(), "status = 200");
-        assertTrue(query.contains("rta.logging.logs"));
-        assertTrue(query.contains("status = 200"));
-        assertTrue(query.contains("SELECT"));
-        assertTrue(query.contains("tpath"));
+        List<String> metadataColumns = new ArrayList<>();
+        metadataColumns.add("hostname");
+        metadataColumns.add("creationtime");
 
-        // Test buildSplitSelectionQueryWithTopN (inherited from parent)
-        String metaQuery = splitProvider.buildSplitSelectionQueryWithTopN("rta.logging.events", "timestamp > 1000");
-        assertTrue(metaQuery.contains("rta.logging.events"));
-        assertTrue(metaQuery.contains("timestamp > 1000"));
-        assertTrue(metaQuery.contains("tpath"));
-        assertTrue(metaQuery.contains("creationtime"));
-        assertTrue(metaQuery.contains("lastmodifiedtime"));
-        assertTrue(metaQuery.contains("num_messages"));
+        String query = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", metadataColumns, "creationtime > 1000");
+
+        assertTrue(query.contains("SELECT tpath"));
+        assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'string') AS creationtime"));
+        assertTrue(query.contains("GROUP BY tpath"));
+        assertTrue(query.contains("rta.logging.logs"));
+        assertTrue(query.contains("creationtime > 1000"));
     }
 
     /**
@@ -385,6 +384,85 @@ public class TestClpUberPinotSplitProvider
             assertEquals(row.get("nonExistentColumn"), null);
             assertEquals(row.get("id"), null);
             assertEquals(row.get("uri"), null);
+        }
+    }
+
+    /**
+     * Test deduplication query against a mock Pinot database with duplicate rows.
+     * Inserts multiple versions of the same tpath with different timestamps,
+     * then verifies that the query returns only the latest version.
+     */
+    @Test
+    public void testDeduplicationQueryWithMockDatabase() throws Exception
+    {
+        ClpMockPinotDatabase mockDb = ClpMockPinotDatabase.builder()
+                .setTableName("test_table")
+                .build();
+
+        // Insert duplicate rows for archive1 (simulating Pinot's append-only model)
+        // archive1 v1: old data with timestamp 1000
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-old", "1000", "100", "1000");
+        // archive1 v2: updated data with timestamp 2000 (latest)
+        mockDb.insertRow("/path/to/archive1.clp.zst", "host-new", "1500", "150", "2000");
+
+        // Insert single row for archive2
+        mockDb.insertRow("/path/to/archive2.clp.zst", "host-b", "1200", "200", "1500");
+
+        mockDb.start();
+
+        try {
+            ClpConfig mockConfig = new ClpConfig();
+            mockConfig.setMetadataDbUrl(mockDb.getUrl());
+            mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+
+            ClpUberPinotSplitProvider mockSplitProvider = new ClpUberPinotSplitProvider(
+                    mockConfig,
+                    functionAndTypeManager,
+                    standardFunctionResolution,
+                    new ClpSplitMetadataConfig(mockConfig, functionAndTypeManager));
+
+            List<String> metadataColumns = new ArrayList<>();
+            metadataColumns.add("hostname");
+
+            String query = mockSplitProvider.buildSplitSelectionQuery(
+                    "test_table",
+                    metadataColumns,
+                    "1 = 1");
+
+            // Verify query format includes LASTWITHTIME and GROUP BY
+            assertTrue(query.contains("LASTWITHTIME(hostname"));
+            assertTrue(query.contains("GROUP BY tpath"));
+
+            // Execute the query against mock database
+            List<Map<String, JsonNode>> results = mockSplitProvider.getQueryResult(query);
+
+            // Should get 2 rows (deduplicated), not 3
+            assertEquals(results.size(), 2);
+
+            // Find archive1 row and verify it has the LATEST hostname value
+            Map<String, JsonNode> archive1Row = null;
+            Map<String, JsonNode> archive2Row = null;
+            for (Map<String, JsonNode> row : results) {
+                String tpath = row.get("tpath").asText();
+                if (tpath.contains("archive1")) {
+                    archive1Row = row;
+                }
+                else if (tpath.contains("archive2")) {
+                    archive2Row = row;
+                }
+            }
+
+            assertNotNull(archive1Row, "archive1 row should exist");
+            assertNotNull(archive2Row, "archive2 row should exist");
+
+            // archive1 should have hostname from the LATEST version (timestamp 2000)
+            assertEquals(archive1Row.get("hostname").asText(), "host-new");
+
+            // archive2 should have its only hostname value
+            assertEquals(archive2Row.get("hostname").asText(), "host-b");
+        }
+        finally {
+            mockDb.stop();
         }
     }
 }
