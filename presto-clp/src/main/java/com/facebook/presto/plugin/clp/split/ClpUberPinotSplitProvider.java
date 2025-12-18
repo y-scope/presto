@@ -39,9 +39,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.facebook.presto.plugin.clp.ClpErrorCode.CLP_MANDATORY_COLUMN_NOT_IN_FILTER;
 import static java.lang.String.format;
@@ -372,7 +374,7 @@ public class ClpUberPinotSplitProvider
     protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
     {
         // Build LASTWITHTIME expressions for each metadata column
-        List<String> lastWithTimeProjections = new ArrayList<>();
+        Set<String> lastWithTimeProjections = new LinkedHashSet<>(metadataProject);
         for (String column : metadataProject) {
             lastWithTimeProjections.add(
                     format("LASTWITHTIME(%s, \"_timestampMillis\", 'string') AS %s", column, column));
