@@ -149,19 +149,19 @@ public class ClpMockPinotDatabase
 
     /**
      * Translates a Pinot query with LASTWITHTIME to an equivalent H2 query.
-     * LASTWITHTIME(col, "_timestampMillis", 'long') is translated to a subquery that gets the latest value.
+     * LASTWITHTIME(col, "_timestampMillis", 'string') is translated to a subquery that gets the latest value.
      */
     private String translateToH2Query(String pinotQuery)
     {
         // For H2, we simulate LASTWITHTIME by using a subquery to get the row with max _timestampMillis per tpath
-        // Original: SELECT tpath, LASTWITHTIME(hostname, "_timestampMillis", 'long') AS hostname FROM table GROUP BY tpath
+        // Original: SELECT tpath, LASTWITHTIME(hostname, "_timestampMillis", 'string') AS hostname FROM table GROUP BY tpath
         // H2 equivalent: SELECT t.tpath, t.hostname FROM table t
         //                INNER JOIN (SELECT tpath, MAX(_timestampMillis) as max_ts FROM table GROUP BY tpath) m
         //                ON t.tpath = m.tpath AND t._timestampMillis = m.max_ts
 
         // Extract columns from LASTWITHTIME expressions
         Pattern lastWithTimePattern = Pattern.compile(
-                "LASTWITHTIME\\s*\\(\\s*(\\w+)\\s*,\\s*\"_timestampMillis\"\\s*,\\s*'long'\\s*\\)\\s+AS\\s+(\\w+)",
+                "LASTWITHTIME\\s*\\(\\s*(\\w+)\\s*,\\s*\"_timestampMillis\"\\s*,\\s*'string'\\s*\\)\\s+AS\\s+(\\w+)",
                 Pattern.CASE_INSENSITIVE);
 
         // Check if query has LASTWITHTIME

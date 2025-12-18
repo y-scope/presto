@@ -233,8 +233,8 @@ public class TestClpUberPinotSplitProvider
                 "rta.logging.logs", metadataColumns, "creationtime > 1000");
 
         assertTrue(query.contains("SELECT tpath"));
-        assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'long') AS hostname"));
-        assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'long') AS creationtime"));
+        assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname"));
+        assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'string') AS creationtime"));
         assertTrue(query.contains("GROUP BY tpath"));
         assertTrue(query.contains("rta.logging.logs"));
         assertTrue(query.contains("creationtime > 1000"));
