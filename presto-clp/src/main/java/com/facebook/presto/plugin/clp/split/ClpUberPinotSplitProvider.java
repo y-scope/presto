@@ -359,7 +359,7 @@ public class ClpUberPinotSplitProvider
         List<String> lastWithTimeProjections = new ArrayList<>();
         for (String column : metadataProject) {
             lastWithTimeProjections.add(
-                    format("LASTWITHTIME(%s, \"_timestampMillis\", 'long') AS %s", column, column));
+                    format("LASTWITHTIME(%s, \"_timestampMillis\", 'string') AS %s", column, column));
         }
 
         String projectionClause = lastWithTimeProjections.isEmpty()
