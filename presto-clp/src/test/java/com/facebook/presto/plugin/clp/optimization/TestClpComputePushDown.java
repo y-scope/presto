@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp.optimization;
 
+import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
@@ -30,10 +31,16 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
+import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.Ordering;
+import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.TableScanNode;
+import com.facebook.presto.spi.plan.TopNNode;
+import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -235,5 +242,131 @@ public class TestClpComputePushDown
         // Verify that the layout is NOT present (since the only metadata column was range-bound and skipped)
         assertFalse(rewrittenScan.getTable().getLayout().isPresent(),
                 "Layout should not be present when only range-bound columns are projected");
+    }
+
+    /**
+     * Validates that metadata projection (splitMetadataColumnNames) is preserved
+     * after the plan passes through visitFilter and visitTopN.
+     *
+     * Plan structure: TopN -> Filter -> TableScan
+     * Expected: The optimizer should:
+     * 1. Visit TableScan first (DFS), adding splitMetadataColumnNames to the layout
+     * 2. Visit Filter, preserving splitMetadataColumnNames when creating new layout
+     * 3. Visit TopN, preserving splitMetadataColumnNames when creating new layout
+     */
+    @Test
+    public void testMetadataProjectionPreservedThroughFilterAndTopN()
+    {
+        // Setup: Use metadata columns that will trigger metadataQueryOnly=true
+        Map<String, Type> metadataColumns = metadataConfig.getMetadataColumns(schemaTableName);
+        Type hostnameType = metadataColumns.get("hostname");
+        Type scoreType = metadataColumns.get("score");
+
+        VariableReferenceExpression hostname = new VariableReferenceExpression(
+                Optional.empty(), "hostname", hostnameType);
+        VariableReferenceExpression score = new VariableReferenceExpression(
+                Optional.empty(), "score", scoreType);
+
+        ClpColumnHandle hostnameHandle = new ClpColumnHandle("hostname", "hostname", hostnameType);
+        ClpColumnHandle scoreHandle = new ClpColumnHandle("score", "score", scoreType);
+
+        // Create TableScanNode with metadata columns
+        TableHandle tableHandle = new TableHandle(
+                connectorId,
+                clpTableHandle,
+                ClpTransactionHandle.INSTANCE,
+                Optional.empty());
+
+        TableScanNode tableScan = new TableScanNode(
+                Optional.empty(),
+                idAllocator.getNextId(),
+                tableHandle,
+                ImmutableList.of(hostname, score),
+                ImmutableMap.<VariableReferenceExpression, ColumnHandle>builder()
+                        .put(hostname, hostnameHandle)
+                        .put(score, scoreHandle)
+                        .build(),
+                ImmutableList.of(),
+                TupleDomain.all(),
+                TupleDomain.all(),
+                Optional.empty());
+
+        // Create FilterNode on top of TableScan
+        // Use a filter on a metadata column: score > 0.5 -> trigger split pruning, append metadata sql in
+        // ClpTableLayoutHandle
+        SessionHolder sessionHolder = new SessionHolder();
+        TypeProvider localTypeProvider = TypeProvider.fromVariables(ImmutableList.of(hostname, score));
+        RowExpression filterPredicate = getRowExpression("score > 0.5", localTypeProvider, sessionHolder);
+
+        FilterNode filterNode = new FilterNode(
+                Optional.empty(),
+                idAllocator.getNextId(),
+                tableScan,
+                filterPredicate);
+
+        // Create TopNNode on top of FilterNode
+        // ORDER BY hostname LIMIT 10
+        OrderingScheme orderingScheme = new OrderingScheme(
+                ImmutableList.of(new Ordering(hostname, SortOrder.ASC_NULLS_LAST)));
+
+        TopNNode topNNode = new TopNNode(
+                Optional.empty(),
+                idAllocator.getNextId(),
+                filterNode,
+                10,
+                orderingScheme,
+                TopNNode.Step.SINGLE);
+
+        // Run the optimizer
+        PlanNode optimized = optimizer.optimize(
+                topNNode,
+                sessionHolder.getConnectorSession(),
+                variableAllocator,
+                idAllocator);
+
+        // Navigate to the TableScanNode in the optimized plan
+        // Structure should be: TopN -> Filter -> TableScan (or TopN -> TableScan if filter was fully pushed)
+        assertTrue(optimized instanceof TopNNode, "Root should be TopNNode");
+        TopNNode optimizedTopN = (TopNNode) optimized;
+
+        PlanNode source = optimizedTopN.getSource();
+        TableScanNode optimizedScan;
+        if (source instanceof FilterNode) {
+            FilterNode optimizedFilter = (FilterNode) source;
+            assertTrue(optimizedFilter.getSource() instanceof TableScanNode,
+                    "Filter source should be TableScanNode");
+            optimizedScan = (TableScanNode) optimizedFilter.getSource();
+        }
+        else {
+            assertTrue(source instanceof TableScanNode,
+                    "TopN source should be either FilterNode or TableScanNode");
+            optimizedScan = (TableScanNode) source;
+        }
+
+        // Verify that the layout is present and contains splitMetadataColumnNames
+        assertTrue(optimizedScan.getTable().getLayout().isPresent(),
+                "Layout should be present on optimized TableScan");
+
+        ClpTableLayoutHandle layout = (ClpTableLayoutHandle) optimizedScan.getTable().getLayout().get();
+
+        // Verify splitMetadataColumnNames is preserved
+        assertTrue(layout.getSplitMetadataColumnNames().isPresent(),
+                "splitMetadataColumnNames should be present in the layout");
+
+        Map<String, String> exposedToOriginalMap = metadataConfig.getExposedToOriginalMapping(schemaTableName);
+        Set<String> expectedMetadataProjection = ImmutableSet.of(
+                exposedToOriginalMap.get("hostname"),
+                exposedToOriginalMap.get("score"));
+
+        assertEquals(layout.getSplitMetadataColumnNames().get(), expectedMetadataProjection,
+                "splitMetadataColumnNames should contain the projected metadata columns");
+
+        // Verify that filter was pushed down (metadataExpression should be present)
+        assertTrue(layout.getMetadataExpression() != null || layout.getKqlQuery().isPresent(),
+                "Filter should be pushed down to the layout");
+
+        // Verify metadataQueryOnly is true (all columns are metadata columns)
+        assertTrue(layout.isMetadataQueryOnly(),
+                "metadataQueryOnly should be true since all projected columns are metadata columns");
     }
 }
