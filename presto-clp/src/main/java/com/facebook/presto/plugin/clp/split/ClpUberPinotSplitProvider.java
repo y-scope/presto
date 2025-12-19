@@ -63,7 +63,7 @@ public class ClpUberPinotSplitProvider
         extends ClpPinotSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP =
-            "SELECT tpath, %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
+            "SELECT tpath %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
     /**
      * Constructs an Uber CLP Pinot split provider with the given configuration.
      *
@@ -374,15 +374,18 @@ public class ClpUberPinotSplitProvider
     protected String buildSplitSelectionQuery(String tableName, List<String> metadataProject, String filterSql)
     {
         // Build LASTWITHTIME expressions for each metadata column
-        Set<String> lastWithTimeProjections = new LinkedHashSet<>(metadataProject);
+        Set<String> lastWithTimeProjections = new LinkedHashSet<>();
         for (String column : metadataProject) {
+            if (column.equals("tpath")) {
+                continue;
+            }
             lastWithTimeProjections.add(
-                    format("LASTWITHTIME(%s, \"_timestampMillis\", 'string') AS %s", column, column));
+                    format(", LASTWITHTIME(%s, \"_timestampMillis\", 'string') AS %s", column, column));
         }
 
         String projectionClause = lastWithTimeProjections.isEmpty()
                 ? ""
-                : String.join(", ", lastWithTimeProjections);
+                : String.join("", lastWithTimeProjections);
 
         return format(SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP, projectionClause, tableName, filterSql);
     }
