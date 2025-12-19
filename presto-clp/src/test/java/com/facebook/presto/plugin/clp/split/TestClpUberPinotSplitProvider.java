@@ -225,19 +225,30 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testBuildSplitSelectionQueryWithMetadataColumns()
     {
-        List<String> metadataColumns = new ArrayList<>();
-        metadataColumns.add("hostname");
-        metadataColumns.add("creationtime");
+        // Test case 1: No metadata projection (empty list)
+        List<String> emptyColumns = new ArrayList<>();
+        String queryNoMetadata = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", emptyColumns, "1 = 1");
+        assertEquals(queryNoMetadata,
+                "SELECT tpath  FROM rta.logging.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
 
-        String query = splitProvider.buildSplitSelectionQuery(
-                "rta.logging.logs", metadataColumns, "creationtime > 1000");
+        // Test case 2: Metadata projection with tpath (tpath should be skipped)
+        List<String> columnsWithTpath = new ArrayList<>();
+        columnsWithTpath.add("tpath");
+        columnsWithTpath.add("hostname");
+        String queryWithTpath = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", columnsWithTpath, "creationtime > 1000");
+        assertEquals(queryWithTpath,
+                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM rta.logging.logs WHERE 1 = 1 AND (creationtime > 1000) GROUP BY tpath LIMIT 999999");
 
-        assertTrue(query.contains("SELECT tpath"));
-        assertTrue(query.contains("LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname"));
-        assertTrue(query.contains("LASTWITHTIME(creationtime, \"_timestampMillis\", 'string') AS creationtime"));
-        assertTrue(query.contains("GROUP BY tpath"));
-        assertTrue(query.contains("rta.logging.logs"));
-        assertTrue(query.contains("creationtime > 1000"));
+        // Test case 3: Projection with repeated column (duplicates should be removed)
+        List<String> columnsWithDuplicate = new ArrayList<>();
+        columnsWithDuplicate.add("hostname");
+        columnsWithDuplicate.add("hostname");
+        String queryWithDuplicate = splitProvider.buildSplitSelectionQuery(
+                "rta.logging.logs", columnsWithDuplicate, "1 = 1");
+        assertEquals(queryWithDuplicate,
+                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM rta.logging.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
     }
 
     /**
