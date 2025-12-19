@@ -376,7 +376,9 @@ public class ClpUberPinotSplitProvider
         // Build LASTWITHTIME expressions for each metadata column
         Set<String> lastWithTimeProjections = new LinkedHashSet<>();
         for (String column : metadataProject) {
-            if (column.equals("tpath")) continue;
+            if (column.equals("tpath")) {
+                continue;
+            }
             lastWithTimeProjections.add(
                     format(", LASTWITHTIME(%s, \"_timestampMillis\", 'string') AS %s", column, column));
         }
