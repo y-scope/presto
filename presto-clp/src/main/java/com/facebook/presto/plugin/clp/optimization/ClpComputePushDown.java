@@ -100,16 +100,20 @@ public class ClpComputePushDown
         @Override
         public PlanNode visitFilter(FilterNode node, RewriteContext<Void> context)
         {
-            if (!(node.getSource() instanceof TableScanNode)) {
+            // Rewrite children first
+            PlanNode rewrittenSource = context.rewrite(node.getSource(), null);
+
+            if (!(rewrittenSource instanceof TableScanNode)) {
+                // Return the node with rewritten children
+                if (rewrittenSource != node.getSource()) {
+                    return node.replaceChildren(ImmutableList.of(rewrittenSource));
+                }
                 return node;
             }
 
-            PlanNode processedNode = processFilter(node, (TableScanNode) node.getSource());
+            PlanNode processedNode = processFilter(node, (TableScanNode) rewrittenSource);
 
-            if (processedNode instanceof TableScanNode) {
-                return context.rewrite(processedNode, null);
-            }
-
+            // No need to call context.rewrite() again since children are already rewritten
             return processedNode;
         }
 
@@ -159,16 +163,6 @@ public class ClpComputePushDown
             }
 
             if (metadataProjections.isEmpty()) {
-                return node;
-            }
-
-            // TableScan optimization happens late in planning; append to existing layout if present.
-            Optional<ConnectorTableLayoutHandle> layout = tableHandle.getLayout();
-            if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
-                ClpTableLayoutHandle cl = (ClpTableLayoutHandle) layout.get();
-                for (String metadataProjection : metadataProjections) {
-                    cl.getOrInitializeSplitMetadataColumnNames().add(metadataProjection);
-                }
                 return node;
             }
 
@@ -225,6 +219,7 @@ public class ClpComputePushDown
             Optional<String> kql = Optional.empty();
             Optional<RowExpression> metadataSql = Optional.empty();
             Optional<ClpTopNSpec> existingTopN = Optional.empty();
+            Optional<Set<String>> existingSplitMetadataColumnNames = Optional.empty();
             ClpTableHandle clpTableHandle = null;
 
             if (layout.isPresent() && layout.get() instanceof ClpTableLayoutHandle) {
@@ -233,6 +228,7 @@ public class ClpComputePushDown
                 kql = cl.getKqlQuery();
                 metadataSql = Optional.ofNullable(cl.getMetadataExpression());
                 existingTopN = cl.getTopN();
+                existingSplitMetadataColumnNames = cl.getSplitMetadataColumnNames();
                 clpTableHandle = cl.getTable();
             }
 
@@ -280,7 +276,7 @@ public class ClpComputePushDown
                 ClpTopNSpec tightened = new ClpTopNSpec(mergedLimit, ex.getOrderings());
                 ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
                 ClpTableLayoutHandle newLayout =
-                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(tightened));
+                        new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, existingSplitMetadataColumnNames, Optional.of(tightened));
 
                 TableScanNode newScan = new TableScanNode(
                         scan.getSourceLocation(),
@@ -316,7 +312,7 @@ public class ClpComputePushDown
             ClpTopNSpec spec = new ClpTopNSpec(node.getCount(), newOrderings);
             ClpTableHandle clpHandle = (ClpTableHandle) tableHandle.getConnectorHandle();
             ClpTableLayoutHandle newLayout =
-                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, Optional.empty(), Optional.of(spec));
+                    new ClpTableLayoutHandle(clpHandle, kql, metadataSql.orElse(null), true, existingSplitMetadataColumnNames, Optional.of(spec));
 
             TableScanNode newScanNode = new TableScanNode(
                     scan.getSourceLocation(),
@@ -375,8 +371,15 @@ public class ClpComputePushDown
             if (kqlQuery.isPresent() || metadataExpression.isPresent()) {
                 kqlQuery.ifPresent(s -> log.debug("KQL query: %s", s));
 
+                // Preserve splitMetadataColumnNames from existing layout if present
+                Optional<Set<String>> existingSplitMetadataColumnNames = Optional.empty();
+                Optional<ConnectorTableLayoutHandle> existingLayout = tableHandle.getLayout();
+                if (existingLayout.isPresent() && existingLayout.get() instanceof ClpTableLayoutHandle) {
+                    existingSplitMetadataColumnNames = ((ClpTableLayoutHandle) existingLayout.get()).getSplitMetadataColumnNames();
+                }
+
                 ClpTableLayoutHandle layoutHandle = new ClpTableLayoutHandle(
-                        clpTableHandle, kqlQuery, metadataExpression.orElse(null), allInMetadata, Optional.empty(), Optional.empty());
+                        clpTableHandle, kqlQuery, metadataExpression.orElse(null), allInMetadata, existingSplitMetadataColumnNames, Optional.empty());
                 TableHandle newTableHandle = new TableHandle(
                         tableHandle.getConnectorId(),
                         clpTableHandle,
