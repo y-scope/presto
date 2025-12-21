@@ -36,7 +36,12 @@ on:
 jobs:
   test:
     name: "presto-tests"
-    runs-on: self-hosted
+    runs-on: &runner >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted", "x64", "ubuntu-noble"]')
+        || 'ubuntu-latest'
+      }}
     strategy:
       fail-fast: false  # Continue other jobs even if one fails
       matrix:
