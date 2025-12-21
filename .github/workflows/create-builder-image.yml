@@ -98,7 +98,12 @@ jobs:
     # For same-repo, no environment (runs automatically)
     # NOTE: Create "builder-image" environment in GitHub repo settings with required reviewers
     environment: ${{ needs.check-builder-image.outputs.is-fork == 'true' && 'builder-image' || '' }}
-    runs-on: [self-hosted, cores=32]
+    runs-on: >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted", "x64", "cores=32", "ubuntu-noble"]')
+        || 'ubuntu-latest'
+      }}
     timeout-minutes: 180
     # Concurrency control: prevent duplicate builds of the same image
     concurrency:
