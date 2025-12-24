@@ -76,7 +76,12 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: "presto-build"
-    runs-on: self-hosted
+    runs-on: &runner >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted", "x64", "ubuntu-noble"]')
+        || 'ubuntu-latest'
+      }}
     timeout-minutes: 45
     container:
       image: ${{ inputs.builder-image }}
@@ -149,7 +154,7 @@ jobs:
     name: "presto-image"
     needs: build  # Wait for build job to complete and upload artifacts
     if: inputs.should-build-image && inputs.should-upload-artifacts
-    runs-on: self-hosted
+    runs-on: *runner
     steps:
       # Sparse checkout: Only fetch the docker/ directory (not entire repo)
       # This is faster when we only need specific files

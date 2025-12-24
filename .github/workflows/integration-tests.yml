@@ -44,7 +44,12 @@ jobs:
   # Parallelized by test category for faster execution
   integration-e2e-java:
     name: "integration-e2e-java (${{ matrix.group }})"
-    runs-on: self-hosted
+    runs-on: &runner >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted", "x64", "ubuntu-noble"]')
+        || 'ubuntu-latest'
+      }}
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -204,7 +209,7 @@ jobs:
   # Tests: Test*.java in presto-native-tests module with storage format matrix
   integration-storage-java:
     name: "integration-storage-java"
-    runs-on: self-hosted
+    runs-on: *runner
     timeout-minutes: 180
     container:
       image: ${{ inputs.builder-image }}
@@ -332,7 +337,7 @@ jobs:
   # Tests: Test*.java in presto-native-sidecar-plugin module
   integration-sidecar-java:
     name: "integration-sidecar-java"
-    runs-on: self-hosted
+    runs-on: *runner
     timeout-minutes: 180
     container:
       image: ${{ inputs.builder-image }}
