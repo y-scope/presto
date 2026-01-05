@@ -198,7 +198,7 @@ public class ClpConfig
         return customStorageBaseUrl;
     }
 
-    @Config("clp.custom-storage-base-url")
+    @Config("clp.custom-metadata-storage-base-url")
     public ClpConfig setCustomStorageBaseUrl(String customStorageBaseUrl)
     {
         this.customStorageBaseUrl = customStorageBaseUrl;
@@ -215,11 +215,8 @@ public class ClpConfig
      * <p>
      * Format: comma-separated key:value pairs, e.g., "Header1:Value1,Header2:Value2"
      * </p>
-     *
-     * @param customHttpHeaders comma-separated header definitions
-     * @return this config instance
      */
-    @Config("clp.custom-http-headers")
+    @Config("clp.custom-metadata-http-headers")
     public ClpConfig setCustomHttpHeaders(String customHttpHeaders)
     {
         if (customHttpHeaders == null || customHttpHeaders.trim().isEmpty()) {
@@ -252,17 +249,7 @@ public class ClpConfig
         return customTableNamePrefix;
     }
 
-    /**
-     * Sets a prefix for table names in the custom Pinot split provider.
-     * <p>
-     * The table name will be constructed as: prefix + tableName
-     * For example, with prefix "rta.logging." and table "logs", the result is "rta.logging.logs"
-     * </p>
-     *
-     * @param customTableNamePrefix the prefix to prepend to table names
-     * @return this config instance
-     */
-    @Config("clp.custom-table-name-prefix")
+    @Config("clp.custom-metadata-table-name-prefix")
     public ClpConfig setCustomTableNamePrefix(String customTableNamePrefix)
     {
         this.customTableNamePrefix = customTableNamePrefix;
@@ -274,16 +261,7 @@ public class ClpConfig
         return customApiEndpointPath;
     }
 
-    /**
-     * Sets the API endpoint path for the custom Pinot split provider.
-     * <p>
-     * This path is appended to the metadata DB URL to form the full query endpoint.
-     * </p>
-     *
-     * @param customApiEndpointPath the API endpoint path
-     * @return this config instance
-     */
-    @Config("clp.custom-api-endpoint-path")
+    @Config("clp.custom-metadata-api-endpoint-path")
     public ClpConfig setCustomApiEndpointPath(String customApiEndpointPath)
     {
         this.customApiEndpointPath = customApiEndpointPath;

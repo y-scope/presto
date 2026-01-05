@@ -53,6 +53,7 @@ public class TestClpCustomPinotSplitProvider
         config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
         config.setCustomTableNamePrefix("rta.logging.");
         config.setCustomApiEndpointPath("/v1/globalStatement");
+        config.setCustomHttpHeaders("RPC-Service:test-service,RPC-Caller:test-caller,Content-Type:text/plain");
         splitProvider = new ClpCustomPinotSplitProvider(
                 config,
                 functionAndTypeManager,
@@ -239,15 +240,41 @@ public class TestClpCustomPinotSplitProvider
     }
 
     /**
-     * Test configuration with different split provider types.
+     * Test that custom HTTP headers are correctly parsed from configuration.
      */
     @Test
-    public void testConfigurationTypes()
+    public void testCustomHttpHeadersParsing()
     {
-        // Test that the configuration is set correctly
-        assertEquals(config.getSplitProviderType(), ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        assertEquals(config.getCustomTableNamePrefix(), "rta.logging.");
-        assertEquals(config.getCustomApiEndpointPath(), "/v1/globalStatement");
+        // Verify headers from setUp() are parsed correctly
+        Map<String, String> headers = config.getCustomHttpHeaders();
+        assertEquals(headers.size(), 3);
+        assertEquals(headers.get("RPC-Service"), "test-service");
+        assertEquals(headers.get("RPC-Caller"), "test-caller");
+        assertEquals(headers.get("Content-Type"), "text/plain");
+
+        // Test with different header configurations
+        ClpConfig testConfig = new ClpConfig();
+
+        // Test single header
+        testConfig.setCustomHttpHeaders("Authorization:Bearer token123");
+        Map<String, String> singleHeader = testConfig.getCustomHttpHeaders();
+        assertEquals(singleHeader.size(), 1);
+        assertEquals(singleHeader.get("Authorization"), "Bearer token123");
+
+        // Test headers with spaces around separators
+        testConfig.setCustomHttpHeaders("Header1:Value1 , Header2:Value2");
+        Map<String, String> spacedHeaders = testConfig.getCustomHttpHeaders();
+        assertEquals(spacedHeaders.size(), 2);
+        assertEquals(spacedHeaders.get("Header1"), "Value1");
+        assertEquals(spacedHeaders.get("Header2"), "Value2");
+
+        // Test empty headers
+        testConfig.setCustomHttpHeaders("");
+        assertTrue(testConfig.getCustomHttpHeaders().isEmpty());
+
+        // Test null headers
+        testConfig.setCustomHttpHeaders(null);
+        assertTrue(testConfig.getCustomHttpHeaders().isEmpty());
     }
 
     /**
@@ -288,7 +315,7 @@ public class TestClpCustomPinotSplitProvider
         }
         catch (Exception e) {
             assertTrue(e.getCause() instanceof IllegalArgumentException);
-            assertTrue(e.getCause().getMessage().contains("clp.custom-storage-base-url"));
+            assertTrue(e.getCause().getMessage().contains("clp.custom-metadata-storage-base-url"));
         }
     }
 

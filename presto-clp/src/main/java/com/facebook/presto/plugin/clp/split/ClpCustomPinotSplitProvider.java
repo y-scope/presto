@@ -92,7 +92,7 @@ public class ClpCustomPinotSplitProvider
         String baseUrl = config.getCustomStorageBaseUrl();
         if (baseUrl == null || baseUrl.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Custom storage base URL (clp.custom-storage-base-url) must be configured for custom" +
+                    "Custom storage base URL (clp.custom-metadata-storage-base-url) must be configured for custom" +
                             " Pinot split provider");
         }
 
@@ -184,7 +184,7 @@ public class ClpCustomPinotSplitProvider
         String endpointPath = config.getCustomApiEndpointPath();
         if (endpointPath == null || endpointPath.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Custom API endpoint path (clp.custom-api-endpoint-path) must be configured for custom Pinot split provider");
+                    "Custom API endpoint path (clp.custom-metadata-api-endpoint-path) must be configured for custom Pinot split provider");
         }
         return new URL(config.getMetadataDbUrl() + endpointPath);
     }
@@ -192,7 +192,7 @@ public class ClpCustomPinotSplitProvider
     /**
      * Infers the custom Pinot metadata table name from the CLP table handle.
      * <p>
-     * If a table name prefix is configured via {@code clp.custom-table-name-prefix},
+     * If a table name prefix is configured via {@code clp.custom-metadata-table-name-prefix},
      * it will be prepended to the table name. Otherwise, the table name is used as-is.
      * </p>
      * <p>
@@ -224,7 +224,7 @@ public class ClpCustomPinotSplitProvider
     /**
      * Adds custom HTTP headers from configuration.
      * <p>
-     * Headers are configured via the {@code clp.custom-http-headers} property
+     * Headers are configured via the {@code clp.custom-metadata-http-headers} property
      * as comma-separated key:value pairs.
      * </p>
      *
