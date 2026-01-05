@@ -21,7 +21,7 @@ import com.facebook.presto.plugin.clp.split.ClpMySqlSplitProvider;
 import com.facebook.presto.plugin.clp.split.ClpPinotSplitProvider;
 import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.plugin.clp.split.ClpSplitProvider;
-import com.facebook.presto.plugin.clp.split.ClpUberPinotSplitProvider;
+import com.facebook.presto.plugin.clp.split.ClpCustomPinotSplitProvider;
 import com.facebook.presto.spi.PrestoException;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Binder;
@@ -49,7 +49,7 @@ public class ClpModule
             ImmutableMap.<SplitProviderType, Class<? extends ClpSplitProvider>>builder()
                     .put(SplitProviderType.MYSQL, ClpMySqlSplitProvider.class)
                     .put(SplitProviderType.PINOT, ClpPinotSplitProvider.class)
-                    .put(SplitProviderType.PINOT_UBER, ClpUberPinotSplitProvider.class)
+                    .put(SplitProviderType.PINOT_CUSTOM, ClpCustomPinotSplitProvider.class)
                     .build();
 
     @Override

@@ -33,17 +33,17 @@ import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static org.testng.Assert.assertEquals;
 
 /**
- * Unit tests for ClpUberPinotSplitFilterProvider.
- * Tests Uber-specific TEXT_MATCH transformations in addition to inherited
+ * Unit tests for ClpCustomPinotSplitMetadataExpressionConverter.
+ * Tests custom TEXT_MATCH transformations in addition to inherited
  * range mapping functionality.
  */
 @Test(singleThreaded = true)
-public class TestClpUberPinotSplitMetadataExpressionConverter
+public class TestClpCustomPinotSplitMetadataExpressionConverter
         extends TestClpQueryBase
 {
     private TypeProvider typeProvider;
     private ClpSplitMetadataConfig splitMetadataConfig;
-    private ClpUberPinotSplitMetadataExpressionConverter defaultConverter;
+    private ClpCustomPinotSplitMetadataExpressionConverter defaultConverter;
 
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
@@ -70,7 +70,7 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
         splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         SchemaTableName table = new SchemaTableName("default", "table_1");
-        defaultConverter = new ClpUberPinotSplitMetadataExpressionConverter(
+        defaultConverter = new ClpCustomPinotSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
                 splitMetadataConfig,
@@ -79,7 +79,7 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
 
     /**
      * Test TEXT_MATCH transformation for simple equality predicates.
-     * Verifies that Uber-specific TEXT_MATCH transformations are applied.
+     * Verifies that custom TEXT_MATCH transformations are applied.
      */
     @Test
     public void testTextMatchTransformationSimpleEquality()
@@ -100,17 +100,17 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
     @Test
     public void testTextMatchTransformationStringLiterals()
     {
-        assertMatch("\"hostname\" = 'uber-server1'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/uber-server1:hostname/')");
+        assertMatch("\"hostname\" = 'server1'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/server1:hostname/')");
 
-        assertMatch("\"service\" = 'uber.logging.service'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/uber.logging.service:service/')");
+        assertMatch("\"service\" = 'logging.service'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/logging.service:service/')");
 
         assertMatch("\"service\" = ''",
                 "TEXT_MATCH(\"__mergedTextIndex\", '/:service/')");
 
-        assertMatch("\"service\" = 'Hello Uber World'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/Hello Uber World:service/')");
+        assertMatch("\"service\" = 'Hello World'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/Hello World:service/')");
     }
 
     /**
@@ -136,44 +136,13 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
                 "(end_timestamp >= 1000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/'))");
 
         assertMatch(
-                "(\"hostname\" = 'uber1' AND \"service\" = 'logging')",
-                "(TEXT_MATCH(\"__mergedTextIndex\", '/uber1:hostname/')) AND (TEXT_MATCH(\"__mergedTextIndex\", '/logging:service/'))");
+                "(\"hostname\" = 'host1' AND \"service\" = 'logging')",
+                "(TEXT_MATCH(\"__mergedTextIndex\", '/host1:hostname/')) AND (TEXT_MATCH(\"__mergedTextIndex\", '/logging:service/'))");
 
         assertMatch(
-                "((\"msg.timestamp\" <= 2000 AND \"hostname\" = 'uber2') OR \"status_code\" = 404)",
-                "((begin_timestamp <= 2000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/uber2:hostname/'))) OR (TEXT_MATCH(\"__mergedTextIndex\", '/404:status_code/'))");
+                "((\"msg.timestamp\" <= 2000 AND \"hostname\" = 'host2') OR \"status_code\" = 404)",
+                "((begin_timestamp <= 2000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/host2:hostname/'))) OR (TEXT_MATCH(\"__mergedTextIndex\", '/404:status_code/'))");
     }
-
-//    /**
-//     * Test transformations at different scope levels.
-//     */
-//    @Test
-//    public void testDifferentScopes()
-//    {
-//        // Table-level scope
-//        String sql1 = "\"status_code\" = 200";
-//        String result1 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql1);
-//        assertEquals(result1, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
-//
-//        // Schema-level scope
-//        String result2 = filterProvider.remapSplitFilterPushDownExpression("clp.default", sql1);
-//        assertEquals(result2, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
-//
-//        // Catalog-level scope
-//        String result3 = filterProvider.remapSplitFilterPushDownExpression("clp", sql1);
-//        assertEquals(result3, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
-//    }
-
-//    /**
-//     * Test configuration is loaded correctly.
-//     */
-//    @Test
-//    public void testConfigurationLoaded()
-//    {
-//        // Simply verify that the provider was instantiated correctly with the config
-//        assertTrue(filterConfigPath.endsWith("test-pinot-split-metadata.json"));
-//        assertNotNull(filterProvider);
-//    }
 
     /**
      * Test that non-equality expressions are not transformed to TEXT_MATCH.
@@ -185,28 +154,6 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
         assertMatch("\"level\" < 5", "level < 5");
         assertMatch("\"hostname\" != 'server1'", "hostname <> 'server1'");
     }
-
-//    /**
-//     * Test edge cases and special patterns.
-//     */
-//    @Test
-//    public void testEdgeCases()
-//    {
-//        // Test expression with no transformable parts
-//        String sql1 = "1 = 1";
-//        String result1 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql1);
-//        assertEquals(result1, "1 = 1");
-//
-//        // Test column names with special characters (should still work if quoted properly)
-//        String sql2 = "\"column.with.dots\" = 'value'";
-//        String result2 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql2);
-//        assertEquals(result2, "TEXT_MATCH(\"__mergedTextIndex\", '/value:column.with.dots/')");
-//
-//        // Test multiple spaces in expression
-//        String sql3 = "\"status_code\"    =    200";
-//        String result3 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql3);
-//        assertEquals(result3, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
-//    }
 
     private void assertMatch(String original, String expected)
     {
