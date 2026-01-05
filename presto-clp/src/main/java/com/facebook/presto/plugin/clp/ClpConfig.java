@@ -41,7 +41,7 @@ public class ClpConfig
     private String customStorageBaseUrl;
     private Map<String, String> customHttpHeaders = ImmutableMap.of();
     private String customTableNamePrefix;
-    private String customApiEndpointPath = "/v1/globalStatement";
+    private String customApiEndpointPath;
 
     public boolean isPolymorphicTypeEnabled()
     {
@@ -278,7 +278,6 @@ public class ClpConfig
      * Sets the API endpoint path for the custom Pinot split provider.
      * <p>
      * This path is appended to the metadata DB URL to form the full query endpoint.
-     * Default: "/v1/globalStatement"
      * </p>
      *
      * @param customApiEndpointPath the API endpoint path

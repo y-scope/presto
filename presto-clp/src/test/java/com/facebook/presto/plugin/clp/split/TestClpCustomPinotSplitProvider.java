@@ -53,6 +53,7 @@ public class TestClpCustomPinotSplitProvider
         config.setMetadataDbUrl("https://pinot-service.example.com");
         config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
         config.setCustomTableNamePrefix("rta.logging.");
+        config.setCustomApiEndpointPath("/v1/globalStatement");
         splitProvider = new ClpCustomPinotSplitProvider(
                 config,
                 functionAndTypeManager,
@@ -162,7 +163,8 @@ public class TestClpCustomPinotSplitProvider
         ClpConfig noPrefixConfig = new ClpConfig();
         noPrefixConfig.setMetadataDbUrl("https://pinot-service.example.com");
         noPrefixConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        // No prefix configured
+        noPrefixConfig.setCustomApiEndpointPath("/v1/globalStatement");
+        // No table name prefix configured
 
         ClpCustomPinotSplitProvider noPrefixProvider = new ClpCustomPinotSplitProvider(
                 noPrefixConfig,
@@ -291,6 +293,7 @@ public class TestClpCustomPinotSplitProvider
         ClpConfig newConfig = new ClpConfig();
         newConfig.setMetadataDbUrl("https://other-service.example.com");
         newConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
+        newConfig.setCustomApiEndpointPath("/v1/globalStatement");
 
         ClpCustomPinotSplitProvider newProvider = new ClpCustomPinotSplitProvider(
                 newConfig,
@@ -311,6 +314,7 @@ public class TestClpCustomPinotSplitProvider
         testConfig.setMetadataDbUrl("https://pinot-service.example.com");
         testConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
         testConfig.setCustomStorageBaseUrl("http://localhost:19617");
+        testConfig.setCustomApiEndpointPath("/v1/globalStatement");
 
         ClpCustomPinotSplitProvider testProvider = new ClpCustomPinotSplitProvider(
                 testConfig,
@@ -452,6 +456,7 @@ public class TestClpCustomPinotSplitProvider
             ClpConfig mockConfig = new ClpConfig();
             mockConfig.setMetadataDbUrl(mockDb.getUrl());
             mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
+            mockConfig.setCustomApiEndpointPath("/v1/globalStatement");
 
             ClpCustomPinotSplitProvider mockSplitProvider = new ClpCustomPinotSplitProvider(
                     mockConfig,

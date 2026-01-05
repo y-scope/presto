@@ -144,6 +144,37 @@ public class TestClpCustomPinotSplitMetadataExpressionConverter
                 "((begin_timestamp <= 2000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/host2:hostname/'))) OR (TEXT_MATCH(\"__mergedTextIndex\", '/404:status_code/'))");
     }
 
+    //    /**
+    //     * Test transformations at different scope levels.
+    //     */
+    //    @Test
+    //    public void testDifferentScopes()
+    //    {
+    //        // Table-level scope
+    //        String sql1 = "\"status_code\" = 200";
+    //        String result1 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql1);
+    //        assertEquals(result1, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
+    //
+    //        // Schema-level scope
+    //        String result2 = filterProvider.remapSplitFilterPushDownExpression("clp.default", sql1);
+    //        assertEquals(result2, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
+    //
+    //        // Catalog-level scope
+    //        String result3 = filterProvider.remapSplitFilterPushDownExpression("clp", sql1);
+    //        assertEquals(result3, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
+    //    }
+
+    //    /**
+    //     * Test configuration is loaded correctly.
+    //     */
+    //    @Test
+    //    public void testConfigurationLoaded()
+    //    {
+    //        // Simply verify that the provider was instantiated correctly with the config
+    //        assertTrue(filterConfigPath.endsWith("test-pinot-split-metadata.json"));
+    //        assertNotNull(filterProvider);
+    //    }
+
     /**
      * Test that non-equality expressions are not transformed to TEXT_MATCH.
      */
@@ -154,6 +185,28 @@ public class TestClpCustomPinotSplitMetadataExpressionConverter
         assertMatch("\"level\" < 5", "level < 5");
         assertMatch("\"hostname\" != 'server1'", "hostname <> 'server1'");
     }
+
+    //    /**
+    //     * Test edge cases and special patterns.
+    //     */
+    //    @Test
+    //    public void testEdgeCases()
+    //    {
+    //        // Test expression with no transformable parts
+    //        String sql1 = "1 = 1";
+    //        String result1 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql1);
+    //        assertEquals(result1, "1 = 1");
+    //
+    //        // Test column names with special characters (should still work if quoted properly)
+    //        String sql2 = "\"column.with.dots\" = 'value'";
+    //        String result2 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql2);
+    //        assertEquals(result2, "TEXT_MATCH(\"__mergedTextIndex\", '/value:column.with.dots/')");
+    //
+    //        // Test multiple spaces in expression
+    //        String sql3 = "\"status_code\"    =    200";
+    //        String result3 = filterProvider.remapSplitFilterPushDownExpression("clp.default.table_1", sql3);
+    //        assertEquals(result3, "TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/')");
+    //    }
 
     private void assertMatch(String original, String expected)
     {

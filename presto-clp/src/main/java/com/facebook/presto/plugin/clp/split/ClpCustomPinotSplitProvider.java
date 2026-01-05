@@ -170,17 +170,23 @@ public class ClpCustomPinotSplitProvider
      * Constructs the SQL query endpoint URL for the custom Pinot infrastructure.
      * <p>
      * Instead of using Pinot's standard {@code /query/sql} endpoint, this method constructs
-     * a URL using the configured API endpoint path (default: {@code /v1/globalStatement}).
+     * a URL using the configured API endpoint path.
      * </p>
      *
      * @param config the CLP configuration containing the base service URL and endpoint path
      * @return the custom API endpoint URL
      * @throws MalformedURLException if the constructed URL is invalid
+     * @throws IllegalArgumentException if the API endpoint path is not configured
      */
     @Override
     protected URL buildPinotSqlQueryEndpointUrl(ClpConfig config) throws MalformedURLException
     {
-        return new URL(config.getMetadataDbUrl() + config.getCustomApiEndpointPath());
+        String endpointPath = config.getCustomApiEndpointPath();
+        if (endpointPath == null || endpointPath.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Custom API endpoint path (clp.custom-api-endpoint-path) must be configured for custom Pinot split provider");
+        }
+        return new URL(config.getMetadataDbUrl() + endpointPath);
     }
 
     /**
