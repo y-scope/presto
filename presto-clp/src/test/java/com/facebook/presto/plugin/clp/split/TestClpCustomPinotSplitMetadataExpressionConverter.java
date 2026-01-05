@@ -34,8 +34,6 @@ import static org.testng.Assert.assertEquals;
 
 /**
  * Unit tests for ClpCustomPinotSplitMetadataExpressionConverter.
- * Tests custom TEXT_MATCH transformations in addition to inherited
- * range mapping functionality.
  */
 @Test(singleThreaded = true)
 public class TestClpCustomPinotSplitMetadataExpressionConverter
@@ -79,7 +77,7 @@ public class TestClpCustomPinotSplitMetadataExpressionConverter
 
     /**
      * Test TEXT_MATCH transformation for simple equality predicates.
-     * Verifies that custom TEXT_MATCH transformations are applied.
+     * Verifies that TEXT_MATCH transformations are applied.
      */
     @Test
     public void testTextMatchTransformationSimpleEquality()

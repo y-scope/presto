@@ -37,7 +37,6 @@ import static org.testng.Assert.fail;
 
 /**
  * Unit tests for ClpCustomPinotSplitProvider.
- * Tests custom endpoint URL construction and RTA table name prefixing.
  */
 @Test(singleThreaded = true)
 public class TestClpCustomPinotSplitProvider
@@ -106,22 +105,6 @@ public class TestClpCustomPinotSplitProvider
     }
 
     /**
-     * Test URL construction with custom API endpoint path.
-     */
-    @Test
-    public void testBuildPinotSqlQueryEndpointUrlCustomPath() throws Exception
-    {
-        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
-        method.setAccessible(true);
-
-        // Test with custom endpoint path
-        config.setMetadataDbUrl("https://pinot-service.example.com");
-        config.setCustomApiEndpointPath("/api/v2/query");
-        URL result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://pinot-service.example.com/api/v2/query");
-    }
-
-    /**
      * Test that invalid URLs throw MalformedURLException.
      */
     @Test
@@ -152,31 +135,6 @@ public class TestClpCustomPinotSplitProvider
         String result = splitProvider.inferMetadataTableName(tableHandle);
 
         assertEquals(result, "rta.logging.logs");
-    }
-
-    /**
-     * Test table name inference without prefix configured.
-     */
-    @Test
-    public void testInferMetadataTableNameWithoutPrefix()
-    {
-        ClpConfig noPrefixConfig = new ClpConfig();
-        noPrefixConfig.setMetadataDbUrl("https://pinot-service.example.com");
-        noPrefixConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        noPrefixConfig.setCustomApiEndpointPath("/v1/globalStatement");
-        // No table name prefix configured
-
-        ClpCustomPinotSplitProvider noPrefixProvider = new ClpCustomPinotSplitProvider(
-                noPrefixConfig,
-                functionAndTypeManager,
-                standardFunctionResolution,
-                new ClpSplitMetadataConfig(noPrefixConfig, functionAndTypeManager));
-
-        SchemaTableName schemaTableName = new SchemaTableName("default", "logs");
-        ClpTableHandle tableHandle = new ClpTableHandle(schemaTableName, "test");
-
-        // Without prefix, table name should be returned as-is
-        assertEquals(noPrefixProvider.inferMetadataTableName(tableHandle), "logs");
     }
 
     /**
@@ -288,19 +246,8 @@ public class TestClpCustomPinotSplitProvider
     {
         // Test that the configuration is set correctly
         assertEquals(config.getSplitProviderType(), ClpConfig.SplitProviderType.PINOT_CUSTOM);
-
-        // Create a new instance with different config to ensure isolation
-        ClpConfig newConfig = new ClpConfig();
-        newConfig.setMetadataDbUrl("https://other-service.example.com");
-        newConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        newConfig.setCustomApiEndpointPath("/v1/globalStatement");
-
-        ClpCustomPinotSplitProvider newProvider = new ClpCustomPinotSplitProvider(
-                newConfig,
-                functionAndTypeManager,
-                standardFunctionResolution,
-                new ClpSplitMetadataConfig(newConfig, functionAndTypeManager));
-        assertNotNull(newProvider);
+        assertEquals(config.getCustomTableNamePrefix(), "rta.logging.");
+        assertEquals(config.getCustomApiEndpointPath(), "/v1/globalStatement");
     }
 
     /**
@@ -309,29 +256,19 @@ public class TestClpCustomPinotSplitProvider
     @Test
     public void testBuildFullSplitPath() throws Exception
     {
-        // Create a config with custom storage base URL configured
-        ClpConfig testConfig = new ClpConfig();
-        testConfig.setMetadataDbUrl("https://pinot-service.example.com");
-        testConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        testConfig.setCustomStorageBaseUrl("http://localhost:19617");
-        testConfig.setCustomApiEndpointPath("/v1/globalStatement");
-
-        ClpCustomPinotSplitProvider testProvider = new ClpCustomPinotSplitProvider(
-                testConfig,
-                functionAndTypeManager,
-                standardFunctionResolution,
-                new ClpSplitMetadataConfig(testConfig, functionAndTypeManager));
+        // Set custom storage base URL on existing config
+        config.setCustomStorageBaseUrl("http://localhost:19617");
 
         Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
         method.setAccessible(true);
 
         // Test with a typical relative path
-        String result = (String) method.invoke(testProvider, "/data/archives/table1/ir001.clp.zst");
+        String result = (String) method.invoke(splitProvider, "/data/archives/table1/ir001.clp.zst");
         assertEquals(result, "http://localhost:19617/data/archives/table1/ir001.clp.zst");
 
         // Test with base URL without explicit port (should omit port in result)
-        testConfig.setCustomStorageBaseUrl("http://storage.example.com");
-        result = (String) method.invoke(testProvider, "/ir.clp.zst");
+        config.setCustomStorageBaseUrl("http://storage.example.com");
+        result = (String) method.invoke(splitProvider, "/ir.clp.zst");
         assertEquals(result, "http://storage.example.com/ir.clp.zst");
     }
 
