@@ -218,6 +218,10 @@ public class ClpCustomPinotSplitProvider
         if (prefix == null || prefix.isEmpty()) {
             return tableName;
         }
+        // Automatically append dot if not present
+        if (!prefix.endsWith(".")) {
+            prefix = prefix + ".";
+        }
         return prefix + tableName;
     }
 

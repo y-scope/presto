@@ -51,7 +51,7 @@ public class TestClpCustomPinotSplitProvider
         config = new ClpConfig();
         config.setMetadataDbUrl("https://pinot-service.example.com");
         config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        config.setCustomTableNamePrefix("rta.logging.");
+        config.setCustomTableNamePrefix("rta.logging");
         config.setCustomApiEndpointPath("/v1/globalStatement");
         config.setCustomHttpHeaders("RPC-Service:test-service,RPC-Caller:test-caller,Content-Type:text/plain");
         splitProvider = new ClpCustomPinotSplitProvider(
