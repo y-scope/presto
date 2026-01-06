@@ -283,7 +283,7 @@ public class ClpSplitMetadataConfig
      * @param name the {@link SchemaTableName} of the target table
      * @return a map from exposed column name → range bound data column name
      */
-    public Map<String, String> getExposedToRangeWithDataBoundMapping(SchemaTableName name)
+    public Map<String, String> getExposedToRangeMapping(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
         Map<String, String> mapping = new HashMap<>();

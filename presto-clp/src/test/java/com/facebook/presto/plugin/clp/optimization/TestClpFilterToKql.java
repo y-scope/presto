@@ -414,6 +414,32 @@ public class TestClpFilterToKql
     }
 
     @Test
+    public void testNoRangeBoundMapping()
+    {
+        SessionHolder sessionHolder = new SessionHolder();
+
+        // Empty mappings - no range bound resolution should occur, no data push down using exposed name
+        Set<String> dataColumnsWithRangeBounds = ImmutableSet.of();
+        Map<String, String> exposedToRangeMapping = ImmutableMap.of();
+
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed >= '100'",
+                null,
+                null,
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+
+        testPushDownWithExposedRangeBound(
+                sessionHolder,
+                "timestampExposed >= '100' AND valueExposed < 200",
+                null,
+                null,
+                dataColumnsWithRangeBounds,
+                exposedToRangeMapping);
+    }
+
+    @Test
     public void testClpWildcardUdf()
     {
         SessionHolder sessionHolder = new SessionHolder();
@@ -548,7 +574,7 @@ public class TestClpFilterToKql
                 .thenReturn(metadataColumnsMap);
         when(mockMetadataConfig.getDataColumnsWithRangeBounds(any(SchemaTableName.class)))
                 .thenReturn(dataColumnsWithRangeBounds);
-        when(mockMetadataConfig.getExposedToRangeWithDataBoundMapping(any(SchemaTableName.class)))
+        when(mockMetadataConfig.getExposedToRangeMapping(any(SchemaTableName.class)))
                 .thenReturn(exposedToRangeMapping);
 
         return pushDownExpression.accept(
