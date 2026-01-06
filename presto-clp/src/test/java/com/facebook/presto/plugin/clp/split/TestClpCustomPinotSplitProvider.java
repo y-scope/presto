@@ -51,8 +51,8 @@ public class TestClpCustomPinotSplitProvider
         config = new ClpConfig();
         config.setMetadataDbUrl("https://pinot-service.example.com");
         config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-        config.setCustomTableNamePrefix("rta.logging");
-        config.setCustomApiEndpointPath("/v1/globalStatement");
+        config.setCustomTableNamePrefix("metadata.service");
+        config.setCustomApiEndpointPath("/api/v1/query");
         config.setCustomHttpHeaders("RPC-Service:test-service,RPC-Caller:test-caller,Content-Type:text/plain");
         splitProvider = new ClpCustomPinotSplitProvider(
                 config,
@@ -74,10 +74,10 @@ public class TestClpCustomPinotSplitProvider
         URL result = (URL) method.invoke(splitProvider, config);
 
         assertNotNull(result);
-        assertEquals(result.toString(), "https://pinot-service.example.com/v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com/api/v1/query");
         assertEquals(result.getProtocol(), "https");
         assertEquals(result.getHost(), "pinot-service.example.com");
-        assertEquals(result.getPath(), "/v1/globalStatement");
+        assertEquals(result.getPath(), "/api/v1/query");
     }
 
     /**
@@ -92,17 +92,17 @@ public class TestClpCustomPinotSplitProvider
         // Test with trailing slash
         config.setMetadataDbUrl("https://pinot-service.example.com/");
         URL result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://pinot-service.example.com//v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com//api/v1/query");
 
         // Test without protocol (should work as URL constructor handles it)
         config.setMetadataDbUrl("http://pinot-dev.example.com");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "http://pinot-dev.example.com/v1/globalStatement");
+        assertEquals(result.toString(), "http://pinot-dev.example.com/api/v1/query");
 
         // Test with port
         config.setMetadataDbUrl("https://pinot-service.example.com:8080");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://pinot-service.example.com:8080/v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com:8080/api/v1/query");
     }
 
     /**
@@ -135,7 +135,7 @@ public class TestClpCustomPinotSplitProvider
 
         String result = splitProvider.inferMetadataTableName(tableHandle);
 
-        assertEquals(result, "rta.logging.logs");
+        assertEquals(result, "metadata.service.logs");
     }
 
     /**
@@ -148,17 +148,17 @@ public class TestClpCustomPinotSplitProvider
         // Test with default schema
         SchemaTableName schemaTableName1 = new SchemaTableName("default", "events");
         ClpTableHandle tableHandle1 = new ClpTableHandle(schemaTableName1, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle1), "rta.logging.events");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle1), "metadata.service.events");
 
         // Test with production schema - should produce same result
         SchemaTableName schemaTableName2 = new SchemaTableName("production", "events");
         ClpTableHandle tableHandle2 = new ClpTableHandle(schemaTableName2, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle2), "rta.logging.events");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle2), "metadata.service.events");
 
         // Test with staging schema
         SchemaTableName schemaTableName3 = new SchemaTableName("staging", "metrics");
         ClpTableHandle tableHandle3 = new ClpTableHandle(schemaTableName3, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle3), "rta.logging.metrics");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle3), "metadata.service.metrics");
     }
 
     /**
@@ -170,17 +170,17 @@ public class TestClpCustomPinotSplitProvider
         // Test with underscore
         SchemaTableName schemaTableName1 = new SchemaTableName("default", "user_logs");
         ClpTableHandle tableHandle1 = new ClpTableHandle(schemaTableName1, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle1), "rta.logging.user_logs");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle1), "metadata.service.user_logs");
 
         // Test with hyphen
         SchemaTableName schemaTableName2 = new SchemaTableName("default", "app-logs");
         ClpTableHandle tableHandle2 = new ClpTableHandle(schemaTableName2, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle2), "rta.logging.app-logs");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle2), "metadata.service.app-logs");
 
         // Test with numbers
         SchemaTableName schemaTableName3 = new SchemaTableName("default", "logs2024");
         ClpTableHandle tableHandle3 = new ClpTableHandle(schemaTableName3, "test");
-        assertEquals(splitProvider.inferMetadataTableName(tableHandle3), "rta.logging.logs2024");
+        assertEquals(splitProvider.inferMetadataTableName(tableHandle3), "metadata.service.logs2024");
     }
 
     /**
@@ -216,27 +216,27 @@ public class TestClpCustomPinotSplitProvider
         // Test case 1: No metadata projection (empty list)
         List<String> emptyColumns = new ArrayList<>();
         String queryNoMetadata = splitProvider.buildSplitSelectionQuery(
-                "rta.logging.logs", emptyColumns, "1 = 1");
+                "metadata.service.logs", emptyColumns, "1 = 1");
         assertEquals(queryNoMetadata,
-                "SELECT tpath  FROM rta.logging.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
+                "SELECT tpath  FROM metadata.service.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
 
         // Test case 2: Metadata projection with tpath (tpath should be skipped)
         List<String> columnsWithTpath = new ArrayList<>();
         columnsWithTpath.add("tpath");
         columnsWithTpath.add("hostname");
         String queryWithTpath = splitProvider.buildSplitSelectionQuery(
-                "rta.logging.logs", columnsWithTpath, "creationtime > 1000");
+                "metadata.service.logs", columnsWithTpath, "creationtime > 1000");
         assertEquals(queryWithTpath,
-                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM rta.logging.logs WHERE 1 = 1 AND (creationtime > 1000) GROUP BY tpath LIMIT 999999");
+                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM metadata.service.logs WHERE 1 = 1 AND (creationtime > 1000) GROUP BY tpath LIMIT 999999");
 
         // Test case 3: Projection with repeated column (duplicates should be removed)
         List<String> columnsWithDuplicate = new ArrayList<>();
         columnsWithDuplicate.add("hostname");
         columnsWithDuplicate.add("hostname");
         String queryWithDuplicate = splitProvider.buildSplitSelectionQuery(
-                "rta.logging.logs", columnsWithDuplicate, "1 = 1");
+                "metadata.service.logs", columnsWithDuplicate, "1 = 1");
         assertEquals(queryWithDuplicate,
-                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM rta.logging.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
+                "SELECT tpath , LASTWITHTIME(hostname, \"_timestampMillis\", 'string') AS hostname FROM metadata.service.logs WHERE 1 = 1 AND (1 = 1) GROUP BY tpath LIMIT 999999");
     }
 
     /**
@@ -420,7 +420,7 @@ public class TestClpCustomPinotSplitProvider
             ClpConfig mockConfig = new ClpConfig();
             mockConfig.setMetadataDbUrl(mockDb.getUrl());
             mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
-            mockConfig.setCustomApiEndpointPath("/v1/globalStatement");
+            mockConfig.setCustomApiEndpointPath("/api/v1/query");
 
             ClpCustomPinotSplitProvider mockSplitProvider = new ClpCustomPinotSplitProvider(
                     mockConfig,

@@ -288,7 +288,7 @@ public class ClpMockPinotDatabase
             int port = server.getAddress().getPort();
 
             ClpMockPinotDatabase db = new ClpMockPinotDatabase(h2Url, server, port, tableName);
-            server.createContext("/v1/globalStatement", db::handleRequest);
+            server.createContext("/api/v1/query", db::handleRequest);
 
             return db;
         }

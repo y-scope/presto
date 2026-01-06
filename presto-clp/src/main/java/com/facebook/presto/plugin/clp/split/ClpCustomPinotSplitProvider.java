@@ -52,24 +52,13 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
  * Customized implementation of CLP Pinot split provider.
- * <p>
- * NOTE: "U" is a coded name for the customer this implementation was developed for.
- * </p>
- * <p>
- * This implementation customizes the SQL query endpoint URL to use a cross-region routing
- * and aggregation service's global statements API instead of the standard Pinot query endpoint.
- * </p>
  */
 public class ClpCustomPinotSplitProvider
         extends ClpPinotSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP =
             "SELECT tpath %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
-    /**
-     * Constructs a custom CLP Pinot split provider with the given configuration.
-     *
-     * @param config the CLP configuration
-     */
+
     @Inject
     public ClpCustomPinotSplitProvider(
             ClpConfig config,
@@ -196,10 +185,10 @@ public class ClpCustomPinotSplitProvider
      * it will be prepended to the table name. Otherwise, the table name is used as-is.
      * </p>
      * <p>
-     * Examples with prefix "rta.logging.":
+     * Examples with prefix "metadata.service":
      * <ul>
-     *   <li>Schema: "default", Table: "logs" → Pinot table: "rta.logging.logs"</li>
-     *   <li>Schema: "production", Table: "events" → Pinot table: "rta.logging.events"</li>
+     *   <li>Schema: "default", Table: "logs" → Pinot table: "metadata.service.logs"</li>
+     *   <li>Schema: "production", Table: "events" → Pinot table: "metadata.service.events"</li>
      * </ul>
      * </p>
      *
