@@ -33,17 +33,15 @@ import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static org.testng.Assert.assertEquals;
 
 /**
- * Unit tests for ClpUberPinotSplitFilterProvider.
- * Tests Uber-specific TEXT_MATCH transformations in addition to inherited
- * range mapping functionality.
+ * Unit tests for ClpCustomPinotSplitMetadataExpressionConverter.
  */
 @Test(singleThreaded = true)
-public class TestClpUberPinotSplitMetadataExpressionConverter
+public class TestClpCustomPinotSplitMetadataExpressionConverter
         extends TestClpQueryBase
 {
     private TypeProvider typeProvider;
     private ClpSplitMetadataConfig splitMetadataConfig;
-    private ClpUberPinotSplitMetadataExpressionConverter defaultConverter;
+    private ClpCustomPinotSplitMetadataExpressionConverter defaultConverter;
 
     @BeforeMethod
     public void setUp() throws IOException, URISyntaxException
@@ -70,7 +68,7 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
         splitMetadataConfig = new ClpSplitMetadataConfig(config, functionAndTypeManager);
 
         SchemaTableName table = new SchemaTableName("default", "table_1");
-        defaultConverter = new ClpUberPinotSplitMetadataExpressionConverter(
+        defaultConverter = new ClpCustomPinotSplitMetadataExpressionConverter(
                 functionAndTypeManager,
                 standardFunctionResolution,
                 splitMetadataConfig,
@@ -79,7 +77,7 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
 
     /**
      * Test TEXT_MATCH transformation for simple equality predicates.
-     * Verifies that Uber-specific TEXT_MATCH transformations are applied.
+     * Verifies that TEXT_MATCH transformations are applied.
      */
     @Test
     public void testTextMatchTransformationSimpleEquality()
@@ -100,17 +98,17 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
     @Test
     public void testTextMatchTransformationStringLiterals()
     {
-        assertMatch("\"hostname\" = 'uber-server1'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/uber-server1:hostname/')");
+        assertMatch("\"hostname\" = 'server1'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/server1:hostname/')");
 
-        assertMatch("\"service\" = 'uber.logging.service'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/uber.logging.service:service/')");
+        assertMatch("\"service\" = 'logging.service'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/logging.service:service/')");
 
         assertMatch("\"service\" = ''",
                 "TEXT_MATCH(\"__mergedTextIndex\", '/:service/')");
 
-        assertMatch("\"service\" = 'Hello Uber World'",
-                "TEXT_MATCH(\"__mergedTextIndex\", '/Hello Uber World:service/')");
+        assertMatch("\"service\" = 'Hello World'",
+                "TEXT_MATCH(\"__mergedTextIndex\", '/Hello World:service/')");
     }
 
     /**
@@ -136,12 +134,12 @@ public class TestClpUberPinotSplitMetadataExpressionConverter
                 "(end_timestamp >= 1000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/200:status_code/'))");
 
         assertMatch(
-                "(\"hostname\" = 'uber1' AND \"service\" = 'logging')",
-                "(TEXT_MATCH(\"__mergedTextIndex\", '/uber1:hostname/')) AND (TEXT_MATCH(\"__mergedTextIndex\", '/logging:service/'))");
+                "(\"hostname\" = 'host1' AND \"service\" = 'logging')",
+                "(TEXT_MATCH(\"__mergedTextIndex\", '/host1:hostname/')) AND (TEXT_MATCH(\"__mergedTextIndex\", '/logging:service/'))");
 
         assertMatch(
-                "((\"msg.timestamp\" <= 2000 AND \"hostname\" = 'uber2') OR \"status_code\" = 404)",
-                "((begin_timestamp <= 2000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/uber2:hostname/'))) OR (TEXT_MATCH(\"__mergedTextIndex\", '/404:status_code/'))");
+                "((\"msg.timestamp\" <= 2000 AND \"hostname\" = 'host2') OR \"status_code\" = 404)",
+                "((begin_timestamp <= 2000) AND (TEXT_MATCH(\"__mergedTextIndex\", '/host2:hostname/'))) OR (TEXT_MATCH(\"__mergedTextIndex\", '/404:status_code/'))");
     }
 
 //    /**

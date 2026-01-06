@@ -36,24 +36,25 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 /**
- * Unit tests for ClpUberPinotSplitProvider.
- * Tests Uber-specific customizations including Neutrino endpoint URL construction
- * and RTA table name prefixing.
+ * Unit tests for ClpCustomPinotSplitProvider.
  */
 @Test(singleThreaded = true)
-public class TestClpUberPinotSplitProvider
+public class TestClpCustomPinotSplitProvider
         extends TestClpQueryBase
 {
-    private ClpUberPinotSplitProvider splitProvider;
+    private ClpCustomPinotSplitProvider splitProvider;
     private ClpConfig config;
 
     @BeforeMethod
     public void setUp()
     {
         config = new ClpConfig();
-        config.setMetadataDbUrl("https://neutrino.uber.com");
-        config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
-        splitProvider = new ClpUberPinotSplitProvider(
+        config.setMetadataDbUrl("https://pinot-service.example.com");
+        config.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
+        config.setCustomTableNamePrefix("rta.logging");
+        config.setCustomApiEndpointPath("/v1/globalStatement");
+        config.setCustomHttpHeaders("RPC-Service:test-service,RPC-Caller:test-caller,Content-Type:text/plain");
+        splitProvider = new ClpCustomPinotSplitProvider(
                 config,
                 functionAndTypeManager,
                 standardFunctionResolution,
@@ -61,21 +62,21 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test that the Neutrino endpoint URL is correctly constructed.
+     * Test that the custom endpoint URL is correctly constructed.
      */
     @Test
     public void testBuildPinotSqlQueryEndpointUrl() throws Exception
     {
         // Use reflection to access the protected method
-        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
+        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
         method.setAccessible(true);
 
         URL result = (URL) method.invoke(splitProvider, config);
 
         assertNotNull(result);
-        assertEquals(result.toString(), "https://neutrino.uber.com/v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com/v1/globalStatement");
         assertEquals(result.getProtocol(), "https");
-        assertEquals(result.getHost(), "neutrino.uber.com");
+        assertEquals(result.getHost(), "pinot-service.example.com");
         assertEquals(result.getPath(), "/v1/globalStatement");
     }
 
@@ -85,23 +86,23 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testBuildPinotSqlQueryEndpointUrlVariations() throws Exception
     {
-        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
+        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
         method.setAccessible(true);
 
         // Test with trailing slash
-        config.setMetadataDbUrl("https://neutrino.uber.com/");
+        config.setMetadataDbUrl("https://pinot-service.example.com/");
         URL result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://neutrino.uber.com//v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com//v1/globalStatement");
 
         // Test without protocol (should work as URL constructor handles it)
-        config.setMetadataDbUrl("http://neutrino-dev.uber.com");
+        config.setMetadataDbUrl("http://pinot-dev.example.com");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "http://neutrino-dev.uber.com/v1/globalStatement");
+        assertEquals(result.toString(), "http://pinot-dev.example.com/v1/globalStatement");
 
         // Test with port
-        config.setMetadataDbUrl("https://neutrino.uber.com:8080");
+        config.setMetadataDbUrl("https://pinot-service.example.com:8080");
         result = (URL) method.invoke(splitProvider, config);
-        assertEquals(result.toString(), "https://neutrino.uber.com:8080/v1/globalStatement");
+        assertEquals(result.toString(), "https://pinot-service.example.com:8080/v1/globalStatement");
     }
 
     /**
@@ -110,7 +111,7 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testBuildPinotSqlQueryEndpointUrlInvalid() throws Exception
     {
-        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
+        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildPinotSqlQueryEndpointUrl", ClpConfig.class);
         method.setAccessible(true);
 
         config.setMetadataDbUrl("not a valid url");
@@ -124,10 +125,10 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test that table names are correctly prefixed with "rta.logging."
+     * Test that table names are correctly prefixed when prefix is configured.
      */
     @Test
-    public void testInferMetadataTableName()
+    public void testInferMetadataTableNameWithPrefix()
     {
         SchemaTableName schemaTableName = new SchemaTableName("default", "logs");
         ClpTableHandle tableHandle = new ClpTableHandle(schemaTableName, "test");
@@ -193,19 +194,6 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test the factory method for building Uber table names.
-     */
-    @Test
-    public void testBuildUberTableName()
-    {
-        assertEquals(splitProvider.buildUberTableName("logs"), "rta.logging.logs");
-        assertEquals(splitProvider.buildUberTableName("events"), "rta.logging.events");
-        assertEquals(splitProvider.buildUberTableName("metrics"), "rta.logging.metrics");
-        assertEquals(splitProvider.buildUberTableName("user_activity"), "rta.logging.user_activity");
-        assertEquals(splitProvider.buildUberTableName("app-logs"), "rta.logging.app-logs");
-    }
-
-    /**
      * Test that the split provider is correctly instantiated with configuration.
      */
     @Test
@@ -252,25 +240,41 @@ public class TestClpUberPinotSplitProvider
     }
 
     /**
-     * Test configuration with different split provider types.
+     * Test that custom HTTP headers are correctly parsed from configuration.
      */
     @Test
-    public void testConfigurationTypes()
+    public void testCustomHttpHeadersParsing()
     {
-        // Test that the configuration is set correctly
-        assertEquals(config.getSplitProviderType(), ClpConfig.SplitProviderType.PINOT_UBER);
+        // Verify headers from setUp() are parsed correctly
+        Map<String, String> headers = config.getCustomHttpHeaders();
+        assertEquals(headers.size(), 3);
+        assertEquals(headers.get("RPC-Service"), "test-service");
+        assertEquals(headers.get("RPC-Caller"), "test-caller");
+        assertEquals(headers.get("Content-Type"), "text/plain");
 
-        // Create a new instance with different config to ensure isolation
-        ClpConfig newConfig = new ClpConfig();
-        newConfig.setMetadataDbUrl("https://other-neutrino.uber.com");
-        newConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+        // Test with different header configurations
+        ClpConfig testConfig = new ClpConfig();
 
-        ClpUberPinotSplitProvider newProvider = new ClpUberPinotSplitProvider(
-                newConfig,
-                functionAndTypeManager,
-                standardFunctionResolution,
-                new ClpSplitMetadataConfig(newConfig, functionAndTypeManager));
-        assertNotNull(newProvider);
+        // Test single header
+        testConfig.setCustomHttpHeaders("Authorization:Bearer token123");
+        Map<String, String> singleHeader = testConfig.getCustomHttpHeaders();
+        assertEquals(singleHeader.size(), 1);
+        assertEquals(singleHeader.get("Authorization"), "Bearer token123");
+
+        // Test headers with spaces around separators
+        testConfig.setCustomHttpHeaders("Header1:Value1 , Header2:Value2");
+        Map<String, String> spacedHeaders = testConfig.getCustomHttpHeaders();
+        assertEquals(spacedHeaders.size(), 2);
+        assertEquals(spacedHeaders.get("Header1"), "Value1");
+        assertEquals(spacedHeaders.get("Header2"), "Value2");
+
+        // Test empty headers
+        testConfig.setCustomHttpHeaders("");
+        assertTrue(testConfig.getCustomHttpHeaders().isEmpty());
+
+        // Test null headers
+        testConfig.setCustomHttpHeaders(null);
+        assertTrue(testConfig.getCustomHttpHeaders().isEmpty());
     }
 
     /**
@@ -279,29 +283,20 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testBuildFullSplitPath() throws Exception
     {
-        // Create a config with Terrablob storage base URL configured
-        ClpConfig testConfig = new ClpConfig();
-        testConfig.setMetadataDbUrl("https://neutrino.uber.com");
-        testConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
-        testConfig.setUberTerrablobStorageBaseUrl("http://localhost:19617");
+        // Set custom storage base URL on existing config
+        config.setCustomStorageBaseUrl("http://localhost:19617");
 
-        ClpUberPinotSplitProvider testProvider = new ClpUberPinotSplitProvider(
-                testConfig,
-                functionAndTypeManager,
-                standardFunctionResolution,
-                new ClpSplitMetadataConfig(testConfig, functionAndTypeManager));
-
-        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
+        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
         method.setAccessible(true);
 
         // Test with a typical relative path
-        String result = (String) method.invoke(testProvider, "/data/archives/table1/ir001.clp.zst");
+        String result = (String) method.invoke(splitProvider, "/data/archives/table1/ir001.clp.zst");
         assertEquals(result, "http://localhost:19617/data/archives/table1/ir001.clp.zst");
 
         // Test with base URL without explicit port (should omit port in result)
-        testConfig.setUberTerrablobStorageBaseUrl("http://terrablob.uber.com");
-        result = (String) method.invoke(testProvider, "/ir.clp.zst");
-        assertEquals(result, "http://terrablob.uber.com/ir.clp.zst");
+        config.setCustomStorageBaseUrl("http://storage.example.com");
+        result = (String) method.invoke(splitProvider, "/ir.clp.zst");
+        assertEquals(result, "http://storage.example.com/ir.clp.zst");
     }
 
     /**
@@ -310,29 +305,29 @@ public class TestClpUberPinotSplitProvider
     @Test
     public void testBuildFullSplitPathMissingConfig() throws Exception
     {
-        Method method = ClpUberPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
+        Method method = ClpCustomPinotSplitProvider.class.getDeclaredMethod("buildFullSplitPath", String.class);
         method.setAccessible(true);
 
-        // config from setUp() does not have Terrablob URL configured
+        // config from setUp() does not have custom storage URL configured
         try {
             method.invoke(splitProvider, "/some/path");
-            fail("Expected IllegalArgumentException for missing Terrablob storage base URL");
+            fail("Expected IllegalArgumentException for missing custom storage base URL");
         }
         catch (Exception e) {
             assertTrue(e.getCause() instanceof IllegalArgumentException);
-            assertTrue(e.getCause().getMessage().contains("clp.uber-terrablob-storage-base-url"));
+            assertTrue(e.getCause().getMessage().contains("clp.custom-metadata-storage-base-url"));
         }
     }
 
     /**
-     * Test parsing of Uber Neutrino query response format.
+     * Test parsing of custom query response format.
      * Verifies that the JSON response with "columns" and "data" fields is correctly
      * parsed into a list of row maps.
      */
     @Test
     public void testParseQueryResponse() throws Exception
     {
-        // Sample JSON in Uber Neutrino response format
+        // Sample JSON in custom response format
         String jsonResponse = String.join("\n",
                 "{",
                 "  'id': '12345',",
@@ -424,9 +419,10 @@ public class TestClpUberPinotSplitProvider
         try {
             ClpConfig mockConfig = new ClpConfig();
             mockConfig.setMetadataDbUrl(mockDb.getUrl());
-            mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_UBER);
+            mockConfig.setSplitProviderType(ClpConfig.SplitProviderType.PINOT_CUSTOM);
+            mockConfig.setCustomApiEndpointPath("/v1/globalStatement");
 
-            ClpUberPinotSplitProvider mockSplitProvider = new ClpUberPinotSplitProvider(
+            ClpCustomPinotSplitProvider mockSplitProvider = new ClpCustomPinotSplitProvider(
                     mockConfig,
                     functionAndTypeManager,
                     standardFunctionResolution,

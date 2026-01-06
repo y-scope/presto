@@ -15,7 +15,9 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.configuration.Config;
 import com.facebook.presto.spi.PrestoException;
+import com.google.common.collect.ImmutableMap;
 
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public class ClpConfig
@@ -36,7 +38,10 @@ public class ClpConfig
     private String splitMetadataConfigPath;
     private String metadataYamlPath;
     private SplitProviderType splitProviderType = SplitProviderType.MYSQL;
-    private String uberTerrablobStorageBaseUrl;
+    private String customStorageBaseUrl;
+    private Map<String, String> customHttpHeaders = ImmutableMap.of();
+    private String customTableNamePrefix;
+    private String customApiEndpointPath;
 
     public boolean isPolymorphicTypeEnabled()
     {
@@ -188,15 +193,78 @@ public class ClpConfig
         return this;
     }
 
-    public String getUberTerrablobStorageBaseUrl()
+    public String getCustomStorageBaseUrl()
     {
-        return uberTerrablobStorageBaseUrl;
+        return customStorageBaseUrl;
     }
 
-    @Config("clp.uber-terrablob-storage-base-url")
-    public ClpConfig setUberTerrablobStorageBaseUrl(String uberTerrablobStorageBaseUrl)
+    @Config("clp.custom-metadata-storage-base-url")
+    public ClpConfig setCustomStorageBaseUrl(String customStorageBaseUrl)
     {
-        this.uberTerrablobStorageBaseUrl = uberTerrablobStorageBaseUrl;
+        this.customStorageBaseUrl = customStorageBaseUrl;
+        return this;
+    }
+
+    public Map<String, String> getCustomHttpHeaders()
+    {
+        return customHttpHeaders;
+    }
+
+    /**
+     * Sets custom HTTP headers for the custom Pinot split provider.
+     * <p>
+     * Format: comma-separated key:value pairs, e.g., "Header1:Value1,Header2:Value2"
+     * </p>
+     */
+    @Config("clp.custom-metadata-http-headers")
+    public ClpConfig setCustomHttpHeaders(String customHttpHeaders)
+    {
+        if (customHttpHeaders == null || customHttpHeaders.trim().isEmpty()) {
+            this.customHttpHeaders = ImmutableMap.of();
+            return this;
+        }
+
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+        for (String pair : customHttpHeaders.split(",")) {
+            String trimmedPair = pair.trim();
+            if (trimmedPair.isEmpty()) {
+                continue;
+            }
+            int colonIndex = trimmedPair.indexOf(':');
+            if (colonIndex <= 0 || colonIndex >= trimmedPair.length() - 1) {
+                throw new PrestoException(
+                        ClpErrorCode.CLP_UNSUPPORTED_CONFIG_OPTION,
+                        "Invalid custom HTTP header format: '" + trimmedPair + "'. Expected format: 'Header-Name:Header-Value'");
+            }
+            String key = trimmedPair.substring(0, colonIndex).trim();
+            String value = trimmedPair.substring(colonIndex + 1).trim();
+            builder.put(key, value);
+        }
+        this.customHttpHeaders = builder.build();
+        return this;
+    }
+
+    public String getCustomTableNamePrefix()
+    {
+        return customTableNamePrefix;
+    }
+
+    @Config("clp.custom-metadata-table-name-prefix")
+    public ClpConfig setCustomTableNamePrefix(String customTableNamePrefix)
+    {
+        this.customTableNamePrefix = customTableNamePrefix;
+        return this;
+    }
+
+    public String getCustomApiEndpointPath()
+    {
+        return customApiEndpointPath;
+    }
+
+    @Config("clp.custom-metadata-api-endpoint-path")
+    public ClpConfig setCustomApiEndpointPath(String customApiEndpointPath)
+    {
+        this.customApiEndpointPath = customApiEndpointPath;
         return this;
     }
 
@@ -210,6 +278,6 @@ public class ClpConfig
     {
         MYSQL,
         PINOT,
-        PINOT_UBER
+        PINOT_CUSTOM
     }
 }
