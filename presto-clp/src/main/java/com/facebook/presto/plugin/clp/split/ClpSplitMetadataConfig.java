@@ -242,6 +242,28 @@ public class ClpSplitMetadataConfig
     }
 
     /**
+     * Returns a mapping from exposed column names to their associated range bound metadata columns.
+     * <p>
+     * Each entry maps an exposed column name to another map with keys {@code "lower"} and/or
+     * {@code "upper"}, representing the metadata column names that define those bounds.
+     *
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a nested mapping from exposed column name → ("lower"/"upper" → metadata column name)
+     */
+    public Map<String, Map<String, String>> getExposedColumnRangeBoundsMapping(SchemaTableName name)
+    {
+        TableConfig cfg = getTableConfig(name);
+        Map<String, Map<String, String>> mapping = new HashMap<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null || c.boundType != null) {
+                mapping.computeIfAbsent(c.exposedAs, k -> new HashMap<>())
+                        .put(c.boundType, c.name);
+            }
+        }
+        return mapping;
+    }
+
+    /**
      * @param name the {@link SchemaTableName} of the target table
      * @return a set of metadata column names that are used as range bounds
      */
@@ -261,7 +283,7 @@ public class ClpSplitMetadataConfig
      * @param name the {@link SchemaTableName} of the target table
      * @return a map from exposed column name → range bound data column name
      */
-    public Map<String, String> getExposedToRangeMapping(SchemaTableName name)
+    public Map<String, String> getExposedToRangeWithDataBoundMapping(SchemaTableName name)
     {
         TableConfig cfg = getTableConfig(name);
         Map<String, String> mapping = new HashMap<>();
@@ -271,6 +293,22 @@ public class ClpSplitMetadataConfig
             }
         }
         return mapping;
+    }
+
+    /**
+     * @param name the {@link SchemaTableName} of the target table
+     * @return a set of exposed column names that have range bounds configured
+     */
+    public Set<String> getExposedColumnsWithRangeBounds(SchemaTableName name)
+    {
+        TableConfig cfg = getTableConfig(name);
+        Set<String> result = new LinkedHashSet<>();
+        for (MetaColumn c : cfg.metaColumns.values()) {
+            if (c.asRangeBoundOf != null || c.boundType != null) {
+                result.add(c.exposedAs);
+            }
+        }
+        return result;
     }
 
     /**

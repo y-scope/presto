@@ -20,14 +20,16 @@
         "filter": {
           "asRangeBoundOf": "msg.timestamp",
           "boundType": "lower"
-        }
+        },
+        "exposedAs": "msg.timestamp"
       },
       "end_timestamp": {
         "type": "BIGINT",
         "filter": {
           "asRangeBoundOf": "msg.timestamp",
           "boundType": "upper"
-        }
+        },
+        "exposedAs": "msg.timestamp"
       },
       "file_name": {
         "type": "VARCHAR"

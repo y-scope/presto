@@ -156,7 +156,7 @@ public class ClpFilterToKqlConverter
      */
     private Map.Entry<String, Type> resolveExposedRangeBoundVariableAndType(String variableName, Type variableType)
     {
-        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
+        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeWithDataBoundMapping(schemaTableName);
         if (exposedToRangeMapping.containsKey(variableName)) {
             // Resolve to the actual data column name and retrieve its type from the table schema
             String dataColumnName = exposedToRangeMapping.get(variableName);
@@ -321,7 +321,7 @@ public class ClpFilterToKqlConverter
         boolean isMetadataColumn =
                 metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variable);
         boolean isExposedWithRangeBounds =
-                metadataConfig.getExposedToRangeMapping(schemaTableName).containsKey(variable);
+                metadataConfig.getExposedToRangeWithDataBoundMapping(schemaTableName).containsKey(variable);
 
         // Metadata columns must have constant bounds
         if (isMetadataColumn &&
@@ -579,7 +579,7 @@ public class ClpFilterToKqlConverter
     {
         boolean isMetadataColumn = metadataConfig.getMetadataColumns(schemaTableName).keySet().contains(variableName);
         boolean isExposedWithRangeBounds =
-                metadataConfig.getExposedToRangeMapping(schemaTableName).containsKey(variableName);
+                metadataConfig.getExposedToRangeWithDataBoundMapping(schemaTableName).containsKey(variableName);
 
         // split pruning
         CallExpression metadataExpression = null;

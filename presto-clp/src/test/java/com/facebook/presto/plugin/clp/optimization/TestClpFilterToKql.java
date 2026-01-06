@@ -548,7 +548,7 @@ public class TestClpFilterToKql
                 .thenReturn(metadataColumnsMap);
         when(mockMetadataConfig.getDataColumnsWithRangeBounds(any(SchemaTableName.class)))
                 .thenReturn(dataColumnsWithRangeBounds);
-        when(mockMetadataConfig.getExposedToRangeMapping(any(SchemaTableName.class)))
+        when(mockMetadataConfig.getExposedToRangeWithDataBoundMapping(any(SchemaTableName.class)))
                 .thenReturn(exposedToRangeMapping);
 
         return pushDownExpression.accept(

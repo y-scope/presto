@@ -188,13 +188,10 @@ public class ClpMySqlSplitMetadataExpressionConverter
         String exposed = node.getName();
         seenRequired.add(exposed);
 
-        Map<String, String> exposedToRangeMapping = metadataConfig.getExposedToRangeMapping(schemaTableName);
-        String rangeMapped = exposedToRangeMapping.get(exposed);
-
         Map<String, String> exposedToOriginal = metadataConfig.getExposedToOriginalMapping(schemaTableName);
         String originalName = exposedToOriginal.getOrDefault(exposed, exposed);
 
-        return rangeMapped != null ? rangeMapped : originalName;
+        return metadataConfig.getExposedColumnsWithRangeBounds(schemaTableName).contains(exposed) ? exposed : originalName;
     }
 
     /**
@@ -246,7 +243,7 @@ public class ClpMySqlSplitMetadataExpressionConverter
      */
     protected String rewriteComparisonWithBounds(String variableName, OperatorType operator, String literal)
     {
-        Map<String, Map<String, String>> dataToMetadataBounds = metadataConfig.getDataColumnRangeMapping(schemaTableName);
+        Map<String, Map<String, String>> dataToMetadataBounds = metadataConfig.getExposedColumnRangeBoundsMapping(schemaTableName);
         Map<String, String> bounds = dataToMetadataBounds.get(variableName);
         if (bounds == null) {
             return null;
