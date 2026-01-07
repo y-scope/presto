@@ -44,10 +44,10 @@ import static java.lang.String.format;
  *       expression.</li>
  * </ul>
  */
-public class ClpUberPinotSplitMetadataExpressionConverter
+public class ClpCustomPinotSplitMetadataExpressionConverter
         extends ClpMySqlSplitMetadataExpressionConverter
 {
-    public ClpUberPinotSplitMetadataExpressionConverter(
+    public ClpCustomPinotSplitMetadataExpressionConverter(
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
             ClpSplitMetadataConfig metadataConfig,

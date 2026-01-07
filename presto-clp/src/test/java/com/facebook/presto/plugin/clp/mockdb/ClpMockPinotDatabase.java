@@ -42,7 +42,7 @@ import static org.testng.Assert.fail;
 
 /**
  * Mock Pinot database for testing LASTWITHTIME deduplication queries.
- * Uses H2 as the backing store and an HTTP server to simulate the Pinot/Neutrino API.
+ * Uses H2 as the backing store and an HTTP server to simulate a custom Pinot API.
  * Translates LASTWITHTIME queries into equivalent H2 SQL for deduplication.
  */
 public class ClpMockPinotDatabase
@@ -92,7 +92,7 @@ public class ClpMockPinotDatabase
     /**
      * Inserts a row into the mock Pinot table.
      * Multiple rows with the same tpath but different _timestampMillis simulate Pinot's append-only model.
-     * All columns are stored as strings to match Uber's Pinot schema.
+     * All columns are stored as strings to match the custom Pinot schema.
      */
     public void insertRow(String tpath, String hostname, String creationtime, String numMessages, String timestampMillis)
     {
@@ -213,7 +213,7 @@ public class ClpMockPinotDatabase
     }
 
     /**
-     * Executes the H2 query and formats the result as Neutrino JSON response.
+     * Executes the H2 query and formats the result as custom JSON response.
      */
     private String executeQueryAndFormat(String query) throws SQLException, IOException
     {
@@ -270,7 +270,7 @@ public class ClpMockPinotDatabase
             String dbName = UUID.randomUUID().toString();
             String h2Url = format(H2_URL_TEMPLATE, dbName);
 
-            // Create the table with all VARCHAR columns to match Uber's Pinot schema
+            // Create the table with all VARCHAR columns to match the custom Pinot schema
             try (Connection conn = DriverManager.getConnection(h2Url);
                     Statement stmt = conn.createStatement()) {
                 stmt.execute(format(
@@ -288,7 +288,7 @@ public class ClpMockPinotDatabase
             int port = server.getAddress().getPort();
 
             ClpMockPinotDatabase db = new ClpMockPinotDatabase(h2Url, server, port, tableName);
-            server.createContext("/v1/globalStatement", db::handleRequest);
+            server.createContext("/api/v1/query", db::handleRequest);
 
             return db;
         }

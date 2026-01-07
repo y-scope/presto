@@ -51,26 +51,16 @@ import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
- * Uber-specific implementation of CLP Pinot split provider.
- * <p>
- * At Uber, Pinot is accessed through Neutrino, a cross-region routing and aggregation service
- * that provides a unified interface for querying distributed Pinot clusters. This implementation
- * customizes the SQL query endpoint URL to use Neutrino's global statements API instead of
- * the standard Pinot query endpoint.
- * </p>
+ * Customized implementation of CLP Pinot split provider.
  */
-public class ClpUberPinotSplitProvider
+public class ClpCustomPinotSplitProvider
         extends ClpPinotSplitProvider
 {
     private static final String SQL_SELECT_SPLITS_TEMPLATE_WITH_DEDUP =
             "SELECT tpath %s FROM %s WHERE 1 = 1 AND (%s) GROUP BY tpath LIMIT 999999";
-    /**
-     * Constructs an Uber CLP Pinot split provider with the given configuration.
-     *
-     * @param config the CLP configuration
-     */
+
     @Inject
-    public ClpUberPinotSplitProvider(
+    public ClpCustomPinotSplitProvider(
             ClpConfig config,
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
@@ -80,7 +70,7 @@ public class ClpUberPinotSplitProvider
     }
 
     /**
-     * Constructs the full split path by prepending the Terrablob storage URL prefix to the relative file path.
+     * Constructs the full split path by prepending the storage URL prefix to the relative file path.
      *
      * @param relativePath the relative file path from the metadata database
      * @return the full split path with protocol, host, and port prefix
@@ -88,10 +78,10 @@ public class ClpUberPinotSplitProvider
      */
     private String buildFullSplitPath(String relativePath)
     {
-        String baseUrl = config.getUberTerrablobStorageBaseUrl();
+        String baseUrl = config.getCustomStorageBaseUrl();
         if (baseUrl == null || baseUrl.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Terrablob storage base URL (clp.uber-terrablob-storage-base-url) must be configured for Uber" +
+                    "Custom storage base URL (clp.custom-metadata-storage-base-url) must be configured for custom" +
                             " Pinot split provider");
         }
 
@@ -105,7 +95,7 @@ public class ClpUberPinotSplitProvider
         }
         catch (MalformedURLException e) {
             throw new IllegalArgumentException(
-                    format("Invalid Terrablob storage base URL: %s", baseUrl), e);
+                    format("Invalid custom storage base URL: %s", baseUrl), e);
         }
     }
 
@@ -118,8 +108,8 @@ public class ClpUberPinotSplitProvider
 
         SchemaTableName schemaTableName = clpTableHandle.getSchemaTableName();
         if (clpTableLayoutHandle.getMetadataExpression() != null) {
-            ClpUberPinotSplitMetadataExpressionConverter converter =
-                    new ClpUberPinotSplitMetadataExpressionConverter(
+            ClpCustomPinotSplitMetadataExpressionConverter converter =
+                    new ClpCustomPinotSplitMetadataExpressionConverter(
                             functionManager,
                             functionResolution,
                             metadataConfig,
@@ -166,51 +156,44 @@ public class ClpUberPinotSplitProvider
     }
 
     /**
-     * Constructs the Neutrino SQL query endpoint URL for Uber's Pinot infrastructure.
+     * Constructs the SQL query endpoint URL for the custom Pinot infrastructure.
      * <p>
      * Instead of using Pinot's standard {@code /query/sql} endpoint, this method constructs
-     * a URL pointing to Neutrino's {@code /v1/globalStatements} endpoint, which provides
-     * cross-region query routing and aggregation capabilities.
+     * a URL using the configured API endpoint path.
      * </p>
      *
-     * @param config the CLP configuration containing the base Neutrino service URL
-     * @return the Neutrino global statements endpoint URL
+     * @param config the CLP configuration containing the base service URL and endpoint path
+     * @return the custom API endpoint URL
      * @throws MalformedURLException if the constructed URL is invalid
+     * @throws IllegalArgumentException if the API endpoint path is not configured
      */
     @Override
     protected URL buildPinotSqlQueryEndpointUrl(ClpConfig config) throws MalformedURLException
     {
-        return new URL(config.getMetadataDbUrl() + "/v1/globalStatement");
+        String endpointPath = config.getCustomApiEndpointPath();
+        if (endpointPath == null || endpointPath.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Custom API endpoint path (clp.custom-metadata-api-endpoint-path) must be configured for custom Pinot split provider");
+        }
+        return new URL(config.getMetadataDbUrl() + endpointPath);
     }
 
     /**
-     * Infers the Uber-specific Pinot metadata table name from the CLP table handle.
+     * Infers the custom Pinot metadata table name from the CLP table handle.
      * <p>
-     * At Uber, Pinot tables are organized under a specific namespace hierarchy.
-     * All logging-related metadata tables are prefixed with {@code "rta.logging."}
-     * to identify them within Uber's multi-tenant Pinot infrastructure. This prefix
-     * represents:
-     * <ul>
-     *   <li><b>rta</b>: Real-Time Analytics platform namespace</li>
-     *   <li><b>logging</b>: The logging subsystem within RTA</li>
-     * </ul>
+     * If a table name prefix is configured via {@code clp.custom-metadata-table-name-prefix},
+     * it will be prepended to the table name. Otherwise, the table name is used as-is.
      * </p>
      * <p>
-     * Unlike the standard Pinot implementation where schemas can affect table naming,
-     * Uber's approach uses a flat namespace where all logging tables share the same
-     * prefix regardless of the schema being queried.
-     * </p>
-     * <p>
-     * Examples:
+     * Examples with prefix "metadata.service":
      * <ul>
-     *   <li>Schema: "default", Table: "logs" → Pinot table: "rta.logging.logs"</li>
-     *   <li>Schema: "production", Table: "events" → Pinot table: "rta.logging.events"</li>
-     *   <li>Schema: "staging", Table: "metrics" → Pinot table: "rta.logging.metrics"</li>
+     *   <li>Schema: "default", Table: "logs" → Pinot table: "metadata.service.logs"</li>
+     *   <li>Schema: "production", Table: "events" → Pinot table: "metadata.service.events"</li>
      * </ul>
      * </p>
      *
      * @param tableHandle the CLP table handle containing schema and table information
-     * @return the fully-qualified Pinot metadata table name with Uber's namespace prefix
+     * @return the Pinot metadata table name, optionally with configured prefix
      * @throws NullPointerException if tableHandle is null
      */
     @Override
@@ -218,43 +201,39 @@ public class ClpUberPinotSplitProvider
     {
         requireNonNull(tableHandle, "tableHandle is null");
         SchemaTableName schemaTableName = tableHandle.getSchemaTableName();
-
-        // Uber's Pinot tables use a fixed namespace prefix for all logging tables
-        // Format: rta.logging.<table_name>
         String tableName = schemaTableName.getTableName();
-        return buildUberTableName(tableName);
+
+        String prefix = config.getCustomTableNamePrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            return tableName;
+        }
+        // Automatically append dot if not present
+        if (!prefix.endsWith(".")) {
+            prefix = prefix + ".";
+        }
+        return prefix + tableName;
     }
 
     /**
-     * Factory method for building Uber-specific table names.
-     * Exposed for testing purposes.
-     *
-     * @param tableName the base table name
-     * @return the fully-qualified Uber Pinot table name
-     */
-    @VisibleForTesting
-    protected String buildUberTableName(String tableName)
-    {
-        return String.format("rta.logging.%s", tableName);
-    }
-
-    /**
-     * Adds Uber-specific HTTP headers required for Neutrino service authentication.
+     * Adds custom HTTP headers from configuration.
+     * <p>
+     * Headers are configured via the {@code clp.custom-metadata-http-headers} property
+     * as comma-separated key:value pairs.
+     * </p>
      *
      * @param conn the HTTP connection to add headers to
      */
     protected void addCustomQueryRequestHeader(HttpURLConnection conn)
     {
-        conn.setRequestProperty("RPC-Service", "neutrino-logging");
-        conn.setRequestProperty("RPC-Caller", "logging-terrablob-connector");
-        conn.setRequestProperty("Content-Type", "text/plain");
-        conn.setRequestProperty("Accept", "text/plain");
+        for (Map.Entry<String, String> header : config.getCustomHttpHeaders().entrySet()) {
+            conn.setRequestProperty(header.getKey(), header.getValue());
+        }
     }
 
     /**
      * {@inheritDoc}
      * <p>
-     * This Uber-specific implementation sends the SQL query as plain text to the Neutrino
+     * This custom implementation sends the SQL query as plain text to the service
      * endpoint and parses the response using {@link #parseQueryResponse(JsonNode)}.
      * </p>
      */
@@ -300,9 +279,9 @@ public class ClpUberPinotSplitProvider
     }
 
     /**
-     * Parses the JSON response from an Uber Neutrino query into a list of row maps.
+     * Parses the JSON response from a custom query into a list of row maps.
      * <p>
-     * The Uber Neutrino response format differs from standard Pinot:
+     * The custom response format differs from standard Pinot:
      * <ul>
      *   <li><b>columns</b>: Array of column definitions, each containing "name", "type", and "typeSignature"</li>
      *   <li><b>data</b>: Array of row arrays (equivalent to Pinot's "rows")</li>
@@ -318,12 +297,12 @@ public class ClpUberPinotSplitProvider
     {
         JsonNode columnsNode = root.get("columns");
         if (columnsNode == null) {
-            throw new IllegalStateException("Uber query response missing 'columns' field");
+            throw new IllegalStateException("Custom query response missing 'columns' field");
         }
 
         JsonNode dataNode = root.get("data");
         if (dataNode == null) {
-            throw new IllegalStateException("Uber query response missing 'data' field");
+            throw new IllegalStateException("Custom query response missing 'data' field");
         }
 
         ImmutableList.Builder<String> columnNamesBuilder = ImmutableList.builder();
