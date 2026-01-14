@@ -94,8 +94,7 @@ public class TestClpSplitMetadataConfig
         assertEquals(columns, ImmutableMap.of(
                 "level", BIGINT,
                 "author", VARCHAR,
-                "begin_timestamp", BIGINT,
-                "end_timestamp", BIGINT,
+                "msg.timestamp", BIGINT,
                 "file_name", VARCHAR));
         Set<String> dataColumnsWithRangeBounds =
                 splitMetadataConfig.getDataColumnsWithRangeBounds(new SchemaTableName("default", "table_1"));
