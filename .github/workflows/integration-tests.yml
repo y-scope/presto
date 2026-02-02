@@ -144,7 +144,13 @@ jobs:
       - name: Extract presto-server
         run: |
           echo "Extracting presto-server..."
-          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz)
+          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz 2>/dev/null)
+          TAR_COUNT=$(echo "$PRESTO_SERVER_TAR" | wc -w)
+          if [ "$TAR_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 presto-server tarball, found $TAR_COUNT"
+            ls -la presto-server-*.tar.gz 2>/dev/null || true
+            exit 1
+          fi
           tar -xzf ${PRESTO_SERVER_TAR}
           PRESTO_SERVER_DIR=$(ls -d presto-server-*/ | head -1 | sed 's:/$::')
           echo "Presto server extracted to ${PRESTO_SERVER_DIR}/"
@@ -270,7 +276,13 @@ jobs:
       - name: Extract presto-server
         run: |
           echo "Extracting presto-server..."
-          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz)
+          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz 2>/dev/null)
+          TAR_COUNT=$(echo "$PRESTO_SERVER_TAR" | wc -w)
+          if [ "$TAR_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 presto-server tarball, found $TAR_COUNT"
+            ls -la presto-server-*.tar.gz 2>/dev/null || true
+            exit 1
+          fi
           tar -xzf ${PRESTO_SERVER_TAR}
           PRESTO_SERVER_DIR=$(ls -d presto-server-*/ | head -1 | sed 's:/$::')
           echo "Presto server extracted to ${PRESTO_SERVER_DIR}/"
@@ -394,7 +406,13 @@ jobs:
       - name: Extract presto-server
         run: |
           echo "Extracting presto-server..."
-          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz)
+          PRESTO_SERVER_TAR=$(ls presto-server-*.tar.gz 2>/dev/null)
+          TAR_COUNT=$(echo "$PRESTO_SERVER_TAR" | wc -w)
+          if [ "$TAR_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 presto-server tarball, found $TAR_COUNT"
+            ls -la presto-server-*.tar.gz 2>/dev/null || true
+            exit 1
+          fi
           tar -xzf ${PRESTO_SERVER_TAR}
           PRESTO_SERVER_DIR=$(ls -d presto-server-*/ | head -1 | sed 's:/$::')
           echo "Presto server extracted to ${PRESTO_SERVER_DIR}/"
