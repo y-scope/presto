@@ -30,13 +30,11 @@ on:
         type: string
       runtime-version-tag:
         description: 'Immutable runtime image tag (e.g., 0.293-BETA-20250529140509-484b00e)'
-        required: false
-        default: ''
+        required: true
         type: string
       runtime-snapshot-tag:
         description: 'Mutable SNAPSHOT tag (e.g., 0.293-BETA-SNAPSHOT)'
-        required: false
-        default: ''
+        required: true
         type: string
 
 # Note: concurrency is handled by the parent ci.yml workflow
