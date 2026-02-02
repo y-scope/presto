@@ -197,7 +197,7 @@ jobs:
 
           # Set LD_LIBRARY_PATH for native workers to find libraries
           # This must be exported so child processes (native workers) inherit it
-          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
           ./mvnw test \
             ${MAVEN_TEST} \
@@ -329,7 +329,7 @@ jobs:
           export PRESTO_CLASSPATH="${PRESTO_SERVER_DIR}/plugin/*:${PRESTO_SERVER_DIR}/lib/*"
 
           # Set LD_LIBRARY_PATH for native workers to find libraries
-          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
           ./mvnw test \
             ${MAVEN_TEST} \
@@ -342,7 +342,6 @@ jobs:
             -DDATA_DIR=${RUNNER_TEMP} \
             -Duser.timezone=America/Bahia_Banderas \
             -DadditionalClasspath="${PRESTO_CLASSPATH}" \
-            -DLD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
             -T1C
 
   # Upstream: prestocpp-linux-presto-sidecar-tests
@@ -468,7 +467,7 @@ jobs:
           export PRESTO_CLASSPATH="${PRESTO_SERVER_DIR}/plugin/*:${PRESTO_SERVER_DIR}/lib/*"
 
           # Set LD_LIBRARY_PATH for native workers to find libraries
-          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
           ./mvnw test \
             ${MAVEN_TEST} \
@@ -480,5 +479,4 @@ jobs:
             -DDATA_DIR=${RUNNER_TEMP} \
             -Duser.timezone=America/Bahia_Banderas \
             -DadditionalClasspath="${PRESTO_CLASSPATH}" \
-            -DLD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
             -T1C
