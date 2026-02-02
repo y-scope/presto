@@ -184,7 +184,14 @@ jobs:
       - name: "Extract base version"
         id: "extract-version"
         run: |
-          VERSION=$(ls docker/presto-server-*.tar.gz | sed 's/.*presto-server-\(.*\)\.tar\.gz/\1/')
+          TARBALL=$(ls docker/presto-server-*.tar.gz 2>/dev/null)
+          TAR_COUNT=$(echo "$TARBALL" | wc -w)
+          if [ "$TAR_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 presto-server tarball, found $TAR_COUNT"
+            ls -la docker/presto-server-*.tar.gz 2>/dev/null || true
+            exit 1
+          fi
+          VERSION=$(echo "$TARBALL" | sed 's/.*presto-server-\(.*\)\.tar\.gz/\1/')
           echo "base-version=${VERSION}" >> $GITHUB_OUTPUT
 
       # Login to GitHub Container Registry (ghcr.io)
