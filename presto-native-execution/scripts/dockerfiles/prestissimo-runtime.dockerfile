@@ -15,7 +15,7 @@
 # This stage only extracts the runtime library dependencies.
 ARG BUILDER_IMAGE
 ARG BASE_IMAGE=quay.io/centos/centos:stream9
-FROM ${BUILDER_IMAGE} as prestissimo-image
+FROM ${BUILDER_IMAGE} AS prestissimo-image
 
 ENV BUILD_BASE_DIR=_build
 ENV BUILD_DIR=release
@@ -23,8 +23,9 @@ ENV BUILD_DIR=release
 # Copy the pre-built binary from the build context
 COPY presto-native-execution/${BUILD_BASE_DIR}/${BUILD_DIR}/presto_cpp/main/presto_server /tmp/presto_server
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN mkdir -p /runtime-libraries && \
-    !(LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 ldd /tmp/presto_server | grep "not found") && \
+    ! (LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 ldd /tmp/presto_server | grep -q "not found") && \
     LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 ldd /tmp/presto_server | awk 'NF == 4 { system("cp " $3 " /runtime-libraries") }'
 
 #/////////////////////////////////////////////
