@@ -64,7 +64,7 @@ RUN apt-get update \
 RUN mkdir -p /build && \
     cd /build && \
     /presto/scripts/setup-ubuntu.sh && \
-    apt install -y rpm && \
+    apt-get install -y --no-install-recommends rpm && \
     /presto/velox/scripts/setup-ubuntu.sh install_adapters && \
     /presto/scripts/setup-adapters.sh && \
     rm -rf /build
@@ -133,8 +133,8 @@ RUN curl --fail --location --silent --show-error --output OpenJDK8U-jdk_x64_linu
     && export RUNNER_ARCH=X64 \
     && cd /workspace \
     && .github/bin/download_nodejs \
-    && ./mvnw dependency:resolve-plugins dependency:resolve -B --no-transfer-progress \
-        -Dmaven.repo.local=${MAVEN_REPO} || true \
+    && ( ./mvnw dependency:resolve-plugins dependency:resolve -B --no-transfer-progress \
+        -Dmaven.repo.local=${MAVEN_REPO} || echo "Warning: Maven dependency resolution had failures (may be expected for optional deps)" ) \
     && rm -rf /tmp/jdk8u442-b06
 
 # Clean up source, keep only caches
