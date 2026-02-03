@@ -125,7 +125,7 @@ jobs:
       # retention-days: 1 means they're deleted after 1 day to save storage
       - name: "Upload presto-server"
         if: inputs.should-upload-artifacts
-        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4"
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"  # v4
         with:
           name: "presto-server"
           path: "presto-server/target/presto-server-*.tar.gz"
@@ -134,7 +134,7 @@ jobs:
 
       - name: "Upload presto-cli"
         if: inputs.should-upload-artifacts
-        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4"
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"  # v4
         with:
           name: "presto-cli"
           path: "presto-cli/target/presto-cli-*-executable.jar"
@@ -197,7 +197,7 @@ jobs:
       # Login to GitHub Container Registry (ghcr.io)
       # GITHUB_TOKEN is automatically provided by GitHub Actions
       - name: "Login to image registry"
-        uses: "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3"
+        uses: "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9"  # v3
         with:
           registry: "ghcr.io"
           username: "${{github.actor}}"
@@ -206,7 +206,7 @@ jobs:
       # docker/metadata-action generates Docker image tags and labels
       - name: "Set up container image metadata"
         id: "meta"
-        uses: "docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5"
+        uses: "docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051"  # v5
         with:
           images: "ghcr.io/${{github.repository}}/presto"
           # Two tags passed from config job:
@@ -219,7 +219,7 @@ jobs:
       # Build the Docker image and push to registry
       # Note: push is disabled for pull_request events (security: PRs shouldn't push images)
       - name: "Build and push"
-        uses: "docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6"
+        uses: "docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83"  # v6
         with:
           build-args: |-
             JMX_PROMETHEUS_JAVA_AGENT_VERSION=0.20.0
