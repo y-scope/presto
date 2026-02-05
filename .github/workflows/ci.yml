@@ -95,7 +95,7 @@ name: ci
 # | presto-cli          | presto-cli-*-executable.jar                       |
 # | presto-native-build | presto_server, velox_functions_remote_server_main |
 #
-# Docker Images (ghcr.io, pushed on push events only):
+# Docker Images (registry-private.yscope.io, pushed on push events only):
 # | Image           | Description                    |
 # |-----------------|--------------------------------|
 # | unified-builder | Build environment with deps    |
@@ -175,7 +175,7 @@ jobs:
           POM_HASH=$(find . -name "pom.xml" -exec sha256sum {} \; | sort | sha256sum | cut -c1-8)
           NODEJS_HASH=$(sha256sum .github/bin/download_nodejs | cut -c1-8)
           TAG="${DOCKERFILE_HASH}-${SCRIPTS_HASH}-${POM_HASH}-${NODEJS_HASH}"
-          echo "image=ghcr.io/${{ github.repository }}/unified-builder:${TAG}" >> $GITHUB_OUTPUT
+          echo "image=registry-private.yscope.io/${{ github.repository }}/unified-builder:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Compute runtime version tags
         id: version
@@ -203,6 +203,7 @@ jobs:
     uses: ./.github/workflows/create-builder-image.yml
     with:
       builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+    secrets: inherit
 
   # ----------------------------------------------------------------------------
   # Step 3a: Build Presto (Java)
@@ -265,7 +266,7 @@ jobs:
   # Step 4: Integration Tests
   # ----------------------------------------------------------------------------
   # End-to-end tests that run the Java coordinator with the C++ native worker.
-  # Requires artifacts from both:
+  # Requires artifact images from both:
   # - presto: presto-server tarball (Java coordinator)
   # - prestocpp: presto_server binary (C++ native worker)
   integration-tests:
@@ -274,4 +275,6 @@ jobs:
     uses: ./.github/workflows/integration-tests.yml
     with:
       builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+      presto-artifacts-image: ${{ needs.presto.outputs.presto-artifacts-image }}
+      prestocpp-artifacts-image: ${{ needs.prestocpp.outputs.prestocpp-artifacts-image }}
     secrets: inherit

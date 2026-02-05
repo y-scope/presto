@@ -36,7 +36,7 @@ on:
 jobs:
   test:
     name: "presto-tests"
-    runs-on: &runner >-
+    runs-on: >-
       ${{
         github.repository_owner == 'y-scope'
         && fromJSON('["self-hosted", "x64", "ubuntu-noble"]')
@@ -59,46 +59,58 @@ jobs:
           - ":presto-main-base"
           - ":presto-main"
     timeout-minutes: 80
-    container:
-      image: ${{ inputs.builder-image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       # Maven test flags:
       # - -Dair.check.skip-all: Skip static analysis checks (already done in build)
       # - -DLogTestDurationListener.enabled=true: Log how long each test takes
       # - --fail-at-end: Run all tests even if some fail, report failures at end
       MAVEN_TEST: "-B -Dair.check.skip-all -Dmaven.javadoc.skip=true -DLogTestDurationListener.enabled=true --no-transfer-progress --fail-at-end"
-      MAVEN_REPO: /opt/maven/repository
       MAVEN_INSTALL_OPTS: "-Xmx2G -XX:+ExitOnOutOfMemoryError"
     steps:
       - uses: actions/checkout@v4
         with:
           show-progress: false
 
-      # Setup Java version from the matrix (runs twice: once for Java 8, once for Java 17)
+      - name: Login to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry-private.yscope.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # Install Java version for this matrix run
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: ${{ matrix.java }}
 
-      # setup-java may override MAVEN_REPO, so explicitly set it after
-      - name: Configure Maven repository
-        run: |
-          echo "MAVEN_REPO=/opt/maven/repository" >> $GITHUB_ENV
-
       # First, compile the test module and its dependencies (-am = also make dependencies)
       # The cut command extracts just the module name (before any -P profile flags)
       # Example: ":presto-tests -P presto-tests-general" -> ":presto-tests"
       - name: Maven Install
         run: |
-          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
-          ./mvnw install -B -V --quiet -T 1C -DskipTests -Dair.check.skip-all --no-transfer-progress -Dmaven.javadoc.skip=true -Dmaven.repo.local=${{ env.MAVEN_REPO }} -am -pl $(echo '${{ matrix.modules }}' | cut -d' ' -f1)
+          MODULE=$(echo '${{ matrix.modules }}' | cut -d' ' -f1)
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -v "$JAVA_HOME:/opt/java/current" \
+            -w /workspace \
+            -e JAVA_HOME=/opt/java/current \
+            -e PATH=/opt/java/current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            -e MAVEN_OPTS="${MAVEN_INSTALL_OPTS} -Dmaven.repo.local=/opt/maven/repository" \
+            ${{ inputs.builder-image }} \
+            ./mvnw install -B -V --quiet -T 1C -DskipTests -Dair.check.skip-all --no-transfer-progress -Dmaven.javadoc.skip=true -am -pl ${MODULE}
 
       # Run the actual tests for this matrix combination
       # -pl specifies both the module and the profile (e.g., ":presto-tests -P ci-only-local-queries")
       - name: Maven Tests
         run: |
-          ./mvnw test ${MAVEN_TEST} -Dmaven.repo.local=${{ env.MAVEN_REPO }} -pl ${{ matrix.modules }}
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -v "$JAVA_HOME:/opt/java/current" \
+            -w /workspace \
+            -e JAVA_HOME=/opt/java/current \
+            -e PATH=/opt/java/current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            -e MAVEN_OPTS="${MAVEN_INSTALL_OPTS} -Dmaven.repo.local=/opt/maven/repository" \
+            ${{ inputs.builder-image }} \
+            ./mvnw test ${MAVEN_TEST} -pl ${{ matrix.modules }}

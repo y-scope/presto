@@ -38,6 +38,10 @@ on:
         required: false
         default: ''
         type: string
+    outputs:
+      prestocpp-artifacts-image:
+        description: "Docker image containing prestocpp build artifacts"
+        value: ${{ jobs.prestocpp-linux-build-and-test.outputs.artifacts-image }}
 
 # Note: concurrency is handled by the parent ci.yml workflow
 
@@ -45,7 +49,7 @@ jobs:
   # ----------------------------------------------------------------------------
   # Job 1: Build and Test Prestocpp
   # ----------------------------------------------------------------------------
-  # Builds the prestocpp binary, runs unit tests, and uploads artifacts.
+  # Builds the prestocpp binary, runs unit tests, and pushes artifacts to registry.
   prestocpp-linux-build-and-test:
     name: "prestocpp-linux-build-and-test"
     runs-on: &runner >-
@@ -55,65 +59,89 @@ jobs:
         || 'ubuntu-latest'
       }}
     timeout-minutes: 180
-    container:
-      image: ${{ inputs.builder-image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      CCACHE_DIR: /var/cache/ccache
-      CCACHE_BASEDIR: ${{ github.workspace }}
+    outputs:
+      artifacts-image: ${{ steps.artifacts.outputs.image }}
     steps:
       - uses: actions/checkout@v4
         with:
           show-progress: false
 
-      - name: Fix git permissions
-        run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
+      - name: Login to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry-private.yscope.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Update velox submodule
         run: |
           cd presto-native-execution
-          make velox-submodule
+          git submodule update --init --recursive --depth=1 velox || \
+          git submodule update --init --recursive velox
 
-      - name: Build engine
+      - name: Build engine and run tests
         run: |
-          cd presto-native-execution
-          cmake \
-            -B _build/release \
-            -GNinja \
-            -DTREAT_WARNINGS_AS_ERRORS=1 \
-            -DENABLE_ALL_WARNINGS=1 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DPRESTO_ENABLE_PARQUET=ON \
-            -DPRESTO_ENABLE_REMOTE_FUNCTIONS=ON \
-            -DPRESTO_ENABLE_JWT=ON \
-            -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS \
-            -DPRESTO_MEMORY_CHECKER_TYPE=LINUX_MEMORY_CHECKER \
-            -DCMAKE_PREFIX_PATH=/usr/local \
-            -DThrift_ROOT=/usr/local \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DMAX_LINK_JOBS=4
-          ninja -C _build/release -j $(getconf _NPROCESSORS_ONLN)
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e CCACHE_DIR=/var/cache/ccache \
+            -e CCACHE_BASEDIR=/workspace \
+            ${{ inputs.builder-image }} \
+            bash -c '
+              set -e
+              git config --global --add safe.directory /workspace
 
-      - name: Show ccache statistics
-        run: ccache -s
+              cd presto-native-execution
+              cmake \
+                -B _build/release \
+                -GNinja \
+                -DTREAT_WARNINGS_AS_ERRORS=1 \
+                -DENABLE_ALL_WARNINGS=1 \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DPRESTO_ENABLE_PARQUET=ON \
+                -DPRESTO_ENABLE_REMOTE_FUNCTIONS=ON \
+                -DPRESTO_ENABLE_JWT=ON \
+                -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS \
+                -DPRESTO_MEMORY_CHECKER_TYPE=LINUX_MEMORY_CHECKER \
+                -DCMAKE_PREFIX_PATH=/usr/local \
+                -DThrift_ROOT=/usr/local \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DMAX_LINK_JOBS=4
+              ninja -C _build/release -j $(getconf _NPROCESSORS_ONLN)
 
-      - name: Run unit tests
+              echo "=== ccache statistics ==="
+              ccache -s
+
+              echo "=== Running unit tests ==="
+              ldconfig /usr/local/lib
+              cd _build/release
+              ctest -j $(getconf _NPROCESSORS_ONLN) -VV --output-on-failure --exclude-regex velox.*
+            '
+
+      # Push artifacts to Docker registry instead of GitHub artifacts
+      - name: Push artifacts to registry
+        id: artifacts
         run: |
-          ldconfig /usr/local/lib
-          cd presto-native-execution/_build/release
-          ctest -j $(getconf _NPROCESSORS_ONLN) -VV --output-on-failure --exclude-regex velox.*
+          # Prepare artifact staging directory
+          mkdir -p /tmp/prestocpp-artifacts/presto_cpp/main
+          mkdir -p /tmp/prestocpp-artifacts/velox/velox/functions/remote/server
 
-      # Upload compiled binaries as artifacts for integration tests and image building
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: presto-native-build
-          retention-days: 1
-          path: |
-            presto-native-execution/_build/release/presto_cpp/main/presto_server
-            presto-native-execution/_build/release/velox/velox/functions/remote/server/velox_functions_remote_server_main
+          cp presto-native-execution/_build/release/presto_cpp/main/presto_server \
+             /tmp/prestocpp-artifacts/presto_cpp/main/
+
+          # Copy velox remote server if it exists
+          if [ -f presto-native-execution/_build/release/velox/velox/functions/remote/server/velox_functions_remote_server_main ]; then
+            cp presto-native-execution/_build/release/velox/velox/functions/remote/server/velox_functions_remote_server_main \
+               /tmp/prestocpp-artifacts/velox/velox/functions/remote/server/
+          fi
+
+          # Build and push artifact image
+          ARTIFACT_IMAGE="registry-private.yscope.io/${{ github.repository }}/artifacts/prestocpp:${{ github.sha }}"
+          docker build -t "${ARTIFACT_IMAGE}" -f .github/dockerfiles/artifacts.dockerfile /tmp/prestocpp-artifacts
+          docker push "${ARTIFACT_IMAGE}"
+
+          echo "image=${ARTIFACT_IMAGE}" >> $GITHUB_OUTPUT
+          echo "Pushed artifact image: ${ARTIFACT_IMAGE}"
 
   # ----------------------------------------------------------------------------
   # Job 2: Build Prestissimo Runtime Image
@@ -130,24 +158,32 @@ jobs:
         with:
           show-progress: false
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: presto-native-build
-          path: presto-native-execution/_build/release
-
-      - name: Restore execute permissions
-        run: |
-          chmod +x presto-native-execution/_build/release/presto_cpp/main/presto_server
-          chmod +x presto-native-execution/_build/release/velox/velox/functions/remote/server/velox_functions_remote_server_main || true
-          ls -lh presto-native-execution/_build/release/presto_cpp/main/presto_server
-
-      - name: Login to GitHub Container Registry
+      - name: Login to container registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: registry-private.yscope.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # Pull artifacts from Docker registry instead of GitHub artifacts
+      - name: Download artifacts from registry
+        run: |
+          ARTIFACT_IMAGE="${{ needs.prestocpp-linux-build-and-test.outputs.artifacts-image }}"
+          echo "Pulling artifact image: ${ARTIFACT_IMAGE}"
+          docker pull "${ARTIFACT_IMAGE}"
+
+          # Extract artifacts from image to expected path
+          mkdir -p presto-native-execution/_build/release
+          CONTAINER_ID=$(docker create "${ARTIFACT_IMAGE}")
+          docker cp "${CONTAINER_ID}:/artifacts/." presto-native-execution/_build/release/
+          docker rm "${CONTAINER_ID}"
+
+          # Restore execute permissions
+          chmod +x presto-native-execution/_build/release/presto_cpp/main/presto_server
+          chmod +x presto-native-execution/_build/release/velox/velox/functions/remote/server/velox_functions_remote_server_main || true
+
+          echo "Artifacts extracted:"
+          ls -lh presto-native-execution/_build/release/presto_cpp/main/presto_server
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -164,7 +200,7 @@ jobs:
           # 1. runtime-version-tag: Immutable (e.g., 0.293-BETA-20250529140509-484b00e)
           # 2. runtime-snapshot-tag: Mutable (e.g., 0.293-BETA-SNAPSHOT)
           tags: |
-            ghcr.io/${{ github.repository }}/prestissimo:${{ inputs.runtime-version-tag }}
-            ghcr.io/${{ github.repository }}/prestissimo:${{ inputs.runtime-snapshot-tag }}
+            registry-private.yscope.io/${{ github.repository }}/prestissimo:${{ inputs.runtime-version-tag }}
+            registry-private.yscope.io/${{ github.repository }}/prestissimo:${{ inputs.runtime-snapshot-tag }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

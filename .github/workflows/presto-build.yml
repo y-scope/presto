@@ -61,14 +61,11 @@ on:
         required: false
         default: false
         type: boolean
-    # Outputs allow the caller workflow to reference artifact names
+    # Outputs allow the caller workflow to reference artifact image
     outputs:
-      presto-server-artifact:
-        description: "Name of the presto-server artifact"
-        value: presto-server
-      presto-cli-artifact:
-        description: "Name of the presto-cli artifact"
-        value: presto-cli
+      presto-artifacts-image:
+        description: "Docker image containing presto build artifacts"
+        value: ${{ jobs.build.outputs.artifacts-image }}
 
 jobs:
   # --------------------------------------------------------------------------
@@ -83,15 +80,9 @@ jobs:
         || 'ubuntu-latest'
       }}
     timeout-minutes: 45
-    container:
-      image: ${{ inputs.builder-image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      artifacts-image: ${{ steps.artifacts.outputs.image }}
     env:
-      # Use the Maven cache pre-populated in the builder image
-      # This contains all dependencies pre-downloaded, avoiding network fetches
-      MAVEN_REPO: /opt/maven/repository
       # JVM options for Maven: 2GB heap, crash immediately on OOM (don't hang)
       MAVEN_INSTALL_OPTS: "-Xmx2G -XX:+ExitOnOutOfMemoryError"
     steps:
@@ -99,60 +90,59 @@ jobs:
         with:
           show-progress: false
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Login to container registry
+        uses: docker/login-action@v3
         with:
-          distribution: 'temurin'
-          java-version: ${{ inputs.java-version }}
-
-      # setup-java may override MAVEN_REPO, so explicitly set it after
-      - name: Configure Maven repository
-        run: |
-          echo "MAVEN_REPO=/opt/maven/repository" >> $GITHUB_ENV
+          registry: registry-private.yscope.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       # Maven build with parallel compilation (-T 1C = 1 thread per CPU core)
+      # Runs inside builder container with pre-cached Maven dependencies
       # Key flags:
       # - -DskipTests: Only compile, don't run tests (separate workflow handles tests)
       # - -P ci: Activate the 'ci' profile (may have CI-specific settings in pom.xml)
       # - -pl '!...': Exclude modules we don't need (test coverage, docs)
       - name: Maven Build
         run: |
-          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS} -Dmaven.repo.local=${{ env.MAVEN_REPO }}"
-          ./mvnw install -B -V -T 1C -DskipTests -Dmaven.javadoc.skip=true --no-transfer-progress -P ci -pl '!presto-test-coverage,!:presto-docs'
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e MAVEN_OPTS="${MAVEN_INSTALL_OPTS} -Dmaven.repo.local=/opt/maven/repository" \
+            ${{ inputs.builder-image }} \
+            ./mvnw install -B -V -T 1C -DskipTests -Dmaven.javadoc.skip=true --no-transfer-progress -P ci -pl '!presto-test-coverage,!:presto-docs'
 
-      # Upload artifacts for other jobs to download
-      # Artifacts are stored by GitHub and available for the duration of the workflow run
-      # retention-days: 1 means they're deleted after 1 day to save storage
-      - name: "Upload presto-server"
+      # Push artifacts to Docker registry instead of GitHub artifacts
+      # This avoids GitHub's artifact storage limits on free tier
+      - name: Push artifacts to registry
         if: inputs.should-upload-artifacts
-        uses: "actions/upload-artifact@v4"
-        with:
-          name: "presto-server"
-          path: "presto-server/target/presto-server-*.tar.gz"
-          if-no-files-found: "error"
-          retention-days: 1
+        id: artifacts
+        run: |
+          # Prepare artifact staging directory
+          mkdir -p /tmp/presto-artifacts
+          cp presto-server/target/presto-server-*.tar.gz /tmp/presto-artifacts/
+          cp presto-cli/target/presto-cli-*-executable.jar /tmp/presto-artifacts/
 
-      - name: "Upload presto-cli"
-        if: inputs.should-upload-artifacts
-        uses: "actions/upload-artifact@v4"
-        with:
-          name: "presto-cli"
-          path: "presto-cli/target/presto-cli-*-executable.jar"
-          if-no-files-found: "error"
-          retention-days: 1
+          # Build and push artifact image
+          ARTIFACT_IMAGE="registry-private.yscope.io/${{ github.repository }}/artifacts/presto:${{ github.sha }}"
+          docker build -t "${ARTIFACT_IMAGE}" -f .github/dockerfiles/artifacts.dockerfile /tmp/presto-artifacts
+          docker push "${ARTIFACT_IMAGE}"
+
+          echo "image=${ARTIFACT_IMAGE}" >> $GITHUB_OUTPUT
+          echo "Pushed artifact image: ${ARTIFACT_IMAGE}"
 
   # --------------------------------------------------------------------------
   # Docker Image Job: Build and push Presto Docker image
   # --------------------------------------------------------------------------
   # This job creates a Docker image containing the Presto coordinator.
-  # The image is pushed to GitHub Container Registry (ghcr.io).
+  # The image is pushed to the private container registry.
   #
   # Image tagging strategy:
   # - Full tag: 0.293-RELEASE-20250522140509-484b00e (version-type-timestamp-hash)
   # - Snapshot tag: 0.293-RELEASE-SNAPSHOT (always points to latest build)
   build-image:
     name: "presto-image"
-    needs: build  # Wait for build job to complete and upload artifacts
+    needs: build  # Wait for build job to complete and push artifacts
     if: inputs.should-build-image && inputs.should-upload-artifacts
     runs-on: *runner
     steps:
@@ -166,19 +156,28 @@ jobs:
           sparse-checkout-cone-mode: false
           show-progress: false
 
-      # Download artifacts from the build job
-      # These go into ./docker so they're available in the Docker build context
-      - name: "Download presto-server"
-        uses: actions/download-artifact@v4
+      # Login to container registry
+      - name: "Login to image registry"
+        uses: "docker/login-action@v3"
         with:
-          name: presto-server
-          path: ./docker
+          registry: "registry-private.yscope.io"
+          username: "${{secrets.REGISTRY_USERNAME}}"
+          password: "${{secrets.REGISTRY_PASSWORD}}"
 
-      - name: "Download presto-cli"
-        uses: actions/download-artifact@v4
-        with:
-          name: presto-cli
-          path: ./docker
+      # Pull artifacts from Docker registry instead of GitHub artifacts
+      - name: "Download artifacts from registry"
+        run: |
+          ARTIFACT_IMAGE="${{ needs.build.outputs.artifacts-image }}"
+          echo "Pulling artifact image: ${ARTIFACT_IMAGE}"
+          docker pull "${ARTIFACT_IMAGE}"
+
+          # Extract artifacts from image
+          CONTAINER_ID=$(docker create "${ARTIFACT_IMAGE}")
+          docker cp "${CONTAINER_ID}:/artifacts/." ./docker/
+          docker rm "${CONTAINER_ID}"
+
+          echo "Artifacts extracted to ./docker:"
+          ls -la ./docker/
 
       # Extract base version from artifact filename (needed for Docker build args)
       - name: "Extract base version"
@@ -187,21 +186,12 @@ jobs:
           VERSION=$(ls docker/presto-server-*.tar.gz | sed 's/.*presto-server-\(.*\)\.tar\.gz/\1/')
           echo "base-version=${VERSION}" >> $GITHUB_OUTPUT
 
-      # Login to GitHub Container Registry (ghcr.io)
-      # GITHUB_TOKEN is automatically provided by GitHub Actions
-      - name: "Login to image registry"
-        uses: "docker/login-action@v3"
-        with:
-          registry: "ghcr.io"
-          username: "${{github.actor}}"
-          password: "${{secrets.GITHUB_TOKEN}}"
-
       # docker/metadata-action generates Docker image tags and labels
       - name: "Set up container image metadata"
         id: "meta"
         uses: "docker/metadata-action@v5"
         with:
-          images: "ghcr.io/${{github.repository}}/presto"
+          images: "registry-private.yscope.io/${{github.repository}}/presto"
           # Two tags passed from config job:
           # 1. runtime-version-tag: Immutable (e.g., 0.293-BETA-20250529140509-484b00e)
           # 2. runtime-snapshot-tag: Mutable (e.g., 0.293-BETA-SNAPSHOT)
