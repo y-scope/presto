@@ -22,13 +22,16 @@ import com.facebook.presto.spi.SortingProperty;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.plan.AggregationNode;
+import com.facebook.presto.spi.plan.DataOrganizationSpecification;
 import com.facebook.presto.spi.plan.DeleteNode;
 import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.InputDistribution;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MergeJoinNode;
 import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.Partitioning;
@@ -48,14 +51,17 @@ import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.optimizations.StreamPropertyDerivations.StreamProperties;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.InternalPlanVisitor;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +70,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 
@@ -108,6 +115,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -307,11 +315,10 @@ public class AddLocalExchanges
             }
 
             // final limit requires that all data be in one stream
-            // also, a final changes the input organization completely, so we do not pass through parent preferences
             return planAndEnforceChildren(
                     node,
                     singleStream(),
-                    defaultParallelism(session));
+                    parentPreferences.withDefaultParallelism(session));
         }
 
         @Override
@@ -398,7 +405,8 @@ public class AddLocalExchanges
             // [A, B] [(A, C)]     ->   List.of(Optional.of(GroupingProperty(C)))
             // [A, B] [(D, A, C)]  ->   List.of(Optional.of(GroupingProperty(D, C)))
             List<Optional<LocalProperty<VariableReferenceExpression>>> matchResult = LocalProperties.match(child.getProperties().getLocalProperties(), LocalProperties.grouped(groupingKeys));
-            if (!matchResult.get(0).isPresent()) {
+            List<Optional<LocalProperty<VariableReferenceExpression>>> matchResultForAdditional = LocalProperties.match(child.getProperties().getAdditionalLocalProperties(), LocalProperties.grouped(groupingKeys));
+            if (!matchResult.get(0).isPresent() || !matchResultForAdditional.get(0).isPresent()) {
                 // !isPresent() indicates the property was satisfied completely
                 preGroupedSymbols = groupingKeys;
             }
@@ -493,6 +501,87 @@ public class AddLocalExchanges
                     node.getRowId(),
                     node.getOutputVariables(),
                     node.getInputDistribution());
+
+            return deriveProperties(result, child.getProperties());
+        }
+
+        @Override
+        public PlanWithProperties visitTableFunction(TableFunctionNode node, StreamPreferredProperties parentPreferences)
+        {
+            throw new IllegalStateException(format("Unexpected node: TableFunctionNode (%s)", node.getName()));
+        }
+
+        @Override
+        public PlanWithProperties visitTableFunctionProcessor(TableFunctionProcessorNode node, StreamPreferredProperties parentPreferences)
+        {
+            if (!node.getSource().isPresent()) {
+                return deriveProperties(node, ImmutableList.of());
+            }
+
+            if (!node.getSpecification().isPresent()) {
+                // node.getSpecification.isEmpty() indicates that there were no sources or a single source with row semantics.
+                // The case of no sources was addressed above.
+                // The case of a single source with row semantics is addressed here. Source's properties do not hold after the TableFunctionProcessorNode
+                PlanWithProperties child = planAndEnforce(node.getSource().orElseThrow(NoSuchElementException::new), StreamPreferredProperties.any(), StreamPreferredProperties.any());
+                return rebaseAndDeriveProperties(node, ImmutableList.of(child));
+            }
+
+            List<VariableReferenceExpression> partitionBy = node.getSpecification().orElseThrow(NoSuchElementException::new).getPartitionBy();
+            StreamPreferredProperties childRequirements;
+            if (!node.isPruneWhenEmpty()) {
+                childRequirements = singleStream();
+            }
+            else {
+                childRequirements = parentPreferences
+                        .constrainTo(node.getSource().orElseThrow(NoSuchElementException::new).getOutputVariables())
+                        .withDefaultParallelism(session)
+                        .withPartitioning(partitionBy);
+            }
+
+            PlanWithProperties child = planAndEnforce(node.getSource().orElseThrow(NoSuchElementException::new), childRequirements, childRequirements);
+
+            List<LocalProperty<VariableReferenceExpression>> desiredProperties = new ArrayList<>();
+            if (!partitionBy.isEmpty()) {
+                desiredProperties.add(new GroupingProperty<>(partitionBy));
+            }
+            node.getSpecification()
+                    .flatMap(DataOrganizationSpecification::getOrderingScheme)
+                    .ifPresent(orderingScheme ->
+                            orderingScheme.getOrderByVariables().stream()
+                                    .map(variable -> new SortingProperty<>(variable, orderingScheme.getOrdering(variable)))
+                                    .forEach(desiredProperties::add));
+            Iterator<Optional<LocalProperty<VariableReferenceExpression>>> matchIterator = LocalProperties.match(child.getProperties().getLocalProperties(), desiredProperties).iterator();
+
+            Set<VariableReferenceExpression> prePartitionedInputs = ImmutableSet.of();
+            if (!partitionBy.isEmpty()) {
+                Optional<LocalProperty<VariableReferenceExpression>> groupingRequirement = matchIterator.next();
+                Set<VariableReferenceExpression> unPartitionedInputs = groupingRequirement.map(LocalProperty::getColumns).orElse(ImmutableSet.of());
+                prePartitionedInputs = partitionBy.stream()
+                        .filter(symbol -> !unPartitionedInputs.contains(symbol))
+                        .collect(toImmutableSet());
+            }
+
+            int preSortedOrderPrefix = 0;
+            if (prePartitionedInputs.equals(ImmutableSet.copyOf(partitionBy))) {
+                while (matchIterator.hasNext() && !matchIterator.next().isPresent()) {
+                    preSortedOrderPrefix++;
+                }
+            }
+
+            TableFunctionProcessorNode result = new TableFunctionProcessorNode(
+                    node.getId(),
+                    node.getName(),
+                    node.getProperOutputs(),
+                    Optional.of(child.getNode()),
+                    node.isPruneWhenEmpty(),
+                    node.getPassThroughSpecifications(),
+                    node.getRequiredVariables(),
+                    node.getMarkerVariables(),
+                    node.getSpecification(),
+                    prePartitionedInputs,
+                    preSortedOrderPrefix,
+                    node.getHashSymbol(),
+                    node.getHandle());
 
             return deriveProperties(result, child.getProperties());
         }
@@ -593,6 +682,20 @@ public class AddLocalExchanges
             }
 
             return planAndEnforceChildren(node, requiredProperties, requiredProperties);
+        }
+
+        @Override
+        public PlanWithProperties visitCallDistributedProcedure(CallDistributedProcedureNode node, StreamPreferredProperties parentPreferences)
+        {
+            if (node.getPartitioningScheme().isPresent() && getTaskPartitionedWriterCount(session) == 1) {
+                return planAndEnforceChildren(node, singleStream(), defaultParallelism(session));
+            }
+
+            if (!node.getPartitioningScheme().isPresent() && getTaskWriterCount(session) == 1) {
+                return planAndEnforceChildren(node, singleStream(), defaultParallelism(session));
+            }
+
+            return planAndEnforceChildren(node, fixedParallelism(), fixedParallelism());
         }
 
         //
@@ -715,6 +818,24 @@ public class AddLocalExchanges
                             tableWrite.getTableCommitContextVariable(),
                             statisticAggregations.map(StatisticAggregations.Parts::getIntermediateAggregation)),
                     gatherExchangeWithProperties.getProperties());
+        }
+
+        private PlanWithProperties visitPartitionedWriter(PlanNode node)
+        {
+            if (getTaskWriterCount(session) == 1) {
+                return planAndEnforceChildren(node, singleStream(), defaultParallelism(session));
+            }
+            return planAndEnforceChildren(node, fixedParallelism(), fixedParallelism());
+        }
+
+        //
+        // Merge
+        //
+
+        @Override
+        public PlanWithProperties visitMergeWriter(MergeWriterNode node, StreamPreferredProperties parentPreferences)
+        {
+            return visitPartitionedWriter(node);
         }
 
         @Override
@@ -868,7 +989,8 @@ public class AddLocalExchanges
                     parentPreferences.constrainTo(node.getSource().getOutputVariables()).withDefaultParallelism(session));
 
             // this filter source consumes the input completely, so we do not pass through parent preferences
-            PlanWithProperties filteringSource = planAndEnforce(node.getFilteringSource(), singleStream(), singleStream());
+            StreamPreferredProperties filteringPreference = nativeExecution ? defaultParallelism(session) : singleStream();
+            PlanWithProperties filteringSource = planAndEnforce(node.getFilteringSource(), filteringPreference, filteringPreference);
 
             return rebaseAndDeriveProperties(node, ImmutableList.of(source, filteringSource));
         }
@@ -884,6 +1006,16 @@ public class AddLocalExchanges
 
             PlanWithProperties build = planAndEnforce(node.getRight(), singleStream(), singleStream());
 
+            return rebaseAndDeriveProperties(node, ImmutableList.of(probe, build));
+        }
+
+        @Override
+        public PlanWithProperties visitMergeJoin(MergeJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            // The optimizer rule MergeJoinForSortedInputOptimizer and SortMergeJoinOptimizer which add the merge join node is responsible to ensure the input of the merge join is sorted.
+            // Here we use `any().withOrderSensitivity()` meaning respect the input distribution of the input and keep the input order.
+            PlanWithProperties probe = planAndEnforce(node.getLeft(), any().withOrderSensitivity(), any().withOrderSensitivity());
+            PlanWithProperties build = planAndEnforce(node.getRight(), any().withOrderSensitivity(), any().withOrderSensitivity());
             return rebaseAndDeriveProperties(node, ImmutableList.of(probe, build));
         }
 

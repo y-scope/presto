@@ -23,7 +23,9 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.security.AccessControl;
+import com.facebook.presto.spi.security.ViewSecurity;
 import com.facebook.presto.sql.analyzer.Analysis;
 import com.facebook.presto.sql.analyzer.Analyzer;
 import com.facebook.presto.sql.analyzer.MaterializedViewColumnMappingExtractor;
@@ -35,13 +37,14 @@ import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.util.concurrent.ListenableFuture;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.facebook.presto.SystemSessionProperties.getDefaultViewSecurityMode;
+import static com.facebook.presto.SystemSessionProperties.isLegacyMaterializedViews;
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
 import static com.facebook.presto.metadata.MetadataUtil.getConnectorIdOrThrow;
 import static com.facebook.presto.metadata.MetadataUtil.toSchemaTableName;
@@ -51,6 +54,7 @@ import static com.facebook.presto.sql.SqlFormatterUtil.getFormattedSql;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MATERIALIZED_VIEW_ALREADY_EXISTS;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.analyzer.utils.ParameterUtils.parameterExtractor;
+import static com.facebook.presto.util.AnalyzerUtil.checkAccessPermissions;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static java.util.Objects.requireNonNull;
@@ -75,7 +79,7 @@ public class CreateMaterializedViewTask
     @Override
     public ListenableFuture<?> execute(CreateMaterializedView statement, TransactionManager transactionManager, Metadata metadata, AccessControl accessControl, Session session, List<Expression> parameters, WarningCollector warningCollector, String query)
     {
-        QualifiedObjectName viewName = createQualifiedObjectName(session, statement, statement.getName());
+        QualifiedObjectName viewName = createQualifiedObjectName(session, statement, statement.getName(), metadata);
 
         Optional<TableHandle> viewHandle = metadata.getMetadataResolver(session).getTableHandle(viewName);
         if (viewHandle.isPresent()) {
@@ -89,19 +93,20 @@ public class CreateMaterializedViewTask
         accessControl.checkCanCreateView(session.getRequiredTransactionId(), session.getIdentity(), session.getAccessControlContext(), viewName);
 
         Map<NodeRef<Parameter>, Expression> parameterLookup = parameterExtractor(statement, parameters);
-        Analyzer analyzer = new Analyzer(session, metadata, sqlParser, accessControl, Optional.empty(), parameters, parameterLookup, warningCollector, query);
-        Analysis analysis = analyzer.analyze(statement);
+        Analyzer analyzer = new Analyzer(session, metadata, sqlParser, accessControl, Optional.empty(), parameters, parameterLookup, warningCollector, query, new ViewDefinitionReferences());
+        Analysis analysis = analyzer.analyzeSemantic(statement, false);
+        checkAccessPermissions(analysis.getAccessControlReferences(), analysis.getViewDefinitionReferences(), query, session.getPreparedStatements(), session.getIdentity(), accessControl, session.getAccessControlContext());
 
         List<ColumnMetadata> columnMetadata = analysis.getOutputDescriptor(statement.getQuery())
                 .getVisibleFields().stream()
                 .map(field -> ColumnMetadata.builder()
-                        .setName(field.getName().get())
+                        .setName(metadata.normalizeIdentifier(session, viewName.getCatalogName(), field.getName().get()))
                         .setType(field.getType())
                         .build())
                 .collect(toImmutableList());
 
         Map<String, Expression> sqlProperties = mapFromProperties(statement.getProperties());
-        Map<String, Object> properties = metadata.getTablePropertyManager().getProperties(
+        Map<String, Object> properties = metadata.getMaterializedViewPropertyManager().getProperties(
                 getConnectorIdOrThrow(session, metadata, viewName.getCatalogName()),
                 viewName.getCatalogName(),
                 sqlProperties,
@@ -119,7 +124,7 @@ public class CreateMaterializedViewTask
 
         List<SchemaTableName> baseTables = analysis.getTableNodes().stream()
                 .map(table -> {
-                    QualifiedObjectName tableName = createQualifiedObjectName(session, table, table.getName());
+                    QualifiedObjectName tableName = createQualifiedObjectName(session, table, table.getName(), metadata);
                     if (!viewName.getCatalogName().equals(tableName.getCatalogName())) {
                         throw new SemanticException(
                                 NOT_SUPPORTED,
@@ -132,13 +137,32 @@ public class CreateMaterializedViewTask
                 .distinct()
                 .collect(toImmutableList());
 
-        MaterializedViewColumnMappingExtractor extractor = new MaterializedViewColumnMappingExtractor(analysis, session);
+        MaterializedViewColumnMappingExtractor extractor = new MaterializedViewColumnMappingExtractor(analysis, session, metadata);
+
+        if (isLegacyMaterializedViews(session) && statement.getSecurity().isPresent()) {
+            throw new SemanticException(
+                    NOT_SUPPORTED,
+                    statement,
+                    "SECURITY clause is not supported when legacy_materialized_views is enabled");
+        }
+
+        Optional<String> owner = Optional.of(session.getUser());
+        Optional<ViewSecurity> securityMode;
+        if (isLegacyMaterializedViews(session)) {
+            // Legacy mode: no securityMode field, empty to preserve existing behavior
+            securityMode = Optional.empty();
+        }
+        else {
+            securityMode = Optional.of(statement.getSecurity().orElse(getDefaultViewSecurityMode(session)));
+        }
+
         MaterializedViewDefinition viewDefinition = new MaterializedViewDefinition(
                 sql,
                 viewName.getSchemaName(),
                 viewName.getObjectName(),
                 baseTables,
-                Optional.of(session.getUser()),
+                owner,
+                securityMode,
                 extractor.getMaterializedViewColumnMappings(),
                 extractor.getMaterializedViewDirectColumnMappings(),
                 extractor.getBaseTablesOnOuterJoinSide(),

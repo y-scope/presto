@@ -30,17 +30,20 @@ import java.util.Set;
 
 import static com.facebook.presto.spi.security.AccessDeniedException.denyAddColumn;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyAddConstraint;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyCallProcedure;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateRole;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateView;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateViewWithSelect;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDeleteTable;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyDropBranch;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropColumn;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropConstraint;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropRole;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropTable;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyDropTag;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropView;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyGrantRoles;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyGrantTablePrivilege;
@@ -55,6 +58,8 @@ import static com.facebook.presto.spi.security.AccessDeniedException.denySelectC
 import static com.facebook.presto.spi.security.AccessDeniedException.denySetCatalogSessionProperty;
 import static com.facebook.presto.spi.security.AccessDeniedException.denySetRole;
 import static com.facebook.presto.spi.security.AccessDeniedException.denySetTableProperties;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyShowColumnsMetadata;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyShowCreateTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyShowCurrentRoles;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyShowRoleGrants;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyShowRoles;
@@ -116,6 +121,16 @@ public interface ConnectorAccessControl
     default Set<String> filterSchemas(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, Set<String> schemaNames)
     {
         return emptySet();
+    }
+
+    /**
+     * Check if identity is allowed to execute SHOW CREATE TABLE or SHOW CREATE VIEW.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    default void checkCanShowCreateTable(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        denyShowCreateTable(tableName.toString());
     }
 
     /**
@@ -181,6 +196,28 @@ public interface ConnectorAccessControl
     }
 
     /**
+     * Check if identity is allowed to show columns of tables by executing SHOW COLUMNS, DESCRIBE etc.
+     * <p>
+     * NOTE: This method is only present to give users an error message when listing is not allowed.
+     * The {@link #filterColumns} method must filter all results for unauthorized users,
+     * since there are multiple ways to list columns.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    default void checkCanShowColumnsMetadata(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        denyShowColumnsMetadata(tableName.getTableName());
+    }
+
+    /**
+     * Filter the list of columns to those visible to the identity.
+     */
+    default List<ColumnMetadata> filterColumns(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName, List<ColumnMetadata> columns)
+    {
+        return Collections.emptyList();
+    }
+
+    /**
      * Check if identity is allowed to add columns to the specified table in this catalog.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
@@ -223,6 +260,16 @@ public interface ConnectorAccessControl
     default void checkCanSelectFromColumns(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName, Set<Subfield> columnOrSubfieldNames)
     {
         denySelectColumns(tableName.toString(), columnOrSubfieldNames.stream().map(column -> column.getRootName()).collect(toList()));
+    }
+
+    /**
+     * Check if identity is allowed to call the specified procedure.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    default void checkCanCallProcedure(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName procedureName)
+    {
+        denyCallProcedure(procedureName.toString());
     }
 
     /**
@@ -388,6 +435,26 @@ public interface ConnectorAccessControl
     default void checkCanShowRoleGrants(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, String catalogName)
     {
         denyShowRoleGrants(catalogName);
+    }
+
+    /**
+     * Check if identity is allowed to drop branch from the specified table in this catalog.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    default void checkCanDropBranch(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        denyDropBranch(tableName.toString());
+    }
+
+    /**
+     * Check if identity is allowed to drop tag from the specified table in this catalog.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    default void checkCanDropTag(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        denyDropTag(tableName.toString());
     }
 
     /**

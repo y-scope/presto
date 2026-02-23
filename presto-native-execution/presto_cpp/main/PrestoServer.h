@@ -120,15 +120,20 @@ class PrestoServer {
 
   /// Hook for derived PrestoServer implementations to add/stop additional
   /// periodic tasks.
-  virtual void addAdditionalPeriodicTasks(){};
+  virtual void addAdditionalPeriodicTasks() {};
 
-  virtual void stopAdditionalPeriodicTasks(){};
+  virtual void stopAdditionalPeriodicTasks() {};
 
   virtual void initializeCoordinatorDiscoverer();
+
+  virtual void initializeThreadPools();
 
   virtual std::shared_ptr<velox::exec::TaskListener> getTaskListener();
 
   virtual std::shared_ptr<velox::exec::ExprSetListener> getExprSetListener();
+
+  virtual std::shared_ptr<facebook::velox::exec::SplitListenerFactory>
+  getSplitListenerFactory();
 
   virtual std::vector<std::string> registerVeloxConnectors(
       const fs::path& configDirectoryPath);
@@ -160,6 +165,8 @@ class PrestoServer {
 
   virtual void registerMemoryArbitrators();
 
+  virtual void registerTraceNodeFactories();
+
   /// Invoked after creating global (singleton) config objects (SystemConfig and
   /// NodeConfig) and before loading their properties from the file.
   /// In the implementation any extra config properties can be registered.
@@ -167,8 +174,8 @@ class PrestoServer {
 
   /// Invoked to get the ip address of the process. In certain deployment
   /// setup, each process has different ip address. Deployment environment
-  /// may provide there own library to get process specific ip address.
-  /// In such cases, getLocalIp can be overriden to pass process specific
+  /// may provide their own library to get process specific ip address.
+  /// In such cases, getLocalIp can be overridden to pass process specific
   /// ip address.
   virtual std::string getLocalIp() const;
 
@@ -183,17 +190,16 @@ class PrestoServer {
 
   VeloxPlanValidator* getVeloxPlanValidator();
 
+  void registerDynamicFunctions();
+
   /// Invoked to get the list of filters passed to the http server.
   virtual std::vector<std::unique_ptr<proxygen::RequestHandlerFactory>>
   getHttpServerFilters() const;
 
   void initializeVeloxMemory();
 
-  void initializeThreadPools();
-
   void registerStatsCounters();
 
- protected:
   void updateAnnouncerDetails();
 
   void addServerPeriodicTasks();
@@ -203,6 +209,8 @@ class PrestoServer {
   void reportServerInfo(proxygen::ResponseHandler* downstream);
 
   void reportNodeStatus(proxygen::ResponseHandler* downstream);
+
+  void reportNodeStats(proxygen::ResponseHandler* downstream);
 
   void handleGracefulShutdown(
       const std::vector<std::unique_ptr<folly::IOBuf>>& body,
@@ -223,6 +231,8 @@ class PrestoServer {
 
   void checkOverload();
 
+  virtual void createTaskManager();
+
   const std::string configDirectoryPath_;
 
   std::shared_ptr<CoordinatorDiscoverer> coordinatorDiscoverer_;
@@ -237,24 +247,37 @@ class PrestoServer {
   std::unique_ptr<folly::IOThreadPoolExecutor> connectorIoExecutor_;
 
   // Executor for exchange data over http.
-  std::shared_ptr<folly::IOThreadPoolExecutor> exchangeHttpIoExecutor_;
+  std::unique_ptr<folly::IOThreadPoolExecutor> exchangeHttpIoExecutor_;
 
   // Executor for exchange request processing.
-  std::shared_ptr<folly::CPUThreadPoolExecutor> exchangeHttpCpuExecutor_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> exchangeHttpCpuExecutor_;
 
   // Executor for HTTP request dispatching
   std::shared_ptr<folly::IOThreadPoolExecutor> httpSrvIoExecutor_;
 
   // Executor for HTTP request processing after dispatching
-  std::shared_ptr<folly::CPUThreadPoolExecutor> httpSrvCpuExecutor_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> httpSrvCpuExecutor_;
 
-  // Executor for query engine driver executions.
-  std::shared_ptr<folly::CPUThreadPoolExecutor> driverExecutor_;
+  // Executor for query engine driver executions. The underlying thread pool
+  // executor is a folly::CPUThreadPoolExecutor. The executor is stored as
+  // abstract type to provide flexibility of thread pool monitoring. The
+  // underlying folly::CPUThreadPoolExecutor can be obtained through
+  // 'driverCpuExecutor()' method.
+  std::unique_ptr<folly::Executor> driverExecutor_;
+  // Raw pointer pointing to the underlying folly::CPUThreadPoolExecutor of
+  // 'driverExecutor_'.
+  folly::CPUThreadPoolExecutor* driverCpuExecutor_;
 
-  // Executor for spilling.
-  std::shared_ptr<folly::CPUThreadPoolExecutor> spillerExecutor_;
+  // Executor for spilling. The underlying thread pool executor is a
+  // folly::CPUThreadPoolExecutor. The executor is stored as abstract type to
+  // provide flexibility of thread pool monitoring. The underlying
+  // folly::CPUThreadPoolExecutor can be obtained through 'spillerCpuExecutor_'.
+  std::unique_ptr<folly::Executor> spillerExecutor_;
+  // Raw pointer pointing to the underlying folly::CPUThreadPoolExecutor of
+  // 'spillerExecutor_'.
+  folly::CPUThreadPoolExecutor* spillerCpuExecutor_;
 
-  std::shared_ptr<VeloxPlanValidator> planValidator_;
+  std::unique_ptr<VeloxPlanValidator> planValidator_;
 
   std::unique_ptr<http::HttpClientConnectionPool> exchangeSourceConnectionPool_;
 

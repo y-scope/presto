@@ -24,14 +24,10 @@ const std::string boolToString(bool value) {
 }
 } // namespace
 
-json SessionProperty::serialize() {
-  json j;
-  j["name"] = name_;
-  j["description"] = description_;
-  j["typeSignature"] = type_;
-  j["defaultValue"] = defaultValue_;
-  j["hidden"] = hidden_;
-  return j;
+SessionProperties* SessionProperties::instance() {
+  static std::unique_ptr<SessionProperties> instance =
+      std::make_unique<SessionProperties>();
+  return instance.get();
 }
 
 void SessionProperties::addSessionProperty(
@@ -39,15 +35,10 @@ void SessionProperties::addSessionProperty(
     const std::string& description,
     const TypePtr& type,
     bool isHidden,
-    const std::string& veloxConfigName,
-    const std::string& veloxDefault) {
+    const std::optional<std::string> veloxConfig,
+    const std::string& defaultValue) {
   sessionProperties_[name] = std::make_shared<SessionProperty>(
-      name,
-      description,
-      type->toString(),
-      isHidden,
-      veloxConfigName,
-      veloxDefault);
+      name, description, type->toString(), isHidden, veloxConfig, defaultValue);
 }
 
 // List of native session properties is kept as the source of truth here.
@@ -275,6 +266,19 @@ SessionProperties::SessionProperties() {
       c.debugMemoryPoolNameRegex());
 
   addSessionProperty(
+      kDebugMemoryPoolWarnThresholdBytes,
+      "Warning threshold in bytes for debug memory pools. When set to a "
+      "non-zero value, a warning will be logged once per memory pool when "
+      "allocations cause the pool to exceed this threshold. This is useful for "
+      "identifying memory usage patterns during debugging. Requires allocation "
+      "tracking to be enabled with `native_debug_memory_pool_name_regex` "
+      "for the pool. A value of 0 means no warning threshold is enforced.",
+      BIGINT(),
+      false,
+      QueryConfig::kDebugMemoryPoolWarnThresholdBytes,
+      std::to_string(c.debugMemoryPoolWarnThresholdBytes()));
+
+  addSessionProperty(
       kSelectiveNimbleReaderEnabled,
       "Temporary flag to control whether selective Nimble reader should be "
       "used in this query or not.  Will be removed after the selective Nimble "
@@ -301,13 +305,12 @@ SessionProperties::SessionProperties() {
       c.queryTraceDir());
 
   addSessionProperty(
-      kQueryTraceNodeIds,
-      "A comma-separated list of plan node ids whose input data will be traced."
-      " Empty string if only want to trace the query metadata.",
+      kQueryTraceNodeId,
+      "The plan node id whose input data will be traced.",
       VARCHAR(),
       false,
-      QueryConfig::kQueryTraceNodeIds,
-      c.queryTraceNodeIds());
+      QueryConfig::kQueryTraceNodeId,
+      c.queryTraceNodeId());
 
   addSessionProperty(
       kQueryTraceMaxBytes,
@@ -316,7 +319,6 @@ SessionProperties::SessionProperties() {
       false,
       QueryConfig::kQueryTraceMaxBytes,
       std::to_string(c.queryTraceMaxBytes()));
-
 
   addSessionProperty(
       kOpTraceDirectoryCreateConfig,
@@ -343,7 +345,7 @@ SessionProperties::SessionProperties() {
       "creating tiny SerializedPages. For "
       "PartitionedOutputNode::Kind::kPartitioned, PartitionedOutput operator"
       "would buffer up to that number of bytes / number of destinations for "
-      "each destination before producing a SerializedPage.",
+      "each destination before producing a SerializedPageBase.",
       BIGINT(),
       false,
       QueryConfig::kMaxPartitionedOutputBufferSize,
@@ -486,40 +488,155 @@ SessionProperties::SessionProperties() {
       kRequestDataSizesMaxWaitSec,
       "Maximum wait time for exchange long poll requests in seconds.",
       INTEGER(),
-      10,
+      false,
       QueryConfig::kRequestDataSizesMaxWaitSec,
       std::to_string(c.requestDataSizesMaxWaitSec()));
+
+  addSessionProperty(
+      kNativeQueryMemoryReclaimerPriority,
+      "Memory pool reclaimer priority.",
+      INTEGER(),
+      false,
+      QueryConfig::kQueryMemoryReclaimerPriority,
+      std::to_string(c.queryMemoryReclaimerPriority()));
+
+  addSessionProperty(
+      kMaxNumSplitsListenedTo,
+      "Maximum number of splits to listen to by SplitListener on native workers.",
+      INTEGER(),
+      true,
+      QueryConfig::kMaxNumSplitsListenedTo,
+      std::to_string(c.maxNumSplitsListenedTo()));
+
+  addSessionProperty(
+      kMaxSplitPreloadPerDriver,
+      "Maximum number of splits to preload per driver. Set to 0 to disable preloading.",
+      INTEGER(),
+      false,
+      QueryConfig::kMaxSplitPreloadPerDriver,
+      std::to_string(c.maxSplitPreloadPerDriver()));
+
+  addSessionProperty(
+      kIndexLookupJoinMaxPrefetchBatches,
+      "Specifies the max number of input batches to prefetch to do index"
+      "lookup ahead. If it is zero, then process one input batch at a time.",
+      INTEGER(),
+      false,
+      QueryConfig::kIndexLookupJoinMaxPrefetchBatches,
+      std::to_string(c.indexLookupJoinMaxPrefetchBatches()));
+
+  addSessionProperty(
+      kIndexLookupJoinSplitOutput,
+      "If this is true, then the index join operator might split output for"
+      "each input batch based on the output batch size control. Otherwise, it tries to"
+      "produce a single output for each input batch.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kIndexLookupJoinSplitOutput,
+      std::to_string(c.indexLookupJoinSplitOutput()));
+
+  addSessionProperty(
+      kUnnestSplitOutput,
+      "In streaming aggregation, wait until we have enough number of output"
+      "rows to produce a batch of size specified by this. If set to 0, then"
+      "Operator::outputBatchRows will be used as the min output batch rows.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kUnnestSplitOutput,
+      std::to_string(c.unnestSplitOutput()));
+
+  addSessionProperty(
+      kPreferredOutputBatchBytes,
+      "Preferred memory budget for operator output batches. Used in tandem with average row size estimates when available.",
+      BIGINT(),
+      true,
+      QueryConfig::kPreferredOutputBatchBytes,
+      std::to_string(c.preferredOutputBatchBytes()));
+
+  addSessionProperty(
+      kPreferredOutputBatchRows,
+      "Preferred row count per operator output batch. Used when average row size estimates are unknown.",
+      INTEGER(),
+      true,
+      QueryConfig::kPreferredOutputBatchRows,
+      std::to_string(c.preferredOutputBatchRows()));
+
+  addSessionProperty(
+      kMaxOutputBatchRows,
+      "Upperbound for row count per output batch, used together with preferred_output_batch_bytes and average row size estimates.",
+      INTEGER(),
+      true,
+      QueryConfig::kMaxOutputBatchRows,
+      std::to_string(c.maxOutputBatchRows()));
+
+  addSessionProperty(
+      kRowSizeTrackingMode,
+      "Enable (reader) row size tracker as a fallback to file level row size estimates.",
+      INTEGER(),
+      true,
+      QueryConfig::kRowSizeTrackingMode,
+      std::to_string(static_cast<int32_t>(c.rowSizeTrackingMode())));
+
+  addSessionProperty(
+      kUseVeloxGeospatialJoin,
+      "If this is true, then the protocol::SpatialJoinNode is converted to a"
+      "velox::core::SpatialJoinNode. Otherwise, it is converted to a"
+      "velox::core::NestedLoopJoinNode.",
+      BOOLEAN(),
+      false,
+      std::nullopt,
+      "true");
+
+  addSessionProperty(
+      kAggregationCompactionBytesThreshold,
+      "Memory threshold in bytes for triggering string compaction during global "
+      "aggregation. When total string storage exceeds this limit with high unused "
+      "memory ratio, compaction is triggered to reclaim dead strings. Disabled by "
+      "default (0). NOTE: Currently only applies to approx_most_frequent aggregate "
+      "with StringView type during global aggregation. May extend to other aggregates.",
+      BIGINT(),
+      false,
+      QueryConfig::kAggregationCompactionBytesThreshold,
+      std::to_string(c.aggregationCompactionBytesThreshold()));
+
+  addSessionProperty(
+      kAggregationCompactionUnusedMemoryRatio,
+      "Ratio of unused (evicted) bytes to total bytes that triggers compaction. "
+      "The value is in the range of [0, 1). Default is 0.25. NOTE: Currently only applies "
+      "to approx_most_frequent aggregate with StringView type during global "
+      "aggregation. May extend to other aggregates.",
+      DOUBLE(),
+      false,
+      QueryConfig::kAggregationCompactionUnusedMemoryRatio,
+      std::to_string(c.aggregationCompactionUnusedMemoryRatio()));
 }
 
-const std::unordered_map<std::string, std::shared_ptr<SessionProperty>>&
-SessionProperties::getSessionProperties() {
-  return sessionProperties_;
-}
-
-const std::string SessionProperties::toVeloxConfig(const std::string& name) {
+const std::string SessionProperties::toVeloxConfig(
+    const std::string& name) const {
   auto it = sessionProperties_.find(name);
-  return it == sessionProperties_.end() ? name
-                                        : it->second->getVeloxConfigName();
-}
-
-void SessionProperties::updateVeloxConfig(
-    const std::string& name,
-    const std::string& value) {
-  auto it = sessionProperties_.find(name);
-  // Velox config value is updated only for presto session properties.
-  if (it == sessionProperties_.end()) {
-    return;
+  if (it != sessionProperties_.end() &&
+      it->second->getVeloxConfig().has_value()) {
+    return it->second->getVeloxConfig().value();
   }
-  it->second->updateValue(value);
+  return name;
 }
 
-json SessionProperties::serialize() {
+json SessionProperties::serialize() const {
   json j = json::array();
-  const auto sessionProperties = getSessionProperties();
-  for (const auto& entry : sessionProperties) {
-    j.push_back(entry.second->serialize());
+  json tj;
+  for (const auto& sessionProperty : sessionProperties_) {
+    protocol::to_json(tj, sessionProperty.second->getMetadata());
+    j.push_back(tj);
   }
   return j;
+}
+
+bool SessionProperties::useVeloxGeospatialJoin() const {
+  auto it = sessionProperties_.find(kUseVeloxGeospatialJoin);
+  if (it != sessionProperties_.end()) {
+    return it->second->getValue() == "true";
+  }
+  VELOX_UNREACHABLE();
 }
 
 } // namespace facebook::presto

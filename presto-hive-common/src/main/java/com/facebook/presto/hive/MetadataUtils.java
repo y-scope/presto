@@ -29,8 +29,7 @@ import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.util.HashSet;
 import java.util.List;
@@ -55,16 +54,24 @@ public final class MetadataUtils
     private static final String CATALOG_DB_THRIFT_NAME_MARKER = "@";
     private static final String DB_EMPTY_MARKER = "!";
     private static final String DEFAULT_DATABASE = "default";
+
     private MetadataUtils() {}
 
-    public static Optional<DiscretePredicates> getDiscretePredicates(List<ColumnHandle> partitionColumns, List<HivePartition> partitions)
+    public static Optional<DiscretePredicates> getDiscretePredicates(List<ColumnHandle> partitionColumns, Iterable<HivePartition> partitions)
     {
         Optional<DiscretePredicates> discretePredicates = Optional.empty();
-        if (!partitionColumns.isEmpty() && !(partitions.size() == 1 && partitions.get(0).getPartitionId().equals(UNPARTITIONED_ID))) {
+        if (!partitionColumns.isEmpty()) {
             // Do not create tuple domains for every partition at the same time!
             // There can be a huge number of partitions so use an iterable so
             // all domains do not need to be in memory at the same time.
-            Iterable<TupleDomain<ColumnHandle>> partitionDomains = Iterables.transform(partitions, (hivePartition) -> TupleDomain.fromFixedValues(hivePartition.getKeys()));
+            Iterable<TupleDomain<ColumnHandle>> partitionDomains = Iterables.transform(partitions, (hivePartition) -> {
+                if (hivePartition.getPartitionId().equals(UNPARTITIONED_ID)) {
+                    return TupleDomain.all();
+                }
+                else {
+                    return TupleDomain.fromFixedValues(hivePartition.getKeys());
+                }
+            });
             discretePredicates = Optional.of(new DiscretePredicates(partitionColumns, partitionDomains));
         }
         return discretePredicates;

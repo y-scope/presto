@@ -43,10 +43,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -232,7 +232,7 @@ public class DeltaMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(
             ConnectorSession session,
             ConnectorTableHandle table,
             Constraint<ColumnHandle> constraint,
@@ -260,7 +260,7 @@ public class DeltaMetadata
                 ImmutableList.of(),
                 Optional.empty());
 
-        return ImmutableList.of(new ConnectorTableLayoutResult(newLayout, unenforcedPredicate));
+        return new ConnectorTableLayoutResult(newLayout, unenforcedPredicate);
     }
 
     @Override
@@ -332,11 +332,19 @@ public class DeltaMetadata
             return null;
         }
 
-        List<ColumnMetadata> columnMetadata = tableHandle.getDeltaTable().getColumns().stream()
-                .map(this::getColumnMetadata)
+        DeltaTable deltaTable = tableHandle.getDeltaTable();
+
+        // External location property
+        Map<String, Object> properties = new HashMap<>(1);
+        if (deltaTable.getTableLocation() != null) {
+            properties.put(DeltaTableProperties.EXTERNAL_LOCATION_PROPERTY, deltaTable.getTableLocation());
+        }
+
+        List<ColumnMetadata> columnMetadata = deltaTable.getColumns().stream()
+                .map(column -> getColumnMetadata(session, column))
                 .collect(Collectors.toList());
 
-        return new ConnectorTableMetadata(tableName, columnMetadata);
+        return new ConnectorTableMetadata(tableName, columnMetadata, properties);
     }
 
     @Override
@@ -362,10 +370,10 @@ public class DeltaMetadata
         return ImmutableList.of(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()));
     }
 
-    private ColumnMetadata getColumnMetadata(DeltaColumn deltaColumn)
+    private ColumnMetadata getColumnMetadata(ConnectorSession session, DeltaColumn deltaColumn)
     {
         return ColumnMetadata.builder()
-                .setName(deltaColumn.getName())
+                .setName(normalizeIdentifier(session, deltaColumn.getName()))
                 .setType(typeManager.getType(deltaColumn.getType()))
                 .build();
     }

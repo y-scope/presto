@@ -13,10 +13,10 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.memory.HighMemoryTaskKillerStrategy;
 import com.google.common.collect.ImmutableMap;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
 import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
@@ -26,9 +26,9 @@ import java.util.concurrent.TimeUnit;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.recordDefaults;
+import static com.facebook.airlift.units.DataSize.Unit;
 import static com.facebook.presto.execution.TaskManagerConfig.TaskPriorityTracking.QUERY_FAIR;
 import static com.facebook.presto.execution.TaskManagerConfig.TaskPriorityTracking.TASK_FAIR;
-import static io.airlift.units.DataSize.Unit;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -52,8 +52,8 @@ public class TestTaskManagerConfig
                 .setMinDriversPerTask(3)
                 .setMaxDriversPerTask(Integer.MAX_VALUE)
                 .setMaxTasksPerStage(Integer.MAX_VALUE)
-                .setInfoMaxAge(new Duration(15, TimeUnit.MINUTES))
-                .setClientTimeout(new Duration(2, TimeUnit.MINUTES))
+                .setInfoMaxAge(new Duration(15, MINUTES))
+                .setClientTimeout(new Duration(2, MINUTES))
                 .setMaxIndexMemoryUsage(new DataSize(64, Unit.MEGABYTE))
                 .setShareIndexLoading(false)
                 .setMaxPartialAggregationMemoryUsage(new DataSize(16, Unit.MEGABYTE))
@@ -80,8 +80,7 @@ public class TestTaskManagerConfig
                 .setHighMemoryTaskKillerFrequentFullGCDurationThreshold(new Duration(1, SECONDS))
                 .setHighMemoryTaskKillerHeapMemoryThreshold(0.9)
                 .setTaskUpdateSizeTrackingEnabled(true)
-                .setSlowMethodThresholdOnEventLoop(new Duration(0, SECONDS))
-                .setEventLoopEnabled(false));
+                .setSlowMethodThresholdOnEventLoop(new Duration(0, SECONDS)));
     }
 
     @Test
@@ -130,7 +129,6 @@ public class TestTaskManagerConfig
                 .put("experimental.task.high-memory-task-killer-frequent-full-gc-duration-threshold", "2s")
                 .put("experimental.task.high-memory-task-killer-heap-memory-threshold", "0.8")
                 .put("task.update-size-tracking-enabled", "false")
-                .put("task.enable-event-loop", "true")
                 .put("task.event-loop-slow-method-threshold", "10m")
                 .build();
 
@@ -153,7 +151,7 @@ public class TestTaskManagerConfig
                 .setMinDriversPerTask(5)
                 .setMaxDriversPerTask(13)
                 .setMaxTasksPerStage(999)
-                .setInfoMaxAge(new Duration(22, TimeUnit.MINUTES))
+                .setInfoMaxAge(new Duration(22, MINUTES))
                 .setClientTimeout(new Duration(10, SECONDS))
                 .setSinkMaxBufferSize(new DataSize(42, Unit.MEGABYTE))
                 .setMaxPagePartitioningBufferSize(new DataSize(40, Unit.MEGABYTE))
@@ -177,7 +175,6 @@ public class TestTaskManagerConfig
                 .setHighMemoryTaskKillerFrequentFullGCDurationThreshold(new Duration(2, SECONDS))
                 .setHighMemoryTaskKillerHeapMemoryThreshold(0.8)
                 .setTaskUpdateSizeTrackingEnabled(false)
-                .setEventLoopEnabled(true)
                 .setSlowMethodThresholdOnEventLoop(new Duration(10, MINUTES));
 
         assertFullMapping(properties, expected);

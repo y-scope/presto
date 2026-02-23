@@ -81,6 +81,12 @@ public abstract class ForwardingConnectorAccessControl
     }
 
     @Override
+    public void checkCanShowCreateTable(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        delegate().checkCanShowCreateTable(transactionHandle, identity, context, tableName);
+    }
+
+    @Override
     public void checkCanCreateTable(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
     {
         delegate().checkCanCreateTable(transactionHandle, identity, context, tableName);
@@ -117,6 +123,18 @@ public abstract class ForwardingConnectorAccessControl
     }
 
     @Override
+    public void checkCanShowColumnsMetadata(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        delegate().checkCanShowColumnsMetadata(transactionHandle, identity, context, tableName);
+    }
+
+    @Override
+    public List<ColumnMetadata> filterColumns(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName, List<ColumnMetadata> columns)
+    {
+        return delegate().filterColumns(transactionHandle, identity, context, tableName, columns);
+    }
+
+    @Override
     public void checkCanAddColumn(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
     {
         delegate().checkCanAddColumn(transactionHandle, identity, context, tableName);
@@ -138,6 +156,12 @@ public abstract class ForwardingConnectorAccessControl
     public void checkCanSelectFromColumns(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName, Set<Subfield> columnOrSubfieldNames)
     {
         delegate().checkCanSelectFromColumns(transactionHandle, identity, context, tableName, columnOrSubfieldNames);
+    }
+
+    @Override
+    public void checkCanCallProcedure(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName procedureName)
+    {
+        delegate().checkCanCallProcedure(transactionHandle, identity, context, procedureName);
     }
 
     @Override
@@ -252,6 +276,18 @@ public abstract class ForwardingConnectorAccessControl
     public void checkCanShowRoleGrants(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, String catalogName)
     {
         delegate().checkCanShowRoleGrants(transactionHandle, identity, context, catalogName);
+    }
+
+    @Override
+    public void checkCanDropBranch(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        delegate().checkCanDropBranch(transactionHandle, identity, context, tableName);
+    }
+
+    @Override
+    public void checkCanDropTag(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        delegate().checkCanDropTag(transactionHandle, identity, context, tableName);
     }
 
     @Override

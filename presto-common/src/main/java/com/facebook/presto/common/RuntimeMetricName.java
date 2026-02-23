@@ -55,9 +55,12 @@ public class RuntimeMetricName
     public static final String CREATE_SCHEDULER_TIME_NANOS = "createSchedulerTimeNanos";
     public static final String LOGICAL_PLANNER_TIME_NANOS = "logicalPlannerTimeNanos";
     public static final String OPTIMIZER_TIME_NANOS = "optimizerTimeNanos";
+    public static final String VALIDATE_FINAL_PLAN_TIME_NANOS = "validateFinalPlanTimeNanos";
+    public static final String VALIDATE_INTERMEDIATE_PLAN_TIME_NANOS = "validateIntermediatePlanTimeNanos";
     public static final String GET_CANONICAL_INFO_TIME_NANOS = "getCanonicalInfoTimeNanos";
     public static final String FRAGMENT_PLAN_TIME_NANOS = "fragmentPlanTimeNanos";
     public static final String GET_LAYOUT_TIME_NANOS = "getLayoutTimeNanos";
+    public static final String GET_IDENTIFIER_NORMALIZATION_TIME_NANOS = "getIdentifierNormalizationTimeNanos";
     public static final String REWRITE_AGGREGATION_IF_TO_FILTER_APPLIED = "rewriteAggregationIfToFilterApplied";
     // Time between task creation and start.
     public static final String TASK_QUEUED_TIME_NANOS = "taskQueuedTimeNanos";
@@ -66,6 +69,9 @@ public class RuntimeMetricName
     // Blocked time for the operators due to waiting for inputs.
     public static final String TASK_BLOCKED_TIME_NANOS = "taskBlockedTimeNanos";
     public static final String TASK_UPDATE_DELIVERED_WALL_TIME_NANOS = "taskUpdateDeliveredWallTimeNanos";
+    public static final String TASK_START_WAIT_FOR_EVENT_LOOP = "taskStartWaitForEventLoop";
+    public static final String TASK_UPDATE_DELIVERED_UPDATES = "taskUpdateDeliveredUpdates";
+    public static final String TASK_UPDATE_ROUND_TRIP_TIME = "taskUpdateRoundTripTime";
     public static final String TASK_UPDATE_SERIALIZED_CPU_TIME_NANOS = "taskUpdateSerializedCpuNanos";
     public static final String TASK_PLAN_SERIALIZED_CPU_TIME_NANOS = "taskPlanSerializedCpuNanos";
     // Time for event loop to execute a method

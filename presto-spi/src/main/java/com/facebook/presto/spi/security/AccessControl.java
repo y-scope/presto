@@ -48,7 +48,7 @@ public interface AccessControl
      * Check if the query is unexpectedly modified using the credentials passed in the identity.
      * @throws com.facebook.presto.spi.security.AccessDeniedException if query is modified.
      */
-    void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions);
+    void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<String, String> preparedStatements, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions);
 
     /**
      * Filter the list of catalogs to those visible to the identity.
@@ -98,6 +98,13 @@ public interface AccessControl
     Set<String> filterSchemas(TransactionId transactionId, Identity identity, AccessControlContext context, String catalogName, Set<String> schemaNames);
 
     /**
+     * Check if identity is allowed to execute SHOW CREATE TABLE or SHOW CREATE VIEW.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanShowCreateTable(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName);
+
+    /**
      * Check if identity is allowed to create the specified table.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
@@ -140,6 +147,22 @@ public interface AccessControl
      * Filter the list of tables and views to those visible to the identity.
      */
     Set<SchemaTableName> filterTables(TransactionId transactionId, Identity identity, AccessControlContext context, String catalogName, Set<SchemaTableName> tableNames);
+
+    /**
+     * Check if identity is allowed to show columns of tables by executing SHOW COLUMNS, DESCRIBE etc.
+     * <p>
+     * NOTE: This method is only present to give users an error message when listing is not allowed.
+     * The {@link #filterColumns} method must filter all results for unauthorized users,
+     * since there are multiple ways to list columns.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanShowColumnsMetadata(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName);
+
+    /**
+     * Filter the list of columns to those visible to the identity.
+     */
+    List<ColumnMetadata> filterColumns(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName, List<ColumnMetadata> columns);
 
     /**
      * Check if identity is allowed to add columns to the specified table.
@@ -259,6 +282,13 @@ public interface AccessControl
     void checkCanSelectFromColumns(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName, Set<Subfield> columnOrSubfieldNames);
 
     /**
+     * Check if identity is allowed to call the specified procedure.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanCallProcedure(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName procedureName);
+
+    /**
      * Check if identity is allowed to create the specified role.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
@@ -312,6 +342,20 @@ public interface AccessControl
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
      */
     void checkCanShowRoleGrants(TransactionId transactionId, Identity identity, AccessControlContext context, String catalogName);
+
+    /**
+     * Check if identity is allowed to drop branch from the specified table.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanDropBranch(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName);
+
+    /**
+     * Check if identity is allowed to drop tag from the specified table.
+     *
+     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanDropTag(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName);
 
     /**
      * Check if identity is allowed to drop constraint from the specified table.

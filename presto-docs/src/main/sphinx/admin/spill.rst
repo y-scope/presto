@@ -30,7 +30,7 @@ of memory to queries and prevents deadlock caused by memory allocation.
 It is efficient when there are a lot of small queries in the cluster, but
 leads to killing large queries that don't stay within the limits.
 
-To overcome this inefficiency, the concept of revocable memory was introduced. A
+To overcome this limitation, the concept of revocable memory was introduced. A
 query can request memory that does not count toward the limits, but this memory
 can be revoked by the memory manager at any time. When memory is revoked, the
 query runner spills intermediate data from memory to disk and continues to
@@ -107,10 +107,7 @@ When spill encryption is enabled (``spill-encryption-enabled`` property in
 (per spill file) secret key. Enabling this will decrease the performance of spilling
 to disk but can protect spilled data from being recovered from the files written to disk.
 
-**Note**: Some distributions of Java ship with policy files that limit the strength
-of the cryptographic keys that can be used. Spill encryption uses
-256-bit AES keys and may require Unlimited Strength :abbr:`JCE (Java Cryptography Extension)`
-policy files to work correctly.
+.. _spill-operations:
 
 Supported Operations
 --------------------

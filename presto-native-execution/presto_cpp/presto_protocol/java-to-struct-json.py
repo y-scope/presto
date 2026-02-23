@@ -13,7 +13,6 @@
 #
 
 import argparse
-import json
 import os
 import sys
 from collections import defaultdict
@@ -41,7 +40,7 @@ IGNORED_TYPES = {
 language = {
     "cpp": {
         "TypeMap": {
-            r"([ ,<])(ColumnHandle|PlanNode|RowExpression|ConnectorMetadataUpdateHandle|ConnectorDeleteTableHandle)([ ,>])": r"\1std::shared_ptr<\2>\3",
+            r"([ ,<])(ColumnHandle|PlanNode|RowExpression|ConnectorDeleteTableHandle)([ ,>])": r"\1std::shared_ptr<\2>\3",
             r"Optional<int\[\]>": "Optional<List<int>>",
             r"Optional<byte\[\]>": "Optional<List<byte>>",
             r"int\[\]": "List<int>",
@@ -114,7 +113,7 @@ def add_field(
                 field_local = False
 
     for key, value in lang.items():
-        if type(value) == str:
+        if isinstance(value, str):
             field_text = re.sub(key, value, field_text)
         else:
             field_text, n = re.subn(key, value["replace"], field_text)
@@ -170,7 +169,7 @@ def member_name(name):
 def special(filepath, current_class, key, classes, depends):
     classes[current_class].class_name = current_class
     (status, stdout, stderr) = classes[current_class][key] = util.run(
-        "../../velox/scripts/checks/license-header.py --header ../../license.header --remove "
+        "../../scripts/license-header.py --header ../../license.header --remove "
         + filepath
     )
     classes[current_class][key] = stdout
@@ -342,7 +341,6 @@ def main():
 
     subclasses = {}
     for abstract_name, abstract_value in config.AbstractClasses.items():
-
         classes[abstract_name].class_name = abstract_name
         classes[abstract_name].field_name = member_name(abstract_name)
         classes[abstract_name].abstract = True

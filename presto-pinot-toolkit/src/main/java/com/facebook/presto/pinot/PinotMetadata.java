@@ -23,14 +23,14 @@ import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.ConnectorTableLayoutResult;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.Constraint;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.TableNotFoundException;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
@@ -39,34 +39,39 @@ import java.util.Set;
 
 import static com.facebook.presto.pinot.PinotColumnHandle.PinotColumnType.REGULAR;
 import static com.facebook.presto.pinot.PinotErrorCode.PINOT_UNCLASSIFIED_ERROR;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.google.common.base.Preconditions.checkArgument;
-import static java.util.Locale.ENGLISH;
+import static java.lang.String.format;
+import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 
 public class PinotMetadata
         implements ConnectorMetadata
 {
+    private static final String SCHEMA_NAME = "default";
     private final String connectorId;
     private final PinotConnection pinotPrestoConnection;
+    private final PinotConfig pinotConfig;
 
     @Inject
-    public PinotMetadata(ConnectorId connectorId, PinotConnection pinotPrestoConnection)
+    public PinotMetadata(ConnectorId connectorId, PinotConnection pinotPrestoConnection, PinotConfig pinotConfig)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null").toString();
         this.pinotPrestoConnection = requireNonNull(pinotPrestoConnection, "pinotPrestoConnection is null");
+        this.pinotConfig = requireNonNull(pinotConfig, "pinotConfig is null");
     }
 
     @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
-        return ImmutableList.of("default");
+        return ImmutableList.of(SCHEMA_NAME);
     }
 
     private String getPinotTableNameFromPrestoTableName(String prestoTableName)
     {
         List<String> allTables = pinotPrestoConnection.getTableNames();
         for (String pinotTableName : allTables) {
-            if (prestoTableName.equalsIgnoreCase(pinotTableName)) {
+            if (prestoTableName.equals(pinotTableName)) {
                 return pinotTableName;
             }
         }
@@ -76,12 +81,15 @@ public class PinotMetadata
     @Override
     public PinotTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
     {
+        if (!SCHEMA_NAME.equals(normalizeIdentifier(session, tableName.getSchemaName()))) {
+            throw new PrestoException(NOT_FOUND, format("Schema %s does not exist", tableName.getSchemaName()));
+        }
         String pinotTableName = getPinotTableNameFromPrestoTableName(tableName.getTableName());
         return new PinotTableHandle(connectorId, tableName.getSchemaName(), pinotTableName);
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(
             ConnectorSession session,
             ConnectorTableHandle table,
             Constraint<ColumnHandle> constraint,
@@ -90,7 +98,7 @@ public class PinotMetadata
         // Constraint's don't need to be pushed down since they are already taken care off by the pushdown logic
         PinotTableHandle pinotTableHandle = (PinotTableHandle) table;
         ConnectorTableLayout layout = new ConnectorTableLayout(new PinotTableLayoutHandle(pinotTableHandle));
-        return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
+        return new ConnectorTableLayoutResult(layout, constraint.getSummary());
     }
 
     @Override
@@ -113,8 +121,11 @@ public class PinotMetadata
     public List<SchemaTableName> listTables(ConnectorSession session, String schemaNameOrNull)
     {
         ImmutableList.Builder<SchemaTableName> builder = ImmutableList.builder();
+        if (schemaNameOrNull != null && !SCHEMA_NAME.equals(normalizeIdentifier(session, schemaNameOrNull))) {
+            return builder.build();
+        }
         for (String table : pinotPrestoConnection.getTableNames()) {
-            builder.add(new SchemaTableName("default", table));
+            builder.add(new SchemaTableName(SCHEMA_NAME, table));
         }
         return builder.build();
     }
@@ -132,7 +143,7 @@ public class PinotMetadata
         }
         ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap.builder();
         for (ColumnMetadata column : table.getColumnsMetadata()) {
-            columnHandles.put(column.getName().toLowerCase(ENGLISH),
+            columnHandles.put(normalizeIdentifier(session, column.getName()),
                     new PinotColumnHandle(((PinotColumnMetadata) column).getPinotName(), column.getType(), REGULAR));
         }
         return columnHandles.build();
@@ -178,5 +189,11 @@ public class PinotMetadata
             ColumnHandle columnHandle)
     {
         return ((PinotColumnHandle) columnHandle).getColumnMetadata();
+    }
+
+    @Override
+    public String normalizeIdentifier(ConnectorSession session, String identifier)
+    {
+        return pinotConfig.isCaseSensitiveNameMatchingEnabled() ? identifier : identifier.toLowerCase(ROOT);
     }
 }

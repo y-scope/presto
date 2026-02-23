@@ -26,12 +26,10 @@ public class NativeQueryRunnerUtils
 {
     private NativeQueryRunnerUtils() {}
 
-    public static Map<String, String> getNativeWorkerHiveProperties(String storageFormat)
+    public static Map<String, String> getNativeWorkerHiveProperties()
     {
-        return ImmutableMap.of("hive.storage-format", storageFormat,
-                "hive.pushdown-filter-enabled", "true",
-                "hive.parquet.pushdown-filter-enabled", "true",
-                "hive.orc-compression-codec", "ZSTD");
+        return ImmutableMap.of("hive.parquet.pushdown-filter-enabled", "true",
+                "hive.orc-compression-codec", "ZSTD", "hive.storage-format", "DWRF");
     }
 
     public static Map<String, String> getNativeWorkerIcebergProperties()
@@ -61,6 +59,8 @@ public class NativeQueryRunnerUtils
                 .put("coordinator-sidecar-enabled", "true")
                 .put("exclude-invalid-worker-session-properties", "true")
                 .put("presto.default-namespace", "native.default")
+                // inline-sql-functions is overridden to be true in sidecar enabled native clusters.
+                .put("inline-sql-functions", "true")
                 .build();
     }
 
@@ -78,13 +78,13 @@ public class NativeQueryRunnerUtils
      */
     public static void createAllTables(QueryRunner queryRunner)
     {
-        createAllTables(queryRunner, true);
+        createAllTables(queryRunner, "DWRF");
     }
 
-    public static void createAllTables(QueryRunner queryRunner, boolean castDateToVarchar)
+    public static void createAllTables(QueryRunner queryRunner, String storageFormat)
     {
-        createLineitem(queryRunner, castDateToVarchar);
-        createOrders(queryRunner, castDateToVarchar);
+        createLineitem(queryRunner, storageFormat);
+        createOrders(queryRunner, storageFormat);
         createOrdersEx(queryRunner);
         createOrdersHll(queryRunner);
         createNation(queryRunner);
@@ -119,11 +119,12 @@ public class NativeQueryRunnerUtils
 
     public static void createLineitem(QueryRunner queryRunner)
     {
-        createLineitem(queryRunner, true);
+        createLineitem(queryRunner, "DWRF");
     }
 
-    public static void createLineitem(QueryRunner queryRunner, boolean castDateToVarchar)
+    public static void createLineitem(QueryRunner queryRunner, String storageFormat)
     {
+        boolean castDateToVarchar = storageFormat.equals("DWRF");
         queryRunner.execute("DROP TABLE IF EXISTS lineitem");
         String shipDate = castDateToVarchar ? "cast(shipdate as varchar) as shipdate" : "shipdate";
         String commitDate = castDateToVarchar ? "cast(commitdate as varchar) as commitdate" : "commitdate";
@@ -157,16 +158,17 @@ public class NativeQueryRunnerUtils
 
     public static void createOrders(QueryRunner queryRunner)
     {
-        createOrders(queryRunner, true);
+        createOrders(queryRunner, "DWRF");
     }
 
-    public static void createOrders(QueryRunner queryRunner, boolean castDateToVarchar)
+    public static void createOrders(QueryRunner queryRunner, String storageFormat)
     {
-        createOrders(queryRunner.getDefaultSession(), queryRunner, castDateToVarchar);
+        createOrders(queryRunner.getDefaultSession(), queryRunner, storageFormat);
     }
 
-    public static void createOrders(Session session, QueryRunner queryRunner, boolean castDateToVarchar)
+    public static void createOrders(Session session, QueryRunner queryRunner, String storageFormat)
     {
+        boolean castDateToVarchar = storageFormat.equals("DWRF");
         queryRunner.execute(session, "DROP TABLE IF EXISTS orders");
         String orderDate = castDateToVarchar ? "cast(orderdate as varchar) as orderdate" : "orderdate";
         queryRunner.execute(session, "CREATE TABLE orders AS " +

@@ -27,6 +27,7 @@ import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
@@ -47,6 +48,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.RowExpression;
@@ -55,18 +57,20 @@ import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.VariablesExtractor;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
+import com.facebook.presto.sql.planner.plan.MergeProcessorNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -320,18 +324,40 @@ public class PruneUnreferencedOutputs
 
             planChanged = outputVariables.size() != node.getOutputVariables().size();
 
-            return new SpatialJoinNode(node.getSourceLocation(), node.getId(), node.getStatsEquivalentPlanNode(), node.getType(), left, right, outputVariables, node.getFilter(), node.getLeftPartitionVariable(), node.getRightPartitionVariable(), node.getKdbTree());
+            return new SpatialJoinNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getStatsEquivalentPlanNode(),
+                    node.getType(),
+                    left,
+                    right,
+                    outputVariables,
+                    node.getProbeGeometryVariable(),
+                    node.getBuildGeometryVariable(),
+                    node.getRadiusVariable(),
+                    node.getFilter(),
+                    node.getLeftPartitionVariable(),
+                    node.getRightPartitionVariable(),
+                    node.getKdbTree());
         }
 
         @Override
         public PlanNode visitIndexJoin(IndexJoinNode node, RewriteContext<Set<VariableReferenceExpression>> context)
         {
+            Set<VariableReferenceExpression> expectedFilterInputs = new HashSet<>();
+            if (node.getFilter().isPresent()) {
+                expectedFilterInputs = ImmutableSet.<VariableReferenceExpression>builder()
+                        .addAll(VariablesExtractor.extractUnique(node.getFilter().get()))
+                        .build();
+            }
+
             ImmutableSet.Builder<VariableReferenceExpression> probeInputsBuilder = ImmutableSet.builder();
             probeInputsBuilder.addAll(context.get())
                     .addAll(Iterables.transform(node.getCriteria(), IndexJoinNode.EquiJoinClause::getProbe));
             if (node.getProbeHashVariable().isPresent()) {
                 probeInputsBuilder.add(node.getProbeHashVariable().get());
             }
+            probeInputsBuilder.addAll(expectedFilterInputs);
             Set<VariableReferenceExpression> probeInputs = probeInputsBuilder.build();
 
             ImmutableSet.Builder<VariableReferenceExpression> indexInputBuilder = ImmutableSet.builder();
@@ -340,6 +366,9 @@ public class PruneUnreferencedOutputs
             if (node.getIndexHashVariable().isPresent()) {
                 indexInputBuilder.add(node.getIndexHashVariable().get());
             }
+            indexInputBuilder.addAll(expectedFilterInputs);
+            // Lookup variables must not be pruned.
+            indexInputBuilder.addAll(node.getLookupVariables());
             Set<VariableReferenceExpression> indexInputs = indexInputBuilder.build();
 
             PlanNode probeSource = context.rewrite(node.getProbeSource(), probeInputs);
@@ -355,7 +384,8 @@ public class PruneUnreferencedOutputs
                     node.getCriteria(),
                     node.getFilter(),
                     node.getProbeHashVariable(),
-                    node.getIndexHashVariable());
+                    node.getIndexHashVariable(),
+                    node.getLookupVariables());
         }
 
         @Override
@@ -496,6 +526,47 @@ public class PruneUnreferencedOutputs
                     node.getCurrentConstraint(),
                     node.getEnforcedConstraint(),
                     node.getCteMaterializationInfo());
+        }
+
+        @Override
+        public PlanNode visitMergeWriter(MergeWriterNode node, RewriteContext<Set<VariableReferenceExpression>> context)
+        {
+            Set<VariableReferenceExpression> expectedInputs = ImmutableSet.<VariableReferenceExpression>builder()
+                    .addAll(node.getMergeProcessorProjectedVariables())
+                    .build();
+
+            PlanNode source = context.rewrite(node.getSource(), expectedInputs);
+
+            return new MergeWriterNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getStatsEquivalentPlanNode(),
+                    source,
+                    node.getTarget(),
+                    node.getMergeProcessorProjectedVariables(),
+                    node.getOutputVariables());
+        }
+
+        @Override
+        public PlanNode visitMergeProcessor(MergeProcessorNode node, RewriteContext<Set<VariableReferenceExpression>> context)
+        {
+            Set<VariableReferenceExpression> expectedInputs = ImmutableSet.<VariableReferenceExpression>builder()
+                    .add(node.getTargetTableRowIdColumnVariable())
+                    .add(node.getMergeRowVariable())
+                    .build();
+
+            PlanNode source = context.rewrite(node.getSource(), expectedInputs);
+
+            return new MergeProcessorNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getStatsEquivalentPlanNode(),
+                    source,
+                    node.getTarget(),
+                    node.getTargetTableRowIdColumnVariable(),
+                    node.getMergeRowVariable(),
+                    node.getTargetColumnVariables(),
+                    node.getOutputVariables());
         }
 
         @Override
@@ -782,6 +853,25 @@ public class PruneUnreferencedOutputs
         }
 
         @Override
+        public PlanNode visitCallDistributedProcedure(CallDistributedProcedureNode node, RewriteContext<Set<VariableReferenceExpression>> context)
+        {
+            PlanNode source = context.rewrite(node.getSource(), ImmutableSet.copyOf(node.getSource().getOutputVariables()));
+            return new CallDistributedProcedureNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getStatsEquivalentPlanNode(),
+                    source,
+                    node.getTarget(),
+                    node.getRowCountVariable(),
+                    node.getFragmentVariable(),
+                    node.getTableCommitContextVariable(),
+                    node.getColumns(),
+                    node.getColumnNames(),
+                    node.getNotNullColumnVariables(),
+                    node.getPartitioningScheme());
+        }
+
+        @Override
         public PlanNode visitStatisticsWriterNode(StatisticsWriterNode node, RewriteContext<Set<VariableReferenceExpression>> context)
         {
             PlanNode source = context.rewrite(node.getSource(), ImmutableSet.copyOf(node.getSource().getOutputVariables()));
@@ -816,7 +906,7 @@ public class PruneUnreferencedOutputs
         public PlanNode visitDelete(DeleteNode node, RewriteContext<Set<VariableReferenceExpression>> context)
         {
             ImmutableSet.Builder<VariableReferenceExpression> builder = ImmutableSet.builder();
-            builder.add(node.getRowId());
+            node.getRowId().ifPresent(r -> builder.add(r));
             if (node.getInputDistribution().isPresent()) {
                 builder.addAll(node.getInputDistribution().get().getInputVariables());
             }
@@ -994,6 +1084,26 @@ public class PruneUnreferencedOutputs
             }
 
             return new LateralJoinNode(node.getSourceLocation(), node.getId(), node.getStatsEquivalentPlanNode(), input, subquery, newCorrelation, node.getType(), node.getOriginSubqueryError());
+        }
+
+        @Override
+        public PlanNode visitTableFunctionProcessor(TableFunctionProcessorNode node, RewriteContext<Set<VariableReferenceExpression>> context)
+        {
+            return node.getSource().map(source -> new TableFunctionProcessorNode(
+                    node.getId(),
+                    node.getName(),
+                    node.getProperOutputs(),
+                    Optional.of(context.rewrite(source, ImmutableSet.copyOf(source.getOutputVariables()))),
+                    node.isPruneWhenEmpty(),
+                    node.getPassThroughSpecifications(),
+                    node.getRequiredVariables(),
+                    node.getMarkerVariables(),
+                    node.getSpecification(),
+                    node.getPrePartitioned(),
+                    node.getPreSorted(),
+                    node.getHashSymbol(),
+                    node.getHandle()
+            )).orElse(node);
         }
     }
 }

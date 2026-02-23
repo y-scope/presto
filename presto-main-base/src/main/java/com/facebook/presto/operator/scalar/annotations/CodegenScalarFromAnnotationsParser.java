@@ -14,6 +14,7 @@
 
 package com.facebook.presto.operator.scalar.annotations;
 
+import com.facebook.presto.common.CatalogSchemaName;
 import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.TypeSignature;
@@ -25,6 +26,7 @@ import com.facebook.presto.operator.scalar.ScalarFunctionImplementationChoice.Ar
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.BlockPosition;
 import com.facebook.presto.spi.function.CodegenScalarFunction;
+import com.facebook.presto.spi.function.ComplexTypeFunctionDescriptor;
 import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.FunctionKind;
 import com.facebook.presto.spi.function.IsNull;
@@ -51,7 +53,9 @@ import java.util.Set;
 import static com.facebook.presto.common.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.metadata.BuiltInTypeAndFunctionNamespaceManager.JAVA_BUILTIN_NAMESPACE;
 import static com.facebook.presto.metadata.SignatureBinder.applyBoundVariables;
+import static com.facebook.presto.operator.annotations.FunctionsParserHelper.checkPushdownSubfieldArgIndex;
 import static com.facebook.presto.operator.annotations.FunctionsParserHelper.findPublicStaticMethods;
+import static com.facebook.presto.operator.annotations.FunctionsParserHelper.parseFunctionDescriptor;
 import static com.facebook.presto.operator.scalar.ScalarFunctionImplementationChoice.ArgumentProperty.functionTypeArgumentProperty;
 import static com.facebook.presto.operator.scalar.ScalarFunctionImplementationChoice.ArgumentProperty.valueTypeArgumentProperty;
 import static com.facebook.presto.operator.scalar.ScalarFunctionImplementationChoice.NullConvention.RETURN_NULL_ON_NULL;
@@ -68,8 +72,13 @@ public class CodegenScalarFromAnnotationsParser
 
     public static List<SqlScalarFunction> parseFunctionDefinitions(Class<?> clazz)
     {
+        return parseFunctionDefinitions(clazz, JAVA_BUILTIN_NAMESPACE);
+    }
+
+    public static List<SqlScalarFunction> parseFunctionDefinitions(Class<?> clazz, CatalogSchemaName functionNamespace)
+    {
         return findScalarsInFunctionDefinitionClass(clazz).stream()
-                .map(method -> createSqlScalarFunction(method))
+                .map(method -> createSqlScalarFunction(method, functionNamespace))
                 .collect(toImmutableList());
     }
 
@@ -109,18 +118,20 @@ public class CodegenScalarFromAnnotationsParser
                 .collect(toImmutableList());
     }
 
-    private static SqlScalarFunction createSqlScalarFunction(Method method)
+    private static SqlScalarFunction createSqlScalarFunction(Method method, CatalogSchemaName functionNamespace)
     {
         CodegenScalarFunction codegenScalarFunction = method.getAnnotation(CodegenScalarFunction.class);
 
         Signature signature = new Signature(
-                QualifiedObjectName.valueOf(JAVA_BUILTIN_NAMESPACE, codegenScalarFunction.value()),
+                QualifiedObjectName.valueOf(functionNamespace, codegenScalarFunction.value()),
                 FunctionKind.SCALAR,
                 Arrays.stream(method.getAnnotationsByType(TypeParameter.class)).map(t -> withVariadicBound(t.value(), t.boundedBy().isEmpty() ? null : t.boundedBy())).collect(toImmutableList()),
                 ImmutableList.of(),
                 parseTypeSignature(method.getAnnotation(SqlType.class).value()),
                 Arrays.stream(method.getParameters()).map(p -> parseTypeSignature(p.getAnnotation(SqlType.class).value())).collect(toImmutableList()),
                 false);
+
+        ComplexTypeFunctionDescriptor descriptor = parseAndCheckFunctionDescriptor(method, signature);
 
         return new SqlScalarFunction(signature)
         {
@@ -166,6 +177,19 @@ public class CodegenScalarFromAnnotationsParser
             {
                 return codegenScalarFunction.calledOnNullInput();
             }
+
+            @Override
+            public ComplexTypeFunctionDescriptor getComplexTypeFunctionDescriptor()
+            {
+                return descriptor;
+            }
         };
+    }
+
+    private static ComplexTypeFunctionDescriptor parseAndCheckFunctionDescriptor(Method method, Signature signature)
+    {
+        ComplexTypeFunctionDescriptor descriptor = parseFunctionDescriptor(method);
+        checkPushdownSubfieldArgIndex(method, signature, descriptor.getPushdownSubfieldArgIndex());
+        return descriptor;
     }
 }

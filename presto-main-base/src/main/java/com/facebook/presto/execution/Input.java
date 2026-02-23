@@ -18,8 +18,7 @@ import com.facebook.presto.spi.statistics.TableStatistics;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
-
-import javax.annotation.concurrent.Immutable;
+import com.google.errorprone.annotations.Immutable;
 
 import java.util.List;
 import java.util.Objects;
@@ -38,9 +37,9 @@ public final class Input
     private final Optional<Object> connectorInfo;
     private final Optional<TableStatistics> statistics;
 
-    // This field records the metastore commit info about this input.
+    // This field stores any connector specific metadata about the commit
     // E.g., the last data commit time for the input partitions.
-    private final String serializedCommitOutput;
+    private final Optional<Object> commitOutput;
 
     @JsonCreator
     public Input(
@@ -50,7 +49,7 @@ public final class Input
             @JsonProperty("connectorInfo") Optional<Object> connectorInfo,
             @JsonProperty("columns") List<Column> columns,
             @JsonProperty("statistics") Optional<TableStatistics> statistics,
-            @JsonProperty("serializedCommitOutput") String serializedCommitOutput)
+            @JsonProperty("commitOutput") Optional<Object> commitOutput)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null");
         this.schema = requireNonNull(schema, "schema is null");
@@ -58,7 +57,7 @@ public final class Input
         this.connectorInfo = requireNonNull(connectorInfo, "connectorInfo is null");
         this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
         this.statistics = requireNonNull(statistics, "table statistics is null");
-        this.serializedCommitOutput = requireNonNull(serializedCommitOutput, "serializedCommitOutput is null");
+        this.commitOutput = requireNonNull(commitOutput, "commitOutput is null");
     }
 
     @JsonProperty
@@ -98,9 +97,9 @@ public final class Input
     }
 
     @JsonProperty
-    public String getSerializedCommitOutput()
+    public Optional<Object> getCommitOutput()
     {
-        return serializedCommitOutput;
+        return commitOutput;
     }
 
     @Override
@@ -119,13 +118,13 @@ public final class Input
                 Objects.equals(columns, input.columns) &&
                 Objects.equals(connectorInfo, input.connectorInfo) &&
                 Objects.equals(statistics, input.statistics) &&
-                Objects.equals(serializedCommitOutput, input.serializedCommitOutput);
+                Objects.equals(commitOutput, input.commitOutput);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(connectorId, schema, table, columns, connectorInfo, statistics, serializedCommitOutput);
+        return Objects.hash(connectorId, schema, table, columns, connectorInfo, statistics, commitOutput);
     }
 
     @Override
@@ -137,7 +136,7 @@ public final class Input
                 .addValue(table)
                 .addValue(columns)
                 .addValue(statistics)
-                .addValue(serializedCommitOutput)
+                .addValue(commitOutput)
                 .toString();
     }
 }

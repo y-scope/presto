@@ -26,8 +26,7 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
@@ -82,6 +81,9 @@ public class MemoryPageSinkProvider
         checkState(memoryInsertTableHandle.getActiveTableIds().contains(tableId));
 
         pagesStore.cleanUp(memoryInsertTableHandle.getActiveTableIds());
+        if (memoryInsertTableHandle.isInsertOverwrite()) {
+            pagesStore.clearTable(tableId);
+        }
         pagesStore.initialize(tableId);
         return new MemoryPageSink(pagesStore, currentHostAddress, tableId);
     }

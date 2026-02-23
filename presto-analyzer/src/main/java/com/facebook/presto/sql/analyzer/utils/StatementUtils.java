@@ -33,6 +33,7 @@ import com.facebook.presto.sql.tree.Deallocate;
 import com.facebook.presto.sql.tree.Delete;
 import com.facebook.presto.sql.tree.DescribeInput;
 import com.facebook.presto.sql.tree.DescribeOutput;
+import com.facebook.presto.sql.tree.DropBranch;
 import com.facebook.presto.sql.tree.DropColumn;
 import com.facebook.presto.sql.tree.DropConstraint;
 import com.facebook.presto.sql.tree.DropFunction;
@@ -40,11 +41,13 @@ import com.facebook.presto.sql.tree.DropMaterializedView;
 import com.facebook.presto.sql.tree.DropRole;
 import com.facebook.presto.sql.tree.DropSchema;
 import com.facebook.presto.sql.tree.DropTable;
+import com.facebook.presto.sql.tree.DropTag;
 import com.facebook.presto.sql.tree.DropView;
 import com.facebook.presto.sql.tree.Explain;
 import com.facebook.presto.sql.tree.Grant;
 import com.facebook.presto.sql.tree.GrantRoles;
 import com.facebook.presto.sql.tree.Insert;
+import com.facebook.presto.sql.tree.Merge;
 import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.RefreshMaterializedView;
@@ -105,6 +108,7 @@ public final class StatementUtils
 
         builder.put(Delete.class, QueryType.DELETE);
         builder.put(Update.class, QueryType.UPDATE);
+        builder.put(Merge.class, QueryType.MERGE);
 
         builder.put(ShowCatalogs.class, QueryType.DESCRIBE);
         builder.put(ShowCreate.class, QueryType.DESCRIBE);
@@ -131,6 +135,8 @@ public final class StatementUtils
         builder.put(RenameColumn.class, QueryType.DATA_DEFINITION);
         builder.put(DropColumn.class, QueryType.DATA_DEFINITION);
         builder.put(DropTable.class, QueryType.DATA_DEFINITION);
+        builder.put(DropBranch.class, QueryType.DATA_DEFINITION);
+        builder.put(DropTag.class, QueryType.DATA_DEFINITION);
         builder.put(DropConstraint.class, QueryType.DATA_DEFINITION);
         builder.put(AddConstraint.class, QueryType.DATA_DEFINITION);
         builder.put(AlterColumnNotNull.class, QueryType.DATA_DEFINITION);

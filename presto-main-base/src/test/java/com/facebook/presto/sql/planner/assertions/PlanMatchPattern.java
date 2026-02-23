@@ -27,6 +27,7 @@ import com.facebook.presto.spi.plan.DataOrganizationSpecification;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinDistributionType;
@@ -42,9 +43,11 @@ import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.SemiJoinNode;
 import com.facebook.presto.spi.plan.SortNode;
 import com.facebook.presto.spi.plan.SpatialJoinNode;
+import com.facebook.presto.spi.plan.TableFinishNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.plan.WindowNode.Frame.BoundType;
@@ -58,15 +61,14 @@ import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.iterative.GroupReference;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.OffsetNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.QualifiedName;
@@ -185,6 +187,22 @@ public final class PlanMatchPattern
     {
         return node(IndexSourceNode.class)
                 .with(new IndexSourceMatcher(expectedTableName));
+    }
+
+    public static PlanMatchPattern indexSource(String expectedTableName, Map<String, String> columnReferences)
+    {
+        return node(IndexSourceNode.class)
+                .with(new IndexSourceMatcher(expectedTableName))
+                .addColumnReferences(expectedTableName, columnReferences);
+    }
+
+    public static PlanMatchPattern strictIndexSource(String expectedTableName, Map<String, String> columnReferences)
+    {
+        return node(IndexSourceNode.class)
+                .with(new IndexSourceMatcher(expectedTableName))
+                .withExactAssignedOutputs(columnReferences.values().stream()
+                        .map(columnName -> columnReference(expectedTableName, columnName))
+                        .collect(toImmutableList()));
     }
 
     public static PlanMatchPattern constrainedIndexSource(String expectedTableName, Map<String, Domain> constraint, Map<String, String> columnReferences)
@@ -396,6 +414,11 @@ public final class PlanMatchPattern
                 .withExactAssignments(assignments.values());
     }
 
+    public static PlanMatchPattern semiJoin(PlanMatchPattern source, PlanMatchPattern filtering)
+    {
+        return node(SemiJoinNode.class, source, filtering);
+    }
+
     public static PlanMatchPattern semiJoin(String sourceSymbolAlias, String filteringSymbolAlias, String outputAlias, PlanMatchPattern source, PlanMatchPattern filtering)
     {
         return semiJoin(sourceSymbolAlias, filteringSymbolAlias, outputAlias, Optional.empty(), source, filtering);
@@ -486,13 +509,13 @@ public final class PlanMatchPattern
     public static PlanMatchPattern spatialJoin(String expectedFilter, Optional<String> kdbTree, PlanMatchPattern left, PlanMatchPattern right)
     {
         return node(SpatialJoinNode.class, left, right).with(
-                new SpatialJoinMatcher(SpatialJoinNode.Type.INNER, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), kdbTree));
+                new SpatialJoinMatcher(SpatialJoinNode.SpatialJoinType.INNER, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), kdbTree));
     }
 
     public static PlanMatchPattern spatialLeftJoin(String expectedFilter, PlanMatchPattern left, PlanMatchPattern right)
     {
         return node(SpatialJoinNode.class, left, right).with(
-                new SpatialJoinMatcher(SpatialJoinNode.Type.LEFT, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), Optional.empty()));
+                new SpatialJoinMatcher(SpatialJoinNode.SpatialJoinType.LEFT, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), Optional.empty()));
     }
 
     public static PlanMatchPattern mergeJoin(JoinType joinType, List<ExpectedValueProvider<EquiJoinClause>> expectedEquiCriteria, Optional<Expression> filter, PlanMatchPattern left, PlanMatchPattern right)
@@ -635,6 +658,11 @@ public final class PlanMatchPattern
         return values(aliasToIndex, Optional.empty(), Optional.empty());
     }
 
+    public static PlanMatchPattern values(int rowCount)
+    {
+        return values(ImmutableList.of(), nCopies(rowCount, ImmutableList.of()));
+    }
+
     public static PlanMatchPattern values(String... aliases)
     {
         return values(ImmutableList.copyOf(aliases));
@@ -670,6 +698,16 @@ public final class PlanMatchPattern
         return node(EnforceSingleRowNode.class, source);
     }
 
+    public static PlanMatchPattern callDistributedProcedure(PlanMatchPattern source)
+    {
+        return node(CallDistributedProcedureNode.class, source);
+    }
+
+    public static PlanMatchPattern tableFinish(PlanMatchPattern source)
+    {
+        return node(TableFinishNode.class, source);
+    }
+
     public static PlanMatchPattern tableWriter(List<String> columns, List<String> columnNames, PlanMatchPattern source)
     {
         return node(TableWriterNode.class, source).with(new TableWriterMatcher(columns, columnNames));
@@ -678,6 +716,27 @@ public final class PlanMatchPattern
     public static PlanMatchPattern remoteSource(List<PlanFragmentId> sourceFragmentIds, Map<String, Integer> outputSymbolAliases)
     {
         return node(RemoteSourceNode.class).with(new RemoteSourceMatcher(sourceFragmentIds, outputSymbolAliases));
+    }
+
+    public static PlanMatchPattern tableFunction(Consumer<TableFunctionMatcher.Builder> handler, PlanMatchPattern... sources)
+    {
+        TableFunctionMatcher.Builder builder = new TableFunctionMatcher.Builder(sources);
+        handler.accept(builder);
+        return builder.build();
+    }
+
+    public static PlanMatchPattern tableFunctionProcessor(Consumer<TableFunctionProcessorMatcher.Builder> handler, PlanMatchPattern source)
+    {
+        TableFunctionProcessorMatcher.Builder builder = new TableFunctionProcessorMatcher.Builder(source);
+        handler.accept(builder);
+        return builder.build();
+    }
+
+    public static PlanMatchPattern tableFunctionProcessor(Consumer<TableFunctionProcessorMatcher.Builder> handler)
+    {
+        TableFunctionProcessorMatcher.Builder builder = new TableFunctionProcessorMatcher.Builder();
+        handler.accept(builder);
+        return builder.build();
     }
 
     public PlanMatchPattern(List<PlanMatchPattern> sourcePatterns)

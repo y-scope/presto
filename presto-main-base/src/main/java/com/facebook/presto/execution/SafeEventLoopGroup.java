@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -75,7 +74,7 @@ public class SafeEventLoopGroup
                         runTask(task);
                     }
                     catch (Throwable t) {
-                        log.error("Error running task on event loop", t);
+                        log.error(t, "Error executing task on event loop");
                     }
                     updateLastExecutionTime();
                 }
@@ -86,24 +85,19 @@ public class SafeEventLoopGroup
         public void execute(Runnable task, Consumer<Throwable> failureHandler, SchedulerStatsTracker statsTracker, String methodSignature)
         {
             requireNonNull(task, "task is null");
-
-            long initialGCTime = getTotalGCTime();
-            long start = THREAD_MX_BEAN.getCurrentThreadCpuTime();
-
             this.execute(() -> {
+                long start = THREAD_MX_BEAN.getCurrentThreadCpuTime();
                 try {
                     task.run();
                 }
                 catch (Throwable t) {
-                    log.error("Error executing task on event loop", t);
+                    log.error(t, "Error executing method %s on event loop.", methodSignature);
                     if (failureHandler != null) {
                         failureHandler.accept(t);
                     }
                 }
                 finally {
-                    long currentGCTime = getTotalGCTime();
-                    long cpuTimeInNanos = THREAD_MX_BEAN.getCurrentThreadCpuTime() - start - (currentGCTime - initialGCTime);
-
+                    long cpuTimeInNanos = THREAD_MX_BEAN.getCurrentThreadCpuTime() - start;
                     statsTracker.recordEventLoopMethodExecutionCpuTime(cpuTimeInNanos);
                     if (slowMethodThresholdOnEventLoopInNanos > 0 && cpuTimeInNanos > slowMethodThresholdOnEventLoopInNanos) {
                         log.warn("Slow method execution on event loop: %s took %s milliseconds", methodSignature, NANOSECONDS.toMillis(cpuTimeInNanos));
@@ -111,29 +105,5 @@ public class SafeEventLoopGroup
                 }
             });
         }
-
-        public <T> void execute(Supplier<T> task, Consumer<T> successHandler, Consumer<Throwable> failureHandler)
-        {
-            requireNonNull(task, "task is null");
-            this.execute(() -> {
-                try {
-                    T result = task.get();
-                    if (successHandler != null) {
-                        successHandler.accept(result);
-                    }
-                }
-                catch (Throwable t) {
-                    log.error("Error executing task on event loop", t);
-                    if (failureHandler != null) {
-                        failureHandler.accept(t);
-                    }
-                }
-            });
-        }
-    }
-
-    private long getTotalGCTime()
-    {
-        return gcBeans.stream().mapToLong(GarbageCollectorMXBean::getCollectionTime).sum();
     }
 }

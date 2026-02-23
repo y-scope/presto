@@ -41,6 +41,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UdfSignatureMap'
+  /v1/functions/{catalog}:
+    parameters:
+      - name: catalog
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The catalog name to filter functions by (e.g., 'native', 'hive').
+        example: "hive"
+    get:
+      summary: Retrieve list of functions in the specified catalog.
+      description: |
+        This endpoint returns functions that are registered under a specific catalog namespace.
+        Functions in Presto can be namespaced by catalog (e.g., hive.default.initcap, native.default.abs).
+        This endpoint filters and returns only those functions that belong to the specified catalog.
+        
+        This is particularly useful for:
+        - Separating built-in functions from connector-specific functions
+        - Organizing custom C++ functions by their associated connector or catalog
+        - Supporting multiple function namespace managers with different catalogs
+        
+        Example: GET /v1/functions/hive returns only functions registered under the 'hive' catalog.
+      responses:
+        '200':
+          description: A map of function names to lists of function metadata for the specified catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UdfSignatureMap'
+              example:
+                initcap:
+                  - docString: "initcap"
+                    functionKind: "SCALAR"
+                    outputType: "varchar"
+                    paramTypes: ["varchar"]
+                    schema: "default"
+                    routineCharacteristics:
+                      language: "CPP"
+                      determinism: "DETERMINISTIC"
+                      nullCallClause: "RETURNS_NULL_ON_NULL_INPUT"
+        '404':
+          description: The specified catalog was not found or contains no functions.
   /v1/functions/{schema}:
     parameters:
       - name: schema
@@ -250,6 +292,17 @@ components:
           type: string
           description: The version of the function. This version shall be maintained by REST server for any change in the function.
           example: "1"
+        executionEndpoint:
+          type: string
+          format: uri
+          pattern: "^https?://"
+          description: |
+            Base URL of the execution server where this function should be executed.
+            Must use HTTP or HTTPS protocol. If not specified, the function
+            is assumed to be executable on the same server that provides metadata.
+            When specified, the function will be executed at:
+            {executionEndpoint}/v1/functions/{schema}/{functionName}/{functionId}/{version}
+          example: "https://compute-cluster-1.example.com"
     FunctionKind:
       type: string
       description: The kind of function.

@@ -70,6 +70,10 @@ Property Name                                      Description                  
                                                    cached. Set to ``0ms`` to disable the cache.                         ``1m``
 
 ``list-schemas-ignored-schemas``                   List of schemas to ignore when listing schemas.                      ``information_schema``
+
+``case-sensitive-name-matching``                   Enable case sensitive identifier support for schema and table        ``false``
+                                                   names for the connector. When disabled, names are matched
+                                                   case-insensitively using lowercase normalization.
 ================================================== ==================================================================== ===========
 
 Querying Oracle
@@ -97,6 +101,27 @@ Finally, you can access the ``clicks`` table in the ``web`` database::
 
 If you used a different name for your catalog properties file, use
 that catalog name instead of ``oracle`` in the above examples.
+
+Type mapping
+------------
+
+PrestoDB and Oracle each support types that the other does not. When reading from Oracle, Presto converts
+the data types from Oracle to equivalent Presto data types.
+Refer to the following section for type mapping in each direction.
+
+Oracle to PrestoDB type mapping
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The connector maps Oracle types to the corresponding PrestoDB types:
+
+.. list-table:: Oracle to PrestoDB type mapping
+  :widths: 50, 50
+  :header-rows: 1
+
+  * - Oracle type
+    - PrestoDB type
+  * - ``BLOB``
+    - ``VARBINARY``
 
 Oracle Connector Limitations
 ----------------------------

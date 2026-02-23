@@ -14,7 +14,12 @@
 #pragma once
 
 #include <fmt/format.h>
+#include "velox/exec/Exchange.h"
 #include "velox/exec/Operator.h"
+
+namespace facebook::velox {
+class ByteInputStream;
+}
 
 namespace facebook::presto::operators {
 
@@ -32,15 +37,46 @@ class ShuffleWriter {
 
   /// Runtime statistics.
   virtual folly::F14FastMap<std::string, int64_t> stats() const = 0;
+
+  /// Returns true if the shuffle reader supports Velox runtime metrics.
+  virtual bool supportsMetrics() const {
+    return false;
+  }
+
+  /// Returns statistics in the form of Velox runtime metrics.
+  virtual folly::F14FastMap<std::string, velox::RuntimeMetric> metrics() const {
+    VELOX_NYI();
+  }
+};
+
+class ShuffleSerializedPage : public velox::exec::SerializedPageBase {
+ public:
+  ShuffleSerializedPage() = default;
+  ~ShuffleSerializedPage() override = default;
+
+  std::unique_ptr<velox::ByteInputStream> prepareStreamForDeserialize()
+      override {
+    VELOX_UNSUPPORTED();
+  }
+
+  std::unique_ptr<folly::IOBuf> getIOBuf() const override {
+    VELOX_UNSUPPORTED();
+  }
+
+  virtual const std::vector<std::string_view>& rows() = 0;
 };
 
 class ShuffleReader {
  public:
   virtual ~ShuffleReader() = default;
 
-  /// Reads the next block of data. The function returns null if it has read all
-  /// the data. The function throws if run into any error.
-  virtual folly::SemiFuture<velox::BufferPtr> next() = 0;
+  /// Fetch the next batch of rows from the shuffle reader.
+  /// @param bytes Maximum number of bytes to read in this batch.
+  /// @return A semi-future resolving to a vector of ShuffleSerializedPage
+  /// pointers, where each ShuffleSerializedPage contains rows and associated
+  /// data buffers.
+  virtual folly::SemiFuture<std::vector<std::unique_ptr<ShuffleSerializedPage>>>
+  next(uint64_t maxBytes) = 0;
 
   /// Tell the shuffle system the reader is done. May be called with 'success'
   /// true before reading all the data. This happens when a query has a LIMIT or
@@ -50,6 +86,16 @@ class ShuffleReader {
 
   /// Runtime statistics.
   virtual folly::F14FastMap<std::string, int64_t> stats() const = 0;
+
+  /// Returns true if the shuffle reader supports Velox runtime metrics.
+  virtual bool supportsMetrics() const {
+    return false;
+  }
+
+  /// Returns statistics in the form of Velox runtime metrics.
+  virtual folly::F14FastMap<std::string, velox::RuntimeMetric> metrics() const {
+    VELOX_NYI();
+  }
 };
 
 class ShuffleInterfaceFactory {
@@ -58,7 +104,7 @@ class ShuffleInterfaceFactory {
 
   virtual std::shared_ptr<ShuffleReader> createReader(
       const std::string& serializedShuffleInfo,
-      const int32_t partition,
+      int32_t partition,
       velox::memory::MemoryPool* pool) = 0;
 
   virtual std::shared_ptr<ShuffleWriter> createWriter(

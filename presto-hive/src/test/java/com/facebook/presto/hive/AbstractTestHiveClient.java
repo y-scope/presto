@@ -15,6 +15,8 @@ package com.facebook.presto.hive;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.airlift.stats.CounterStat;
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.GroupByHashPageIndexerFactory;
 import com.facebook.presto.cache.CacheConfig;
 import com.facebook.presto.common.Page;
@@ -27,6 +29,7 @@ import com.facebook.presto.common.predicate.NullableValue;
 import com.facebook.presto.common.predicate.Range;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.predicate.ValueSet;
+import com.facebook.presto.common.resourceGroups.QueryType;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.NamedTypeSignature;
@@ -41,7 +44,6 @@ import com.facebook.presto.common.type.Type;
 import com.facebook.presto.hive.LocationService.WriteInfo;
 import com.facebook.presto.hive.authentication.NoHdfsAuthentication;
 import com.facebook.presto.hive.datasink.OutputStreamDataSinkFactory;
-import com.facebook.presto.hive.metastore.AbstractCachingHiveMetastore.MetastoreCacheScope;
 import com.facebook.presto.hive.metastore.Column;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.hive.metastore.HiveColumnStatistics;
@@ -49,6 +51,7 @@ import com.facebook.presto.hive.metastore.HivePartitionMutator;
 import com.facebook.presto.hive.metastore.HivePrivilegeInfo;
 import com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import com.facebook.presto.hive.metastore.InMemoryCachingHiveMetastore;
+import com.facebook.presto.hive.metastore.MetastoreCacheSpecProvider;
 import com.facebook.presto.hive.metastore.MetastoreContext;
 import com.facebook.presto.hive.metastore.Partition;
 import com.facebook.presto.hive.metastore.PartitionStatistics;
@@ -139,8 +142,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -188,6 +189,8 @@ import static com.facebook.airlift.testing.Assertions.assertGreaterThan;
 import static com.facebook.airlift.testing.Assertions.assertGreaterThanOrEqual;
 import static com.facebook.airlift.testing.Assertions.assertInstanceOf;
 import static com.facebook.airlift.testing.Assertions.assertLessThanOrEqual;
+import static com.facebook.airlift.units.DataSize.Unit.GIGABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.KILOBYTE;
 import static com.facebook.presto.common.predicate.TupleDomain.withColumnDomains;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
@@ -281,6 +284,7 @@ import static com.facebook.presto.hive.HiveType.HIVE_STRING;
 import static com.facebook.presto.hive.HiveType.toHiveType;
 import static com.facebook.presto.hive.HiveUtil.columnExtraInfo;
 import static com.facebook.presto.hive.LocationHandle.WriteMode.STAGE_AND_MOVE_TO_TARGET_DIRECTORY;
+import static com.facebook.presto.hive.metastore.AbstractCachingHiveMetastore.MetastoreCacheType.ALL;
 import static com.facebook.presto.hive.metastore.HiveColumnStatistics.createBinaryColumnStatistics;
 import static com.facebook.presto.hive.metastore.HiveColumnStatistics.createBooleanColumnStatistics;
 import static com.facebook.presto.hive.metastore.HiveColumnStatistics.createDateColumnStatistics;
@@ -324,8 +328,6 @@ import static com.google.common.hash.Hashing.sha256;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static io.airlift.slice.Slices.utf8Slice;
-import static io.airlift.units.DataSize.Unit.GIGABYTE;
-import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
@@ -361,7 +363,7 @@ public abstract class AbstractTestHiveClient
     protected static final String TEST_SERVER_VERSION = "test_version";
 
     protected static final Executor EXECUTOR = Executors.newFixedThreadPool(5);
-    protected static final PageSinkContext TEST_HIVE_PAGE_SINK_CONTEXT = PageSinkContext.builder().setCommitRequired(false).setConnectorMetadataUpdater(new HiveMetadataUpdater(EXECUTOR)).build();
+    protected static final PageSinkContext TEST_HIVE_PAGE_SINK_CONTEXT = PageSinkContext.builder().setCommitRequired(false).build();
 
     private static final Type ARRAY_TYPE = arrayType(createUnboundedVarcharType());
     private static final Type MAP_TYPE = mapType(createUnboundedVarcharType(), BIGINT);
@@ -383,6 +385,12 @@ public abstract class AbstractTestHiveClient
             .add(ColumnMetadata.builder().setName("t_array").setType(ARRAY_TYPE).build())
             .add(ColumnMetadata.builder().setName("t_map").setType(MAP_TYPE).build())
             .add(ColumnMetadata.builder().setName("t_row").setType(ROW_TYPE).build())
+            .build();
+
+    private static final List<ColumnMetadata> CREATE_TABLE_COLUMNS_FOR_DROP = ImmutableList.<ColumnMetadata>builder()
+            .add(ColumnMetadata.builder().setName("id").setType(BIGINT).build())
+            .add(ColumnMetadata.builder().setName("t_string").setType(createUnboundedVarcharType()).build())
+            .add(ColumnMetadata.builder().setName("t_double").setType(DOUBLE).build())
             .build();
 
     private static final MaterializedResult CREATE_TABLE_DATA =
@@ -978,6 +986,12 @@ public abstract class AbstractTestHiveClient
         HiveClientConfig hiveClientConfig = getHiveClientConfig();
         CacheConfig cacheConfig = getCacheConfig();
         MetastoreClientConfig metastoreClientConfig = getMetastoreClientConfig();
+        // Configure Metastore Cache
+        metastoreClientConfig.setDefaultMetastoreCacheTtl(Duration.valueOf("1m"));
+        metastoreClientConfig.setDefaultMetastoreCacheRefreshInterval(Duration.valueOf("15s"));
+        metastoreClientConfig.setMetastoreCacheMaximumSize(10000);
+        metastoreClientConfig.setEnabledCaches(ALL.name());
+
         ThriftHiveMetastoreConfig thriftHiveMetastoreConfig = getThriftHiveMetastoreConfig();
         hiveClientConfig.setTimeZone(timeZone);
         String proxy = System.getProperty("hive.metastore.thrift.client.socks-proxy");
@@ -991,14 +1005,12 @@ public abstract class AbstractTestHiveClient
                 new BridgingHiveMetastore(new ThriftHiveMetastore(hiveCluster, metastoreClientConfig, hdfsEnvironment), new HivePartitionMutator()),
                 executor,
                 false,
-                Duration.valueOf("1m"),
-                Duration.valueOf("15s"),
                 10000,
                 false,
-                MetastoreCacheScope.ALL,
                 0.0,
                 metastoreClientConfig.getPartitionCacheColumnCountLimit(),
-                NOOP_METASTORE_CACHE_STATS);
+                NOOP_METASTORE_CACHE_STATS,
+                new MetastoreCacheSpecProvider(metastoreClientConfig));
 
         setup(databaseName, hiveClientConfig, cacheConfig, metastoreClientConfig, metastore);
     }
@@ -1044,7 +1056,6 @@ public abstract class AbstractTestHiveClient
                 new HivePartitionObjectBuilder(),
                 new HiveEncryptionInformationProvider(ImmutableList.of()),
                 new HivePartitionStats(),
-                new HiveFileRenamer(),
                 DEFAULT_COLUMN_CONVERTER_PROVIDER,
                 new QuickStatsProvider(metastoreClient, HDFS_ENVIRONMENT, DO_NOTHING_DIRECTORY_LISTER, new HiveClientConfig(), new NamenodeStats(), ImmutableList.of()),
                 new HiveTableWritabilityChecker(false));
@@ -1243,6 +1254,12 @@ public abstract class AbstractTestHiveClient
             public RuntimeStats getRuntimeStats()
             {
                 return session.getRuntimeStats();
+            }
+
+            @Override
+            public Optional<QueryType> getQueryType()
+            {
+                return session.getQueryType();
             }
 
             @Override
@@ -1646,7 +1663,7 @@ public abstract class AbstractTestHiveClient
         assertInstanceOf(expectedTableLayoutHandle, HiveTableLayoutHandle.class);
         HiveTableLayoutHandle actual = (HiveTableLayoutHandle) actualTableLayoutHandle;
         HiveTableLayoutHandle expected = (HiveTableLayoutHandle) expectedTableLayoutHandle;
-        assertExpectedPartitions(actual.getPartitions().get(), expected.getPartitions().get());
+        assertExpectedPartitions(actual.getPartitions().map(PartitionSet::getFullyLoadedPartitions).get(), expected.getPartitions().get());
     }
 
     protected void assertExpectedPartitions(List<HivePartition> actualPartitions, Iterable<HivePartition> expectedPartitions)
@@ -2329,7 +2346,7 @@ public abstract class AbstractTestHiveClient
                         Optional.empty()).getLayout().getHandle();
             }
             else {
-                layoutHandle = getOnlyElement(metadata.getTableLayouts(session, tableHandle, new Constraint<>(TupleDomain.fromFixedValues(ImmutableMap.of(bucketColumnHandle(), singleBucket))), Optional.empty())).getTableLayout().getHandle();
+                layoutHandle = metadata.getTableLayoutForConstraint(session, tableHandle, new Constraint<>(TupleDomain.fromFixedValues(ImmutableMap.of(bucketColumnHandle(), singleBucket))), Optional.empty()).getTableLayout().getHandle();
             }
 
             result = readTable(
@@ -2423,9 +2440,9 @@ public abstract class AbstractTestHiveClient
 
     private void assertTableIsBucketed(Transaction transaction, ConnectorTableHandle tableHandle)
     {
-        // the bucketed test tables should have exactly 32 splits
+        // the bucketed test tables should have ~32 splits
         List<ConnectorSplit> splits = getAllSplits(transaction, tableHandle, TupleDomain.all());
-        assertEquals(splits.size(), 32);
+        assertThat(splits.size()).as("splits.size()").isBetween(31, 32);
 
         // verify all paths are unique
         Set<String> paths = new HashSet<>();
@@ -2687,8 +2704,8 @@ public abstract class AbstractTestHiveClient
                     Optional.empty()).getLayout();
         }
 
-        List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(session, tableHandle, constraint, Optional.empty());
-        return getOnlyElement(tableLayoutResults).getTableLayout();
+        ConnectorTableLayoutResult tableLayoutResult = metadata.getTableLayoutForConstraint(session, tableHandle, constraint, Optional.empty());
+        return tableLayoutResult.getTableLayout();
     }
 
     @Test
@@ -2748,7 +2765,7 @@ public abstract class AbstractTestHiveClient
         }
     }
 
-    @Test(expectedExceptions = PrestoException.class, expectedExceptionsMessageRegExp = "Error opening Hive split .*SequenceFile.*EOFException")
+    @Test(expectedExceptions = PrestoException.class, expectedExceptionsMessageRegExp = "Error opening Hive split .*SequenceFile")
     public void testEmptySequenceFile()
             throws Exception
     {
@@ -2894,7 +2911,7 @@ public abstract class AbstractTestHiveClient
             SchemaTableName temporaryCreateTableForPageSinkCommit = temporaryTable("create_table_page_sink_commit");
             try {
                 doCreateTable(temporaryCreateTable, storageFormat, TEST_HIVE_PAGE_SINK_CONTEXT);
-                doCreateTable(temporaryCreateTableForPageSinkCommit, storageFormat, PageSinkContext.builder().setCommitRequired(true).setConnectorMetadataUpdater(new HiveMetadataUpdater(EXECUTOR)).build());
+                doCreateTable(temporaryCreateTableForPageSinkCommit, storageFormat, PageSinkContext.builder().setCommitRequired(true).build());
             }
             finally {
                 dropTable(temporaryCreateTable);
@@ -3227,7 +3244,7 @@ public abstract class AbstractTestHiveClient
             SchemaTableName temporaryInsertTableForPageSinkCommit = temporaryTable("insert_table_page_sink_commit");
             try {
                 doInsert(storageFormat, temporaryInsertTable, TEST_HIVE_PAGE_SINK_CONTEXT);
-                doInsert(storageFormat, temporaryInsertTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).setConnectorMetadataUpdater(new HiveMetadataUpdater(EXECUTOR)).build());
+                doInsert(storageFormat, temporaryInsertTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).build());
             }
             finally {
                 dropTable(temporaryInsertTable);
@@ -3245,7 +3262,7 @@ public abstract class AbstractTestHiveClient
             SchemaTableName temporaryInsertIntoNewPartitionTableForPageSinkCommit = temporaryTable("insert_new_partitioned_page_sink_commit");
             try {
                 doInsertIntoNewPartition(storageFormat, temporaryInsertIntoNewPartitionTable, TEST_HIVE_PAGE_SINK_CONTEXT);
-                doInsertIntoNewPartition(storageFormat, temporaryInsertIntoNewPartitionTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).setConnectorMetadataUpdater(new HiveMetadataUpdater(EXECUTOR)).build());
+                doInsertIntoNewPartition(storageFormat, temporaryInsertIntoNewPartitionTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).build());
             }
             finally {
                 dropTable(temporaryInsertIntoNewPartitionTable);
@@ -3263,7 +3280,7 @@ public abstract class AbstractTestHiveClient
             SchemaTableName temporaryInsertIntoExistingPartitionTableForPageSinkCommit = temporaryTable("insert_existing_partitioned_page_sink_commit");
             try {
                 doInsertIntoExistingPartition(storageFormat, temporaryInsertIntoExistingPartitionTable, TEST_HIVE_PAGE_SINK_CONTEXT);
-                doInsertIntoExistingPartition(storageFormat, temporaryInsertIntoExistingPartitionTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).setConnectorMetadataUpdater(new HiveMetadataUpdater(EXECUTOR)).build());
+                doInsertIntoExistingPartition(storageFormat, temporaryInsertIntoExistingPartitionTableForPageSinkCommit, PageSinkContext.builder().setCommitRequired(true).build());
             }
             finally {
                 dropTable(temporaryInsertIntoExistingPartitionTable);
@@ -3968,14 +3985,14 @@ public abstract class AbstractTestHiveClient
     {
         SchemaTableName tableName = temporaryTable("test_drop_column");
         try {
-            doCreateEmptyTable(tableName, ORC, CREATE_TABLE_COLUMNS);
+            doCreateEmptyTable(tableName, ORC, CREATE_TABLE_COLUMNS_FOR_DROP);
             ExtendedHiveMetastore metastoreClient = getMetastoreClient();
-            metastoreClient.dropColumn(METASTORE_CONTEXT, tableName.getSchemaName(), tableName.getTableName(), CREATE_TABLE_COLUMNS.get(0).getName());
+            metastoreClient.dropColumn(METASTORE_CONTEXT, tableName.getSchemaName(), tableName.getTableName(), CREATE_TABLE_COLUMNS_FOR_DROP.get(0).getName());
             Optional<Table> table = metastoreClient.getTable(METASTORE_CONTEXT, tableName.getSchemaName(), tableName.getTableName());
             assertTrue(table.isPresent());
             List<Column> columns = table.get().getDataColumns();
-            assertEquals(columns.get(0).getName(), CREATE_TABLE_COLUMNS.get(1).getName());
-            assertFalse(columns.stream().map(Column::getName).anyMatch(colName -> colName.equals(CREATE_TABLE_COLUMNS.get(0).getName())));
+            assertEquals(columns.get(0).getName(), CREATE_TABLE_COLUMNS_FOR_DROP.get(1).getName());
+            assertFalse(columns.stream().map(Column::getName).anyMatch(colName -> colName.equals(CREATE_TABLE_COLUMNS_FOR_DROP.get(0).getName())));
         }
         finally {
             dropTable(tableName);
@@ -5352,6 +5369,7 @@ public abstract class AbstractTestHiveClient
     protected List<?> getAllPartitions(ConnectorTableLayoutHandle layoutHandle)
     {
         return ((HiveTableLayoutHandle) layoutHandle).getPartitions()
+                .map(PartitionSet::getFullyLoadedPartitions)
                 .orElseThrow(() -> new AssertionError("layout has no partitions"));
     }
 

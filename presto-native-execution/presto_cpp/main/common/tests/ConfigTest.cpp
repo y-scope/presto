@@ -11,9 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <gtest/gtest.h>
+
 #include <filesystem>
 #include <unordered_set>
+
+#include <folly/system/HardwareConcurrency.h>
+#include <gtest/gtest.h>
+
 #include "presto_cpp/main/common/ConfigReader.h"
 #include "presto_cpp/main/common/Configs.h"
 #include "velox/common/base/Exceptions.h"
@@ -212,12 +216,16 @@ TEST_F(ConfigTest, optionalNodeConfigs) {
   init(config, {{std::string(NodeConfig::kNodeIp), "127.0.0.1"}});
   ASSERT_EQ(
       config.nodeInternalAddress([]() { return "0.0.0.0"; }), "127.0.0.1");
+
+  init(
+      config, {{std::string(NodeConfig::kNodePrometheusExecutorThreads), "4"}});
+  ASSERT_EQ(config.prometheusExecutorThreads(), 4);
 }
 
 TEST_F(ConfigTest, optionalSystemConfigsWithDefault) {
   SystemConfig config;
   init(config, {});
-  ASSERT_EQ(config.maxDriversPerTask(), std::thread::hardware_concurrency());
+  ASSERT_EQ(config.maxDriversPerTask(), folly::hardware_concurrency());
   init(config, {{std::string(SystemConfig::kMaxDriversPerTask), "1024"}});
   ASSERT_EQ(config.maxDriversPerTask(), 1024);
 }

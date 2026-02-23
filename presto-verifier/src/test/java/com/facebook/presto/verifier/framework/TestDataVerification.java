@@ -31,7 +31,6 @@ import static com.facebook.presto.SystemSessionProperties.QUERY_MAX_EXECUTION_TI
 import static com.facebook.presto.verifier.VerifierTestUtil.CATALOG;
 import static com.facebook.presto.verifier.VerifierTestUtil.SCHEMA;
 import static com.facebook.presto.verifier.event.VerifierQueryEvent.EventStatus.FAILED;
-import static com.facebook.presto.verifier.event.VerifierQueryEvent.EventStatus.FAILED_RESOLVED;
 import static com.facebook.presto.verifier.event.VerifierQueryEvent.EventStatus.SKIPPED;
 import static com.facebook.presto.verifier.event.VerifierQueryEvent.EventStatus.SUCCEEDED;
 import static com.facebook.presto.verifier.framework.DeterminismAnalysis.DETERMINISTIC;
@@ -274,6 +273,21 @@ public class TestDataVerification
     }
 
     @Test
+    public void testNondeterministicResubmission()
+    {
+        VerificationSettings settingsWithFlag = new VerificationSettings();
+        settingsWithFlag.resubmitNondeterministicQueries = Optional.of(true);
+
+        Optional<VerifierQueryEvent> eventWithFlag = runVerification("SELECT rand()", "SELECT 2.0", settingsWithFlag);
+        assertFalse(eventWithFlag.isPresent());
+
+        Optional<VerifierQueryEvent> eventWithoutFlag = runVerification("SELECT rand()", "SELECT 2.0");
+        assertTrue(eventWithoutFlag.isPresent());
+        assertEquals(eventWithoutFlag.get().getStatus(), SKIPPED.name());
+        assertEquals(eventWithoutFlag.get().getSkippedReason(), NON_DETERMINISTIC.name());
+    }
+
+    @Test
     public void testDeterminismAnalysisOnControlAndTest()
     {
         Optional<VerifierQueryEvent> event;
@@ -427,7 +441,7 @@ public class TestDataVerification
     }
 
     @Test
-    public void testChecksumQueryCompilerError()
+    public void testLargeTableSelectStarCompiles()
     {
         List<String> columns = IntStream.range(0, 1000).mapToObj(i -> "c" + i).collect(toImmutableList());
         getQueryRunner().execute(format("CREATE TABLE checksum_test (%s)", columns.stream().map(column -> column + " double").collect(joining(","))));
@@ -436,11 +450,7 @@ public class TestDataVerification
         Optional<VerifierQueryEvent> event = runVerification(query, query);
 
         assertTrue(event.isPresent());
-        assertEquals(event.get().getStatus(), FAILED_RESOLVED.name());
-        assertEquals(event.get().getErrorCode(), "PRESTO(GENERATED_BYTECODE_TOO_LARGE)");
-        assertNotNull(event.get().getControlQueryInfo().getChecksumQuery());
-        assertNotNull(event.get().getControlQueryInfo().getChecksumQueryId());
-        assertNotNull(event.get().getTestQueryInfo().getChecksumQuery());
+        assertEvent(event.get(), SUCCEEDED, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     @Test

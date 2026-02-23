@@ -19,9 +19,11 @@ import com.facebook.presto.common.block.BlockEncodingManager;
 import com.facebook.presto.common.block.BlockEncodingSerde;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.TypeManager;
+import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.metadata.CatalogManager;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.HandleJsonModule;
+import com.facebook.presto.metadata.TableFunctionRegistry;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.FunctionsConfig;
 import com.facebook.presto.sql.parser.SqlParser;
@@ -52,9 +54,9 @@ import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.MapBinder;
+import jakarta.inject.Singleton;
 
 import javax.inject.Provider;
-import javax.inject.Singleton;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -111,8 +113,12 @@ public class VerifierModule
         // catalog
         binder.bind(CatalogManager.class).in(Scopes.SINGLETON);
 
+        // connector
+        binder.bind(ConnectorManager.class).toProvider(() -> null).in(Scopes.SINGLETON);
+
         // function
         binder.bind(FunctionAndTypeManager.class).in(SINGLETON);
+        binder.bind(TableFunctionRegistry.class).in(SINGLETON);
 
         // handle resolver
         binder.install(new HandleJsonModule());

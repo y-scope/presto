@@ -25,68 +25,65 @@ target_link_libraries(
   presto_protocol
   velox_dwio_common
   velox_dwio_orc_reader
-  velox_clp_connector
   velox_hive_connector
   velox_tpch_connector
+  velox_tpcds_connector
   velox_exec
   velox_dwio_common_exception
   presto_type_converter
   presto_types
   velox_type_fbhive
-  velox_hive_partition_function)
+  velox_hive_partition_function
+)
 
-add_executable(presto_expressions_test RowExpressionTest.cpp ValuesPipeTest.cpp
-                                       PlanConverterTest.cpp)
+add_executable(
+  presto_expressions_test
+  RowExpressionTest.cpp
+  ValuesPipeTest.cpp
+  PlanConverterTest.cpp
+  TypeParserTest.cpp
+)
 
 add_test(
   NAME presto_expressions_test
   COMMAND presto_expressions_test
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
-add_dependencies(presto_expressions_test presto_operators presto_protocol
-                 presto_types)
+add_dependencies(presto_expressions_test presto_operators presto_protocol presto_types)
 
 target_link_libraries(
   presto_expressions_test
   GTest::gtest
   GTest::gtest_main
   presto_connectors
-  $<TARGET_OBJECTS:presto_protocol>
-  $<TARGET_OBJECTS:presto_type_converter>
-  $<TARGET_OBJECTS:presto_types>
+  presto_protocol
+  presto_type_converter
+  presto_types
   presto_operators
+  presto_mutable_configs
   presto_type_test_utils
+  presto_session_properties
   velox_core
-  velox_dwio_common_exception
-  velox_encode
   velox_exec
   velox_exec_test_lib
   velox_functions_prestosql
-  velox_functions_lib
-  velox_clp_connector
+  velox_presto_type_parser
   velox_hive_connector
   velox_tpch_connector
-  velox_hive_partition_function
-  velox_presto_serializer
-  velox_serialization
   velox_type
-  velox_type_parser
   Boost::filesystem
-  ${RE2}
-  ${FOLLY_WITH_DEPENDENCIES}
-  ${GLOG}
-  ${GFLAGS_LIBRARIES}
-  pthread)
+)
 
-set_property(TARGET presto_expressions_test PROPERTY JOB_POOL_LINK
-                                                     presto_link_job_pool)
+set_property(TARGET presto_expressions_test PROPERTY JOB_POOL_LINK presto_link_job_pool)
 
 add_executable(presto_to_velox_connector_test PrestoToVeloxConnectorTest.cpp)
 
 add_test(
   NAME presto_to_velox_connector_test
   COMMAND presto_to_velox_connector_test
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 target_link_libraries(
   presto_to_velox_connector_test
@@ -96,36 +93,24 @@ target_link_libraries(
   presto_type_converter
   presto_types
   velox_dwio_common
-  velox_clp_connector
   velox_hive_connector
   velox_tpch_connector
+  velox_tpcds_connector
   GTest::gtest
-  GTest::gtest_main)
+  GTest::gtest_main
+)
 
-add_executable(presto_function_metadata_test FunctionMetadataTest.cpp)
-
-add_test(
-  NAME presto_function_metadata_test
-  COMMAND presto_function_metadata_test
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-target_link_libraries(
-  presto_function_metadata_test
-  presto_function_metadata
-  presto_protocol
-  presto_type_test_utils
-  velox_aggregates
-  velox_functions_prestosql
-  velox_window
-  GTest::gtest
-  GTest::gtest_main)
-
-add_executable(presto_to_velox_query_plan_test PrestoToVeloxQueryPlanTest.cpp)
+add_executable(
+  presto_to_velox_query_plan_test
+  PrestoToVeloxQueryPlanTest.cpp
+  NativeFunctionHandleTest.cpp
+)
 
 add_test(
   NAME presto_to_velox_query_plan_test
   COMMAND presto_to_velox_query_plan_test
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 target_link_libraries(
   presto_to_velox_query_plan_test
@@ -136,5 +121,30 @@ target_link_libraries(
   presto_types
   velox_dwio_common
   velox_exec_test_lib
+  velox_hive_connector
+  velox_tpch_connector
   GTest::gtest
-  GTest::gtest_main)
+  GTest::gtest_main
+)
+
+# RemoteFunctionHandleTest.cpp only contains tests cases related to
+# RestFunctionHandle, therefore it is only enabled when remote functions are
+# enabled.
+if(PRESTO_ENABLE_REMOTE_FUNCTIONS)
+  add_executable(presto_to_rest_function_test RestFunctionHandleTest.cpp)
+
+  add_test(
+    NAME presto_to_rest_function_test
+    COMMAND presto_to_rest_function_test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
+  target_link_libraries(
+    presto_to_rest_function_test
+    presto_velox_expr_conversion
+    presto_protocol
+    presto_types
+    GTest::gtest
+    GTest::gtest_main
+  )
+endif()

@@ -41,6 +41,7 @@ import com.facebook.presto.spi.plan.SortNode;
 import com.facebook.presto.spi.plan.SpatialJoinNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.ConstantExpression;
@@ -61,7 +62,6 @@ import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.relational.Expressions;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.RowExpressionDeterminismEvaluator;
@@ -905,15 +905,18 @@ public class PredicatePushDown
             RowExpression inheritedPredicate = context.get();
 
             // See if we can rewrite left join in terms of a plain inner join
-            if (node.getType() == SpatialJoinNode.Type.LEFT && canConvertOuterToInner(node.getRight().getOutputVariables(), inheritedPredicate)) {
+            if (node.getType() == SpatialJoinNode.SpatialJoinType.LEFT && canConvertOuterToInner(node.getRight().getOutputVariables(), inheritedPredicate)) {
                 planChanged = true;
                 node = new SpatialJoinNode(
                         node.getSourceLocation(),
                         node.getId(),
-                        SpatialJoinNode.Type.INNER,
+                        SpatialJoinNode.SpatialJoinType.INNER,
                         node.getLeft(),
                         node.getRight(),
                         node.getOutputVariables(),
+                        node.getProbeGeometryVariable(),
+                        node.getBuildGeometryVariable(),
+                        node.getRadiusVariable(),
                         node.getFilter(),
                         node.getLeftPartitionVariable(),
                         node.getRightPartitionVariable(),
@@ -988,6 +991,9 @@ public class PredicatePushDown
                         leftSource,
                         rightSource,
                         node.getOutputVariables(),
+                        node.getProbeGeometryVariable(),
+                        node.getBuildGeometryVariable(),
+                        node.getRadiusVariable(),
                         newJoinPredicate,
                         node.getLeftPartitionVariable(),
                         node.getRightPartitionVariable(),

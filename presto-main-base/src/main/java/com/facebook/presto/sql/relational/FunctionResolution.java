@@ -148,6 +148,12 @@ public final class FunctionResolution
         return functionAndTypeResolver.getFunctionMetadata(functionHandle).getOperatorType().equals(Optional.of(OperatorType.CAST));
     }
 
+    @Override
+    public FunctionHandle lookupCast(String castType, Type fromType, Type toType)
+    {
+        return functionAndTypeResolver.lookupCast(castType, fromType, toType);
+    }
+
     public boolean isTryCastFunction(FunctionHandle functionHandle)
     {
         return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(QualifiedObjectName.valueOf(JAVA_BUILTIN_NAMESPACE, "TRY_CAST"));
@@ -275,14 +281,13 @@ public final class FunctionResolution
 
     public boolean isEqualsFunction(FunctionHandle functionHandle)
     {
-        Optional<OperatorType> operatorType = functionAndTypeResolver.getFunctionMetadata(functionHandle).getOperatorType();
-        return operatorType.isPresent() && operatorType.get().getOperator().equals(EQUAL.getOperator());
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getOperatorType().map(EQUAL::equals).orElse(false);
     }
 
     @Override
     public FunctionHandle subscriptFunction(Type baseType, Type indexType)
     {
-        return functionAndTypeResolver.lookupFunction(SUBSCRIPT.getFunctionName().getObjectName(), fromTypes(baseType, indexType));
+        return functionAndTypeResolver.resolveOperator(SUBSCRIPT, fromTypes(baseType, indexType));
     }
 
     @Override
@@ -301,15 +306,24 @@ public final class FunctionResolution
         return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().getObjectName().equals("$internal$try");
     }
 
-    public boolean isFailFunction(FunctionHandle functionHandle)
+    public boolean isJavaBuiltInFailFunction(FunctionHandle functionHandle)
     {
-        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("fail")));
+        // todo: Revert this hack once constant folding support lands in C++.
+        // For now, we always use the presto.default.fail function even when the default namespace is switched.
+        // This is done for consistency since the BuiltInNamespaceRewriter rewrites the functionHandles to presto.default functionHandles.
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(QualifiedObjectName.valueOf(JAVA_BUILTIN_NAMESPACE, "fail"));
     }
 
     @Override
     public boolean isCountFunction(FunctionHandle functionHandle)
     {
         return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("count")));
+    }
+
+    @Override
+    public boolean isCountIfFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("count_if")));
     }
 
     @Override
@@ -322,6 +336,22 @@ public final class FunctionResolution
     public FunctionHandle countFunction(Type valueType)
     {
         return functionAndTypeResolver.lookupFunction("count", fromTypes(valueType));
+    }
+
+    public boolean isMaxByFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("max_by")));
+    }
+
+    public boolean isMinByFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("min_by")));
+    }
+
+    @Override
+    public FunctionHandle arbitraryFunction(Type valueType)
+    {
+        return functionAndTypeResolver.lookupFunction("arbitrary", fromTypes(valueType));
     }
 
     @Override
@@ -384,11 +414,6 @@ public final class FunctionResolution
         return functionAndTypeResolver.lookupFunction("approx_set", fromTypes(valueType));
     }
 
-    public boolean isEqualFunction(FunctionHandle functionHandle)
-    {
-        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getOperatorType().map(EQUAL::equals).orElse(false);
-    }
-
     public boolean isArrayContainsFunction(FunctionHandle functionHandle)
     {
         return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("contains")));
@@ -404,9 +429,30 @@ public final class FunctionResolution
         return windowValueFunctions.contains(functionAndTypeResolver.getFunctionMetadata(functionHandle).getName());
     }
 
+    public boolean isMapSubSetFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("map_subset")));
+    }
+
+    public boolean isMapFilterFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("map_filter")));
+    }
+
+    public boolean isCardinalityFunction(FunctionHandle functionHandle)
+    {
+        return functionAndTypeResolver.getFunctionMetadata(functionHandle).getName().equals(functionAndTypeResolver.qualifyObjectName(QualifiedName.of("cardinality")));
+    }
+
     @Override
     public FunctionHandle lookupBuiltInFunction(String functionName, List<Type> inputTypes)
     {
         return functionAndTypeResolver.lookupFunction(functionName, fromTypes(inputTypes));
+    }
+
+    @Override
+    public FunctionHandle lookupFunction(String catalog, String schema, String functionName, List<Type> inputTypes)
+    {
+        return functionAndTypeResolver.resolveFunction(Optional.empty(), Optional.empty(), QualifiedObjectName.valueOf(catalog, schema, functionName), fromTypes(inputTypes));
     }
 }

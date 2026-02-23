@@ -27,6 +27,7 @@ import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.JoinType;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MaterializedViewScanNode;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.ProjectNode;
@@ -38,6 +39,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.RowExpression;
@@ -133,6 +135,11 @@ public class Patterns
         return typeOf(MarkDistinctNode.class);
     }
 
+    public static Pattern<MaterializedViewScanNode> materializedViewScan()
+    {
+        return typeOf(MaterializedViewScanNode.class);
+    }
+
     public static Pattern<OutputNode> output()
     {
         return typeOf(OutputNode.class);
@@ -203,6 +210,11 @@ public class Patterns
         return typeOf(TableWriterMergeNode.class);
     }
 
+    public static Pattern<MergeWriterNode> mergeWriter()
+    {
+        return typeOf(MergeWriterNode.class);
+    }
+
     public static Pattern<TopNNode> topN()
     {
         return typeOf(TopNNode.class);
@@ -226,6 +238,16 @@ public class Patterns
     public static Pattern<WindowNode> window()
     {
         return typeOf(WindowNode.class);
+    }
+
+    public static Pattern<TableFunctionNode> tableFunction()
+    {
+        return typeOf(TableFunctionNode.class);
+    }
+
+    public static Pattern<TableFunctionProcessorNode> tableFunctionProcessor()
+    {
+        return typeOf(TableFunctionProcessorNode.class);
     }
 
     public static Pattern<RowNumberNode> rowNumber()

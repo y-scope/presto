@@ -34,9 +34,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
+import jakarta.inject.Inject;
 import org.apache.pinot.spi.data.Schema;
-
-import javax.inject.Inject;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -213,7 +212,7 @@ public class PinotClusterInfoFetcher
                 .appendPath(path)
                 .build();
         Request.Builder builder = Request.builder().prepareGet().setUri(controllerPathUri);
-        controllerAuthenticationProvider.getAuthenticationToken().ifPresent(token -> builder.setHeader(AUTHORIZATION, token));
+        controllerAuthenticationProvider.getAuthenticationToken().ifPresent(token -> builder.setHeader(AUTHORIZATION, "Basic" + " " + token));
         return doHttpActionWithHeaders(
                 builder,
                 Optional.empty(),
@@ -230,7 +229,7 @@ public class PinotClusterInfoFetcher
                 .appendPath(path)
                 .build();
         Request.Builder builder = Request.builder().prepareGet().setUri(brokerPathUri);
-        brokerAuthenticationProvider.getAuthenticationToken().ifPresent(token -> builder.setHeader(AUTHORIZATION, token));
+        brokerAuthenticationProvider.getAuthenticationToken().ifPresent(token -> builder.setHeader(AUTHORIZATION, "Basic" + " " + token));
         return doHttpActionWithHeaders(
                 builder,
                 Optional.empty(),

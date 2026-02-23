@@ -24,11 +24,27 @@ The following HTTP endpoints are implemented by the Presto C++ sidecar.
    Presto C++ worker. Each function's metadata is serialized to JSON in
    format ``JsonBasedUdfFunctionMetadata``.
 
+.. function:: GET /v1/functions/{catalog}
+
+   Returns a list of function metadata for all functions registered in the
+   Presto C++ worker that belong to the specified catalog. Each function's
+   metadata is serialized to JSON in format ``JsonBasedUdfFunctionMetadata``.
+   This endpoint allows filtering functions by catalog to support namespace
+   separation.
+
 .. function:: POST /v1/velox/plan
 
    Converts a Presto plan fragment to its corresponding Velox plan and
    validates the Velox plan. Returns any errors encountered during plan
    conversion.
+
+.. function:: POST /v1/expressions
+
+   Optimizes a list of ``RowExpression``\s from the http request using
+   a combination of constant folding and logical rewrites by leveraging
+   the ``ExprOptimizer`` from Velox. Returns a list of ``RowExpressionOptimizationResult``,
+   that contains either the optimized ``RowExpression`` or the ``NativeSidecarFailureInfo``
+   in case the expression optimization failed.
 
 Configuration Properties
 ------------------------

@@ -20,15 +20,15 @@ import com.facebook.presto.common.block.BlockEncodingSerde;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.TypeSignature;
-import com.facebook.presto.execution.QueryManager;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.MaterializedViewDefinition;
+import com.facebook.presto.spi.MaterializedViewStatus;
+import com.facebook.presto.spi.MergeHandle;
 import com.facebook.presto.spi.NewTableLayout;
-import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.SystemTable;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.TableMetadata;
@@ -36,9 +36,12 @@ import com.facebook.presto.spi.analyzer.ViewDefinition;
 import com.facebook.presto.spi.connector.ConnectorCapabilities;
 import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
 import com.facebook.presto.spi.connector.ConnectorTableVersion;
+import com.facebook.presto.spi.connector.RowChangeParadigm;
+import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.constraints.TableConstraint;
 import com.facebook.presto.spi.function.SqlFunction;
 import com.facebook.presto.spi.plan.PartitioningHandle;
+import com.facebook.presto.spi.procedure.ProcedureRegistry;
 import com.facebook.presto.spi.security.GrantInfo;
 import com.facebook.presto.spi.security.PrestoPrincipal;
 import com.facebook.presto.spi.security.Privilege;
@@ -48,8 +51,7 @@ import com.facebook.presto.spi.statistics.TableStatistics;
 import com.facebook.presto.spi.statistics.TableStatisticsMetadata;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.slice.Slice;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Collection;
 import java.util.List;
@@ -87,6 +89,12 @@ public abstract class DelegatingMetadataManager
     public void registerBuiltInFunctions(List<? extends SqlFunction> functionInfos)
     {
         delegate.registerBuiltInFunctions(functionInfos);
+    }
+
+    @Override
+    public void registerConnectorFunctions(String catalogName, List<? extends SqlFunction> functionInfos)
+    {
+        delegate.registerConnectorFunctions(catalogName, functionInfos);
     }
 
     @Override
@@ -361,15 +369,15 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
-    public ColumnHandle getDeleteRowIdColumnHandle(Session session, TableHandle tableHandle)
+    public Optional<ColumnHandle> getDeleteRowIdColumn(Session session, TableHandle tableHandle)
     {
-        return delegate.getDeleteRowIdColumnHandle(session, tableHandle);
+        return delegate.getDeleteRowIdColumn(session, tableHandle);
     }
 
     @Override
-    public ColumnHandle getUpdateRowIdColumnHandle(Session session, TableHandle tableHandle, List<ColumnHandle> updatedColumns)
+    public Optional<ColumnHandle> getUpdateRowIdColumn(Session session, TableHandle tableHandle, List<ColumnHandle> updatedColumns)
     {
-        return delegate.getUpdateRowIdColumnHandle(session, tableHandle, updatedColumns);
+        return delegate.getUpdateRowIdColumn(session, tableHandle, updatedColumns);
     }
 
     @Override
@@ -391,9 +399,22 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
-    public void finishDelete(Session session, DeleteTableHandle tableHandle, Collection<Slice> fragments)
+    public Optional<ConnectorOutputMetadata> finishDeleteWithOutput(Session session, DeleteTableHandle tableHandle, Collection<Slice> fragments)
     {
-        delegate.finishDelete(session, tableHandle, fragments);
+        return delegate.finishDeleteWithOutput(session, tableHandle, fragments);
+    }
+
+    @Override
+    public DistributedProcedureHandle beginCallDistributedProcedure(Session session, QualifiedObjectName procedureName,
+                                                                    TableHandle tableHandle, Object[] arguments, boolean sourceTableEliminated)
+    {
+        return delegate.beginCallDistributedProcedure(session, procedureName, tableHandle, arguments, sourceTableEliminated);
+    }
+
+    @Override
+    public void finishCallDistributedProcedure(Session session, DistributedProcedureHandle procedureHandle, QualifiedObjectName procedureName, Collection<Slice> fragments)
+    {
+        delegate.finishCallDistributedProcedure(session, procedureHandle, procedureName, fragments);
     }
 
     @Override
@@ -406,6 +427,30 @@ public abstract class DelegatingMetadataManager
     public void finishUpdate(Session session, TableHandle tableHandle, Collection<Slice> fragments)
     {
         delegate.finishUpdate(session, tableHandle, fragments);
+    }
+
+    @Override
+    public RowChangeParadigm getRowChangeParadigm(Session session, TableHandle tableHandle)
+    {
+        return delegate.getRowChangeParadigm(session, tableHandle);
+    }
+
+    @Override
+    public ColumnHandle getMergeTargetTableRowIdColumnHandle(Session session, TableHandle tableHandle)
+    {
+        return delegate.getMergeTargetTableRowIdColumnHandle(session, tableHandle);
+    }
+
+    @Override
+    public MergeHandle beginMerge(Session session, TableHandle tableHandle)
+    {
+        return delegate.beginMerge(session, tableHandle);
+    }
+
+    @Override
+    public void finishMerge(Session session, MergeHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        delegate.finishMerge(session, tableHandle, fragments, computedStatistics);
     }
 
     @Override
@@ -430,6 +475,26 @@ public abstract class DelegatingMetadataManager
     public Map<QualifiedObjectName, ViewDefinition> getViews(Session session, QualifiedTablePrefix prefix)
     {
         return delegate.getViews(session, prefix);
+    }
+
+    @Override
+    public List<QualifiedObjectName> listMaterializedViews(Session session, QualifiedTablePrefix prefix)
+    {
+        return delegate.listMaterializedViews(session, prefix);
+    }
+
+    @Override
+    public Map<QualifiedObjectName, MaterializedViewDefinition> getMaterializedViews(
+            Session session,
+            QualifiedTablePrefix prefix)
+    {
+        return delegate.getMaterializedViews(session, prefix);
+    }
+
+    @Override
+    public MaterializedViewStatus getMaterializedViewStatus(Session session, QualifiedObjectName viewName, TupleDomain<String> baseQueryDomain)
+    {
+        return delegate.getMaterializedViewStatus(session, viewName, baseQueryDomain);
     }
 
     @Override
@@ -584,12 +649,6 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
-    public MetadataUpdates getMetadataUpdateResults(Session session, QueryManager queryManager, MetadataUpdates metadataUpdates, QueryId queryId)
-    {
-        return delegate.getMetadataUpdateResults(session, queryManager, metadataUpdates, queryId);
-    }
-
-    @Override
     public FunctionAndTypeManager getFunctionAndTypeManager()
     {
         return delegate.getFunctionAndTypeManager();
@@ -626,6 +685,12 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
+    public MaterializedViewPropertyManager getMaterializedViewPropertyManager()
+    {
+        return delegate.getMaterializedViewPropertyManager();
+    }
+
+    @Override
     public ColumnPropertyManager getColumnPropertyManager()
     {
         return delegate.getColumnPropertyManager();
@@ -644,6 +709,18 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
+    public void dropBranch(Session session, TableHandle tableHandle, String branchName, boolean branchExists)
+    {
+        delegate.dropBranch(session, tableHandle, branchName, branchExists);
+    }
+
+    @Override
+    public void dropTag(Session session, TableHandle tableHandle, String tagName, boolean tagExists)
+    {
+        delegate.dropTag(session, tableHandle, tagName, tagExists);
+    }
+
+    @Override
     public void dropConstraint(Session session, TableHandle tableHandle, Optional<String> constraintName, Optional<String> columnName)
     {
         delegate.dropConstraint(session, tableHandle, constraintName, columnName);
@@ -653,5 +730,17 @@ public abstract class DelegatingMetadataManager
     public void addConstraint(Session session, TableHandle tableHandle, TableConstraint<String> tableConstraint)
     {
         delegate.addConstraint(session, tableHandle, tableConstraint);
+    }
+
+    @Override
+    public String normalizeIdentifier(Session session, String catalogName, String identifier)
+    {
+        return delegate.normalizeIdentifier(session, catalogName, identifier);
+    }
+
+    @Override
+    public Optional<TableFunctionApplicationResult<TableHandle>> applyTableFunction(Session session, TableFunctionHandle handle)
+    {
+        return delegate.applyTableFunction(session, handle);
     }
 }

@@ -187,6 +187,30 @@ public abstract class TestDateTimeFunctionsBase
     }
 
     @Test
+    public void testLocalTime()
+    {
+        Session localSession = Session.builder(session)
+                .setStartTime(new DateTime(2017, 3, 1, 14, 30, 0, 0, DATE_TIME_ZONE).getMillis())
+                .build();
+        try (FunctionAssertions localAssertion = new FunctionAssertions(localSession)) {
+            localAssertion.assertFunctionString("LOCALTIME", TimeType.TIME, "14:30:00.000");
+        }
+    }
+
+    @Test
+    public void testCurrentTime()
+    {
+        Session localSession = Session.builder(session)
+                // we use Asia/Kathmandu here, as it has different zone offset on 2017-03-01 and on 1970-01-01
+                .setTimeZoneKey(KATHMANDU_ZONE_KEY)
+                .setStartTime(new DateTime(2017, 3, 1, 15, 45, 0, 0, KATHMANDU_ZONE).getMillis())
+                .build();
+        try (FunctionAssertions localAssertion = new FunctionAssertions(localSession)) {
+            localAssertion.assertFunctionString("CURRENT_TIME", TIME_WITH_TIME_ZONE, "15:45:00.000 Asia/Kathmandu");
+        }
+    }
+
+    @Test
     public void testFromUnixTime()
     {
         DateTime dateTime = new DateTime(2001, 1, 22, 3, 4, 5, 0, DATE_TIME_ZONE);
@@ -1226,10 +1250,23 @@ public abstract class TestDateTimeFunctionsBase
         assertFunction("parse_duration('1234.567h')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(51, 10, 34, 1, 200));
         assertFunction("parse_duration('1234.567d')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(1234, 13, 36, 28, 800));
 
+        // trailing spaces
+        assertFunction("parse_duration('1234 ns ')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(0, 0, 0, 0, 0));
+        assertFunction("parse_duration('1234 us ')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(0, 0, 0, 0, 1));
+        assertFunction("parse_duration('1234ms ')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(0, 0, 0, 1, 234));
+
         // invalid function calls
         assertInvalidFunction("parse_duration('')", "duration is empty");
         assertInvalidFunction("parse_duration('1f')", "Unknown time unit: f");
         assertInvalidFunction("parse_duration('abc')", "duration is not a valid data duration string: abc");
+
+        // long milliseconds edge cases
+        assertFunction("parse_duration('7702741401940153ms')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(89152099, 13, 25, 40, 153));
+        assertFunction("parse_duration('9117756383778565ms')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(105529587, 18, 36, 18, 565));
+
+        // Test precision for large values with fractional seconds
+        assertFunction("parse_duration('7702741401940.153s')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(89152099, 13, 25, 40, 153));
+        assertFunction("parse_duration('7702741401940.153 s')", INTERVAL_DAY_TIME, new SqlIntervalDayTime(89152099, 13, 25, 40, 153));
     }
 
     @Test

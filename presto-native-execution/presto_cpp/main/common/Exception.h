@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <folly/Singleton.h>
 #include <unordered_map>
 #include "presto_cpp/presto_protocol/core/presto_protocol_core.h"
 #include "velox/common/base/VeloxException.h"
@@ -27,96 +28,74 @@ struct ExecutionFailureInfo;
 struct ErrorCode;
 } // namespace protocol
 
+namespace error_code {
+using namespace folly::string_literals;
+
+/// An error raised when Presto broadcast join exceeds the broadcast size limit.
+inline constexpr auto kExceededLocalBroadcastJoinMemoryLimit =
+    "EXCEEDED_LOCAL_BROADCAST_JOIN_MEMORY_LIMIT"_fs;
+} // namespace error_code
+
+// Exception translator singleton for converting Velox exceptions to Presto
+// errors. This follows the same pattern as velox/common/base/StatsReporter.h.
+//
+// IMPORTANT: folly::Singleton enforces single registration per type.
+// - Only ONE registration of VeloxToPrestoExceptionTranslator can exist
+// - Duplicate registrations will cause program to fail during static init
+// - Extended servers must register a derived class
 class VeloxToPrestoExceptionTranslator {
  public:
-  // Translates to Presto error from Velox exceptions
-  static protocol::ExecutionFailureInfo translate(
-      const velox::VeloxException& e);
-
-  // Translates to Presto error from std::exceptions
-  static protocol::ExecutionFailureInfo translate(const std::exception& e);
-
- private:
-  static const std::unordered_map<
+  using ErrorCodeMap = std::unordered_map<
       std::string,
-      std::unordered_map<std::string, protocol::ErrorCode>>&
-  translateMap() {
-    static const std::unordered_map<
-        std::string,
-        std::unordered_map<std::string, protocol::ErrorCode>>
-        kTranslateMap = {
-            {velox::error_source::kErrorSourceRuntime,
-             {{velox::error_code::kMemCapExceeded,
-               {0x00020007,
-                "EXCEEDED_LOCAL_MEMORY_LIMIT",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
+      std::unordered_map<std::string, protocol::ErrorCode>>;
 
-              {velox::error_code::kMemAborted,
-               {0x00020000,
-                "GENERIC_INSUFFICIENT_RESOURCES",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
+  VeloxToPrestoExceptionTranslator();
 
-              {velox::error_code::kSpillLimitExceeded,
-               {0x00020006,
-                "EXCEEDED_SPILL_LIMIT",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
+  virtual ~VeloxToPrestoExceptionTranslator() = default;
 
-              {velox::error_code::kMemArbitrationFailure,
-               {0x00020000,
-                "MEMORY_ARBITRATION_FAILURE",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
+  virtual protocol::ExecutionFailureInfo translate(
+      const velox::VeloxException& e) const;
 
-              {velox::error_code::kMemArbitrationTimeout,
-               {0x00020000,
-                "GENERIC_INSUFFICIENT_RESOURCES",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
+  virtual protocol::ExecutionFailureInfo translate(
+      const std::exception& e) const;
 
-              {velox::error_code::kMemAllocError,
-               {0x00020000,
-                "GENERIC_INSUFFICIENT_RESOURCES",
-                protocol::ErrorType::INSUFFICIENT_RESOURCES}},
-
-              {velox::error_code::kInvalidState,
-               {0x00010000,
-                "GENERIC_INTERNAL_ERROR",
-                protocol::ErrorType::INTERNAL_ERROR}},
-
-              {velox::error_code::kGenericSpillFailure,
-               {0x00010023,
-                "GENERIC_SPILL_FAILURE",
-                protocol::ErrorType::INTERNAL_ERROR}},
-
-              {velox::error_code::kUnreachableCode,
-               {0x00010000,
-                "GENERIC_INTERNAL_ERROR",
-                protocol::ErrorType::INTERNAL_ERROR}},
-
-              {velox::error_code::kNotImplemented,
-               {0x00010000,
-                "GENERIC_INTERNAL_ERROR",
-                protocol::ErrorType::INTERNAL_ERROR}},
-
-              {velox::error_code::kUnknown,
-               {0x00010000,
-                "GENERIC_INTERNAL_ERROR",
-                protocol::ErrorType::INTERNAL_ERROR}}}},
-
-            {velox::error_source::kErrorSourceUser,
-             {{velox::error_code::kInvalidArgument,
-               {0x00000000,
-                "GENERIC_USER_ERROR",
-                protocol::ErrorType::USER_ERROR}},
-              {velox::error_code::kUnsupported,
-               {0x0000000D, "NOT_SUPPORTED", protocol::ErrorType::USER_ERROR}},
-              {velox::error_code::kUnsupportedInputUncatchable,
-               {0x0000000D, "NOT_SUPPORTED", protocol::ErrorType::USER_ERROR}},
-              {velox::error_code::kArithmeticError,
-               {0x00000000,
-                "GENERIC_USER_ERROR",
-                protocol::ErrorType::USER_ERROR}}}},
-
-            {velox::error_source::kErrorSourceSystem, {}}};
-    return kTranslateMap;
+  // For testing purposes only - provides access to the error map
+  const ErrorCodeMap& testingErrorMap() const {
+    return errorMap_;
   }
+
+ protected:
+  void registerError(
+      const std::string& errorSource,
+      const std::string& errorCode,
+      const protocol::ErrorCode& prestoErrorCode);
+
+  ErrorCodeMap errorMap_;
 };
+
+// Global inline function APIs to translate exceptions (returns
+// ExecutionFailureInfo) Similar pattern to StatsReporter, but returns a value
+// instead of recording
+inline protocol::ExecutionFailureInfo translateToPrestoException(
+    const velox::VeloxException& e) {
+  const auto translator =
+      folly::Singleton<VeloxToPrestoExceptionTranslator>::try_get_fast();
+  VELOX_CHECK_NOT_NULL(
+      translator,
+      "VeloxToPrestoExceptionTranslator singleton must be registered");
+  return translator->translate(e);
+}
+
+inline protocol::ExecutionFailureInfo translateToPrestoException(
+    const std::exception& e) {
+  const auto translator =
+      folly::Singleton<VeloxToPrestoExceptionTranslator>::try_get_fast();
+  VELOX_CHECK_NOT_NULL(
+      translator,
+      "VeloxToPrestoExceptionTranslator singleton must be registered");
+  return translator->translate(e);
+}
+
+protocol::NativeSidecarFailureInfo toNativeSidecarFailureInfo(
+    const protocol::ExecutionFailureInfo& failure);
 } // namespace facebook::presto

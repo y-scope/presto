@@ -76,7 +76,7 @@ public class TestFileBasedAccessControl
         accessControl.checkCanDropTable(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("bobschema", "bobtable"));
         assertDenied(() -> accessControl.checkCanRenameTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobtable"), new SchemaTableName("bobschema", "newbobtable")));
         accessControl.checkCanSetTableProperties(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("bobschema", "bobtable"), ImmutableMap.of());
-        accessControl.checkCanSetTableProperties(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("aliceSchema", "aliceTable"), ImmutableMap.of());
+        accessControl.checkCanSetTableProperties(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("aliceschema", "alicetable"), ImmutableMap.of());
         assertDenied(() -> accessControl.checkCanInsertIntoTable(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("bobschema", "bobtable")));
         assertDenied(() -> accessControl.checkCanDropTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobtable")));
         assertDenied(() -> accessControl.checkCanSetTableProperties(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobtable"), ImmutableMap.of()));
@@ -86,6 +86,25 @@ public class TestFileBasedAccessControl
         assertDenied(() -> accessControl.checkCanCreateViewWithSelectFromColumns(TRANSACTION_HANDLE, user("joe"), CONTEXT, new SchemaTableName("bobschema", "bobtable"), ImmutableSet.of()));
         assertDenied(() -> accessControl.checkCanRenameView(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobview"), new SchemaTableName("bobschema", "newbobview")));
         assertDenied(() -> accessControl.checkCanRenameView(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("aliceschema", "alicetable"), new SchemaTableName("bobschema", "newalicetable")));
+    }
+
+    @Test
+    public void testProcedureRules()
+            throws IOException
+    {
+        ConnectorAccessControl accessControl = createAccessControl("procedure.json");
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("bobschema", "bobprocedure"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("aliceschema", "aliceprocedure"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("aliceschema", "aliceprocedure"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobprocedure"));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("secret", "secretprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("test", "testprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("bobschema", "bobprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("secret", "secretprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("aliceschema", "aliceprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("secret", "secretprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("joe"), CONTEXT, new SchemaTableName("bobschema", "bobprocedure")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("joe"), CONTEXT, new SchemaTableName("secret", "secretprocedure")));
     }
 
     @Test

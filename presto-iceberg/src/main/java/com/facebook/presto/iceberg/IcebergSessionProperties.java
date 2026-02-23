@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.iceberg;
 
+import com.facebook.airlift.units.DataSize;
 import com.facebook.presto.cache.CacheConfig;
 import com.facebook.presto.hive.HiveCompressionCodec;
 import com.facebook.presto.hive.OrcFileWriterConfig;
@@ -20,32 +21,33 @@ import com.facebook.presto.hive.ParquetFileWriterConfig;
 import com.facebook.presto.iceberg.nessie.IcebergNessieConfig;
 import com.facebook.presto.iceberg.util.StatisticsUtil;
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.session.PropertyMetadata;
 import com.facebook.presto.spi.statistics.ColumnStatisticType;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.DataSize;
+import jakarta.inject.Inject;
 import org.apache.parquet.column.ParquetProperties;
-
-import javax.inject.Inject;
 
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
+import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.common.type.VarcharType.createUnboundedVarcharType;
 import static com.facebook.presto.iceberg.util.StatisticsUtil.SUPPORTED_MERGE_FLAGS;
 import static com.facebook.presto.iceberg.util.StatisticsUtil.decodeMergeFlags;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
 import static com.facebook.presto.spi.session.PropertyMetadata.booleanProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.doubleProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.integerProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.longProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.stringProperty;
+import static java.lang.String.format;
 
 public final class IcebergSessionProperties
 {
-    private static final String COMPRESSION_CODEC = "compression_codec";
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
     private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
     private static final String PARQUET_WRITER_VERSION = "parquet_writer_version";
@@ -58,15 +60,18 @@ public final class IcebergSessionProperties
     private static final String MINIMUM_ASSIGNED_SPLIT_WEIGHT = "minimum_assigned_split_weight";
     private static final String NESSIE_REFERENCE_NAME = "nessie_reference_name";
     private static final String NESSIE_REFERENCE_HASH = "nessie_reference_hash";
+    static final String COMPRESSION_CODEC = "compression_codec";
     public static final String PARQUET_DEREFERENCE_PUSHDOWN_ENABLED = "parquet_dereference_pushdown_enabled";
     public static final String MERGE_ON_READ_MODE_ENABLED = "merge_on_read_enabled";
     public static final String PUSHDOWN_FILTER_ENABLED = "pushdown_filter_enabled";
     public static final String DELETE_AS_JOIN_REWRITE_ENABLED = "delete_as_join_rewrite_enabled";
+    public static final String DELETE_AS_JOIN_REWRITE_MAX_DELETE_COLUMNS = "delete_as_join_rewrite_max_delete_columns";
     public static final String HIVE_METASTORE_STATISTICS_MERGE_STRATEGY = "hive_statistics_merge_strategy";
     public static final String STATISTIC_SNAPSHOT_RECORD_DIFFERENCE_WEIGHT = "statistic_snapshot_record_difference_weight";
     public static final String ROWS_FOR_METADATA_OPTIMIZATION_THRESHOLD = "rows_for_metadata_optimization_threshold";
     public static final String STATISTICS_KLL_SKETCH_K_PARAMETER = "statistics_kll_sketch_k_parameter";
     public static final String TARGET_SPLIT_SIZE_BYTES = "target_split_size_bytes";
+    public static final String MATERIALIZED_VIEW_STORAGE_PREFIX = "materialized_view_storage_prefix";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -181,6 +186,23 @@ public final class IcebergSessionProperties
                         "When enabled equality delete row filtering will be pushed down into a join.",
                         icebergConfig.isDeleteAsJoinRewriteEnabled(),
                         false))
+                .add(new PropertyMetadata<>(
+                        DELETE_AS_JOIN_REWRITE_MAX_DELETE_COLUMNS,
+                        "The maximum number of columns that can be used in a delete as join rewrite. " +
+                                "If the number of columns exceeds this value, the delete as join rewrite will not be applied.",
+                        INTEGER,
+                        Integer.class,
+                        icebergConfig.getDeleteAsJoinRewriteMaxDeleteColumns(),
+                        false,
+                        value -> {
+                            int intValue = ((Number) value).intValue();
+                            if (intValue < 0 || intValue > 400) {
+                                throw new PrestoException(INVALID_SESSION_PROPERTY,
+                                        format("Invalid value for %s: %s. It must be between 0 and 400.", DELETE_AS_JOIN_REWRITE_MAX_DELETE_COLUMNS, intValue));
+                            }
+                            return intValue;
+                        },
+                        integer -> integer))
                 .add(integerProperty(
                         ROWS_FOR_METADATA_OPTIMIZATION_THRESHOLD,
                         "The max partitions number to utilize metadata optimization. When partitions number " +
@@ -196,6 +218,13 @@ public final class IcebergSessionProperties
                         TARGET_SPLIT_SIZE_BYTES,
                         "The target split size. Set to 0 to use the iceberg table's read.split.target-size property",
                         0L,
+                        false))
+                .add(stringProperty(
+                        MATERIALIZED_VIEW_STORAGE_PREFIX,
+                        "Default prefix for generated materialized view storage table names. " +
+                                "This is only used when the storage_table table property is not explicitly set. " +
+                                "When a custom table name is provided, it takes precedence over this prefix.",
+                        icebergConfig.getMaterializedViewStoragePrefix(),
                         false));
 
         nessieConfig.ifPresent((config) -> propertiesBuilder
@@ -311,6 +340,11 @@ public final class IcebergSessionProperties
         return session.getProperty(DELETE_AS_JOIN_REWRITE_ENABLED, Boolean.class);
     }
 
+    public static int getDeleteAsJoinRewriteMaxDeleteColumns(ConnectorSession session)
+    {
+        return session.getProperty(DELETE_AS_JOIN_REWRITE_MAX_DELETE_COLUMNS, Integer.class);
+    }
+
     public static int getRowsForMetadataOptimizationThreshold(ConnectorSession session)
     {
         return session.getProperty(ROWS_FOR_METADATA_OPTIMIZATION_THRESHOLD, Integer.class);
@@ -334,5 +368,10 @@ public final class IcebergSessionProperties
     public static Long getTargetSplitSize(ConnectorSession session)
     {
         return session.getProperty(TARGET_SPLIT_SIZE_BYTES, Long.class);
+    }
+
+    public static String getMaterializedViewStoragePrefix(ConnectorSession session)
+    {
+        return session.getProperty(MATERIALIZED_VIEW_STORAGE_PREFIX, String.class);
     }
 }

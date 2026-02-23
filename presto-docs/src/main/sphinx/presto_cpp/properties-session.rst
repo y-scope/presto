@@ -97,18 +97,28 @@ If set to ``true``, disables the optimization in expression evaluation to delay 
 
 This should only be used for debugging purposes.
 
-``native_execution_type_rewrite_enabled``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``native_debug_memory_pool_name_regex``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* **Type:** ``boolean``
-* **Default value:** ``false``
+* **Type:** ``varchar``
+* **Default value:** ``""``
 
-When set to ``true``:
-  - Custom type names are peeled in the coordinator. Only the actual base type is preserved.
-  - ``CAST(col AS EnumType<T>)`` is rewritten as ``CAST(col AS <T>)``.
-  - ``ENUM_KEY(EnumType<T>)`` is rewritten as ``ELEMENT_AT(MAP(<T>, VARCHAR))``.
+Native Execution only. Regular expression pattern to match memory pool names for allocation callsite tracking.
+Matched pools will also perform leak checks at destruction. Empty string disables tracking.
 
-This property can only be enabled with native execution.
+This should only be used for debugging purposes.
+
+``native_debug_memory_pool_warn_threshold_bytes``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``bigint``
+* **Default value:** ``0``
+
+Native Execution only. Warning threshold for memory pool allocations. Logs callsites when exceeded.
+Requires allocation tracking to be enabled with ``native_debug_memory_pool_name_regex``.
+Accepts B/KB/MB/GB units. Set to 0B to disable.
+
+This should only be used for debugging purposes.
 
 ``native_selective_nimble_reader_enabled``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -345,7 +355,7 @@ underlying file system.
 * **Default value:** ``false``
 
 Enable query tracing. After enabled, trace data will be generated with query execution, and
-can be used by TraceReplayer. It needs to be used together with native_query_trace_node_ids,
+can be used by TraceReplayer. It needs to be used together with native_query_trace_node_id,
 native_query_trace_max_bytes, native_query_trace_fragment_id, and native_query_trace_shard_id
 to match the task to be traced.
 
@@ -358,14 +368,13 @@ to match the task to be traced.
 
 The location to store the trace files.
 
-``native_query_trace_node_ids``
+``native_query_trace_node_id``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **Type:** ``varchar``
 * **Default value:** ``""``
 
-A comma-separated list of plan node ids whose input data will be traced.
-Empty string if only want to trace the query metadata.
+The plan node id whose input data will be traced.
 
 ``native_query_trace_max_bytes``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -470,3 +479,92 @@ to produce a batch of the size specified by this property. If set to ``0``, then
 * **Default value:** ``10``
 
 Maximum wait time for exchange long poll requests in seconds.
+
+``native_query_memory_reclaimer_priority``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``2147483647``
+
+Priority of the query in the memory pool reclaimer. Lower value means higher priority.
+This is used in global arbitration victim selection.
+
+``native_max_num_splits_listened_to``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``0``
+
+Maximum number of splits to listen to by the SplitListener per table scan node per
+native worker.
+
+``native_max_split_preload_per_driver``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``0``
+
+Maximum number of splits to preload per driver. Set to 0 to disable preloading.
+
+``native_index_lookup_join_max_prefetch_batches``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``0``
+
+Specifies the max number of input batches to prefetch to do index lookup ahead.
+If it is zero, then process one input batch at a time.
+
+``native_index_lookup_join_split_output``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+If this is true, then the index join operator might split output for each input
+batch based on the output batch size control. Otherwise, it tries to produce a
+single output for each input batch.
+
+``native_unnest_split_output``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+If this is true, then the unnest operator might split output for each input
+batch based on the output batch size control. Otherwise, it produces a single
+output for each input batch.
+
+``native_use_velox_geospatial_join``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+If this is true, then the protocol::SpatialJoinNode is converted to a
+velox::core::SpatialJoinNode. Otherwise, it is converted to a
+velox::core::NestedLoopJoinNode.
+
+``native_aggregation_compaction_bytes_threshold``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``bigint``
+* **Default value:** ``0``
+
+Native Execution only. Memory threshold in bytes for triggering string compaction
+during global aggregation. When total string storage exceeds this limit and the
+unused memory ratio is high, compaction is triggered to reclaim dead strings.
+Disabled by default (0). Currently only applies to approx_most_frequent aggregate
+with StringView type during global aggregation.
+
+``native_aggregation_compaction_unused_memory_ratio``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``double``
+* **Minimum value:** ``0``
+* **Maximum value:** ``1``
+* **Default value:** ``0.25``
+
+Native Execution only. Ratio of unused (evicted) bytes to total bytes that triggers
+compaction. The value is in the range of [0, 1). Currently only applies to
+approx_most_frequent aggregate with StringView type during global aggregation.

@@ -14,12 +14,12 @@
 package com.facebook.presto.hive.security;
 
 import com.facebook.airlift.configuration.Config;
-
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 
 public class SecurityConfig
 {
     private String securitySystem = "legacy";
+    private boolean restrictProcedureCall = true;
 
     @NotNull
     public String getSecuritySystem()
@@ -31,6 +31,18 @@ public class SecurityConfig
     public SecurityConfig setSecuritySystem(String securitySystem)
     {
         this.securitySystem = securitySystem;
+        return this;
+    }
+
+    public boolean isRestrictProcedureCall()
+    {
+        return restrictProcedureCall;
+    }
+
+    @Config("hive.restrict-procedure-call")
+    public SecurityConfig setRestrictProcedureCall(boolean restrictProcedureCall)
+    {
+        this.restrictProcedureCall = restrictProcedureCall;
         return this;
     }
 }

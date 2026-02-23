@@ -36,7 +36,6 @@ import static com.facebook.presto.iceberg.rest.IcebergRestTestUtil.restConnector
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Test
 public class TestIcebergDistributedRest
@@ -88,6 +87,10 @@ public class TestIcebergDistributedRest
         Map<String, String> connectorProperties = ImmutableMap.<String, String>builder()
                 .putAll(restConnectorProperties(serverUri))
                 .put("iceberg.rest.session.type", SessionType.USER.name())
+                // Enable OAuth2 authentication to trigger token exchange flow
+                // The credential is required to initialize the OAuth2Manager
+                .put("iceberg.rest.auth.type", "OAUTH2")
+                .put("iceberg.rest.auth.oauth2.credential", "client:secret")
                 .build();
 
         return IcebergQueryRunner.builder()
@@ -96,15 +99,6 @@ public class TestIcebergDistributedRest
                 .setDataDirectory(Optional.of(warehouseLocation.toPath()))
                 .build()
                 .getQueryRunner();
-    }
-
-    @Test
-    public void testDeleteOnV1Table()
-    {
-        // v1 table create fails due to Iceberg REST catalog bug (see: https://github.com/apache/iceberg/issues/8756)
-        assertThatThrownBy(super::testDeleteOnV1Table)
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageMatching("Cannot downgrade v2 table to v1");
     }
 
     @Test

@@ -17,10 +17,9 @@ import com.facebook.presto.common.Page;
 import com.facebook.presto.common.block.Block;
 import com.facebook.presto.spi.PrestoException;
 import com.google.common.collect.ImmutableList;
-
-import javax.annotation.concurrent.GuardedBy;
-import javax.annotation.concurrent.ThreadSafe;
-import javax.inject.Inject;
+import com.google.errorprone.annotations.ThreadSafe;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -103,6 +102,17 @@ public class MemoryPagesStore
     public synchronized boolean contains(Long tableId)
     {
         return tables.containsKey(tableId);
+    }
+
+    public synchronized void clearTable(Long tableId)
+    {
+        TableData tableData = tables.get(tableId);
+        if (tableData != null) {
+            for (Page page : tableData.getPages()) {
+                currentBytes -= page.getRetainedSizeInBytes();
+            }
+            tables.put(tableId, new TableData());
+        }
     }
 
     public synchronized void cleanUp(Set<Long> activeTableIds)

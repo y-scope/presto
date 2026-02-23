@@ -68,20 +68,26 @@ statement
         ALTER (COLUMN)? column=identifier DROP NOT NULL                #alterColumnDropNotNull
     | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
         SET PROPERTIES properties                                      #setTableProperties
+    | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
+        DROP BRANCH (IF EXISTS)? name=string                           #dropBranch
+    | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
+        DROP TAG (IF EXISTS)? name=string                              #dropTag
     | ANALYZE qualifiedName (WITH properties)?                         #analyze
     | CREATE TYPE qualifiedName AS (
         '(' sqlParameterDeclaration (',' sqlParameterDeclaration)* ')'
         | type)                                                        #createType
     | CREATE (OR REPLACE)? VIEW qualifiedName
-            (SECURITY (DEFINER | INVOKER))? AS query                   #createView
+            viewSecurity? AS query                                     #createView
     | ALTER VIEW (IF EXISTS)? from=qualifiedName
         RENAME TO to=qualifiedName                                     #renameView
     | DROP VIEW (IF EXISTS)? qualifiedName                             #dropView
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? qualifiedName
         (COMMENT string)?
+        viewSecurity?
         (WITH properties)? AS (query | '('query')')                    #createMaterializedView
     | DROP MATERIALIZED VIEW (IF EXISTS)? qualifiedName                #dropMaterializedView
-    | REFRESH MATERIALIZED VIEW qualifiedName WHERE booleanExpression  #refreshMaterializedView
+    | REFRESH MATERIALIZED VIEW qualifiedName
+        (WHERE where=booleanExpression)?                               #refreshMaterializedView
     | CREATE (OR REPLACE)? TEMPORARY? FUNCTION functionName=qualifiedName
         '(' (sqlParameterDeclaration (',' sqlParameterDeclaration)*)? ')'
         RETURNS returnType=type
@@ -152,6 +158,8 @@ statement
     | UPDATE qualifiedName
         SET updateAssignment (',' updateAssignment)*
         (WHERE where=booleanExpression)?                               #update
+    | MERGE INTO qualifiedName (AS? identifier)?
+        USING relation ON expression mergeCase+                        #mergeInto
     ;
 
 query
@@ -235,6 +243,10 @@ nullCallClause
 
 externalRoutineName
     : identifier
+    ;
+
+viewSecurity
+    : SECURITY (DEFINER | INVOKER)
     ;
 
 queryNoWith:
@@ -346,6 +358,7 @@ relationPrimary
     | UNNEST '(' expression (',' expression)* ')' (WITH ORDINALITY)?  #unnest
     | LATERAL '(' query ')'                                           #lateral
     | '(' relation ')'                                                #parenthesizedRelation
+    | TABLE '(' tableFunctionCall ')'                                 #tableFunctionInvocation
     ;
 
 expression
@@ -474,6 +487,40 @@ type
     | INTERVAL from=intervalField TO to=intervalField
     ;
 
+tableFunctionCall
+    : qualifiedName '(' (tableFunctionArgument (',' tableFunctionArgument)*)?
+      (COPARTITION copartitionTables (',' copartitionTables)*)? ')'
+    ;
+
+tableFunctionArgument
+    : (identifier '=>')? (tableArgument | descriptorArgument | expression) // descriptor before expression to avoid parsing descriptor as a function call
+    ;
+
+tableArgument
+    : tableArgumentRelation
+        (PARTITION BY ('(' (expression (',' expression)*)? ')' | expression))?
+        (PRUNE WHEN EMPTY | KEEP WHEN EMPTY)?
+        (ORDER BY ('(' sortItem (',' sortItem)* ')' | sortItem))?
+    ;
+
+tableArgumentRelation
+    : TABLE '(' qualifiedName ')' (AS? identifier columnAliases?)?  #tableArgumentTable
+    | TABLE '(' query ')' (AS? identifier columnAliases?)?          #tableArgumentQuery
+    ;
+
+descriptorArgument
+    : DESCRIPTOR '(' descriptorField (',' descriptorField)* ')'
+    | CAST '(' NULL AS DESCRIPTOR ')'
+    ;
+
+descriptorField
+    : identifier type?
+    ;
+
+copartitionTables
+    : '(' qualifiedName ',' qualifiedName (',' qualifiedName)* ')'
+    ;
+
 typeParameter
     : INTEGER_VALUE | type
     ;
@@ -491,6 +538,15 @@ whenClause
 
 filter
     : FILTER '(' WHERE booleanExpression ')'
+    ;
+
+mergeCase
+    : WHEN MATCHED THEN
+        UPDATE SET targetColumns+=identifier EQ values+=expression
+          (',' targetColumns+=identifier EQ values+=expression)*            #mergeUpdate
+    | WHEN NOT MATCHED THEN
+        INSERT ('(' columns+=identifier (',' columns+=identifier)* ')')?
+        VALUES '(' values+=expression (',' values+=expression)* ')'         #mergeInsert
     ;
 
 over
@@ -518,7 +574,7 @@ frameBound
     ;
 
 updateAssignment
-    : identifier '=' expression
+    : identifier EQ expression
     ;
 
 explainOption
@@ -632,25 +688,25 @@ constraintEnforced
 nonReserved
     // IMPORTANT: this rule must only contain tokens. Nested rules are not supported. See SqlParser.exitNonReserved
     : ADD | ADMIN | ALL | ANALYZE | ANY | ARRAY | ASC | AT
-    | BEFORE | BERNOULLI
-    | CALL | CALLED | CASCADE | CATALOGS | COLUMN | COLUMNS | COMMENT | COMMIT | COMMITTED | CURRENT | CURRENT_ROLE
-    | DATA | DATE | DAY | DEFINER | DESC | DETERMINISTIC | DISABLED | DISTRIBUTED
-    | ENABLED | ENFORCED | EXCLUDING | EXPLAIN | EXTERNAL
+    | BEFORE | BERNOULLI | BRANCH
+    | CALL | CALLED | CASCADE | CATALOGS | COLUMN | COLUMNS | COMMENT | COMMIT | COMMITTED | COPARTITION | CURRENT | CURRENT_ROLE
+    | DATA | DATE | DAY | DEFINER | DESC | DESCRIPTOR | DETERMINISTIC | DISABLED | DISTRIBUTED
+    | EMPTY | ENABLED | ENFORCED | EXCLUDING | EXPLAIN | EXTERNAL
     | FETCH | FILTER | FIRST | FOLLOWING | FORMAT | FUNCTION | FUNCTIONS
     | GRANT | GRANTED | GRANTS | GRAPHVIZ | GROUPS
     | HOUR
     | IF | IGNORE | INCLUDING | INPUT | INTERVAL | INVOKER | IO | ISOLATION
     | JSON
-    | KEY
+    | KEEP | KEY
     | LANGUAGE | LAST | LATERAL | LEVEL | LIMIT | LOGICAL
-    | MAP | MATERIALIZED | MINUTE | MONTH
+    | MAP | MATCHED | MATERIALIZED | MERGE | MINUTE | MONTH
     | NAME | NFC | NFD | NFKC | NFKD | NO | NONE | NULLIF | NULLS
     | OF | OFFSET | ONLY | OPTION | ORDINALITY | OUTPUT | OVER
-    | PARTITION | PARTITIONS | POSITION | PRECEDING | PRIMARY | PRIVILEGES | PROPERTIES
+    | PARTITION | PARTITIONS | POSITION | PRECEDING | PRIMARY | PRIVILEGES | PROPERTIES | PRUNE
     | RANGE | READ | REFRESH | RELY | RENAME | REPEATABLE | REPLACE | RESET | RESPECT | RESTRICT | RETURN | RETURNS | REVOKE | ROLE | ROLES | ROLLBACK | ROW | ROWS
     | SCHEMA | SCHEMAS | SECOND | SECURITY | SERIALIZABLE | SESSION | SET | SETS | SQL
     | SHOW | SOME | START | STATS | SUBSTRING | SYSTEM | SYSTEM_TIME | SYSTEM_VERSION
-    | TABLES | TABLESAMPLE | TEMPORARY | TEXT | TIME | TIMESTAMP | TO | TRANSACTION | TRUNCATE | TRY_CAST | TYPE
+    | TABLES | TABLESAMPLE | TAG | TEMPORARY | TEXT | TIME | TIMESTAMP | TO | TRANSACTION | TRUNCATE | TRY_CAST | TYPE
     | UNBOUNDED | UNCOMMITTED | UNIQUE | UPDATE | USE | USER
     | VALIDATE | VERBOSE | VERSION | VIEW
     | WORK | WRITE
@@ -672,6 +728,7 @@ AT: 'AT';
 BEFORE: 'BEFORE';
 BERNOULLI: 'BERNOULLI';
 BETWEEN: 'BETWEEN';
+BRANCH: 'BRANCH';
 BY: 'BY';
 CALL: 'CALL';
 CALLED: 'CALLED';
@@ -686,6 +743,7 @@ COMMIT: 'COMMIT';
 COMMITTED: 'COMMITTED';
 CONSTRAINT: 'CONSTRAINT';
 CREATE: 'CREATE';
+COPARTITION: 'COPARTITION';
 CROSS: 'CROSS';
 CUBE: 'CUBE';
 CURRENT: 'CURRENT';
@@ -702,12 +760,14 @@ DEFINER: 'DEFINER';
 DELETE: 'DELETE';
 DESC: 'DESC';
 DESCRIBE: 'DESCRIBE';
+DESCRIPTOR: 'DESCRIPTOR';
 DETERMINISTIC: 'DETERMINISTIC';
 DISABLED: 'DISABLED';
 DISTINCT: 'DISTINCT';
 DISTRIBUTED: 'DISTRIBUTED';
 DROP: 'DROP';
 ELSE: 'ELSE';
+EMPTY: 'EMPTY';
 ENABLED: 'ENABLED';
 END: 'END';
 ENFORCED: 'ENFORCED';
@@ -755,6 +815,7 @@ IS: 'IS';
 ISOLATION: 'ISOLATION';
 JSON: 'JSON';
 JOIN: 'JOIN';
+KEEP: 'KEEP';
 KEY: 'KEY';
 LANGUAGE: 'LANGUAGE';
 LAST: 'LAST';
@@ -767,7 +828,9 @@ LOCALTIME: 'LOCALTIME';
 LOCALTIMESTAMP: 'LOCALTIMESTAMP';
 LOGICAL: 'LOGICAL';
 MAP: 'MAP';
+MATCHED: 'MATCHED';
 MATERIALIZED: 'MATERIALIZED';
+MERGE: 'MERGE';
 MINUTE: 'MINUTE';
 MONTH: 'MONTH';
 NAME: 'NAME';
@@ -802,6 +865,7 @@ PREPARE: 'PREPARE';
 PRIMARY: 'PRIMARY';
 PRIVILEGES: 'PRIVILEGES';
 PROPERTIES: 'PROPERTIES';
+PRUNE: 'PRUNE';
 RANGE: 'RANGE';
 READ: 'READ';
 RECURSIVE: 'RECURSIVE';
@@ -844,6 +908,7 @@ SYSTEM_VERSION: 'SYSTEM_VERSION';
 TABLE: 'TABLE';
 TABLES: 'TABLES';
 TABLESAMPLE: 'TABLESAMPLE';
+TAG: 'TAG';
 TEMPORARY: 'TEMPORARY';
 TEXT: 'TEXT';
 THEN: 'THEN';

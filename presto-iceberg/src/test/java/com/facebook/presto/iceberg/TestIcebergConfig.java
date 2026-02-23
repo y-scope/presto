@@ -22,16 +22,16 @@ import java.util.Map;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.recordDefaults;
-import static com.facebook.presto.hive.HiveCompressionCodec.GZIP;
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
+import static com.facebook.airlift.units.DataSize.succinctDataSize;
 import static com.facebook.presto.hive.HiveCompressionCodec.NONE;
+import static com.facebook.presto.hive.HiveCompressionCodec.ZSTD;
 import static com.facebook.presto.iceberg.CatalogType.HADOOP;
 import static com.facebook.presto.iceberg.CatalogType.HIVE;
 import static com.facebook.presto.iceberg.IcebergFileFormat.ORC;
 import static com.facebook.presto.iceberg.IcebergFileFormat.PARQUET;
 import static com.facebook.presto.spi.statistics.ColumnStatisticType.NUMBER_OF_DISTINCT_VALUES;
 import static com.facebook.presto.spi.statistics.ColumnStatisticType.TOTAL_SIZE_IN_BYTES;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.airlift.units.DataSize.succinctDataSize;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS_DEFAULT;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH_DEFAULT;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES_DEFAULT;
@@ -46,7 +46,7 @@ public class TestIcebergConfig
     {
         assertRecordedDefaults(recordDefaults(IcebergConfig.class)
                 .setFileFormat(PARQUET)
-                .setCompressionCodec(GZIP)
+                .setCompressionCodec(ZSTD)
                 .setCatalogType(HIVE)
                 .setCatalogWarehouse(null)
                 .setCatalogWarehouseDataDir(null)
@@ -60,6 +60,7 @@ public class TestIcebergConfig
                 .setMergeOnReadModeEnabled(true)
                 .setPushdownFilterEnabled(false)
                 .setDeleteAsJoinRewriteEnabled(true)
+                .setDeleteAsJoinRewriteMaxDeleteColumns(400)
                 .setRowsForMetadataOptimizationThreshold(1000)
                 .setManifestCachingEnabled(true)
                 .setFileIOImpl(HadoopFileIO.class.getName())
@@ -72,7 +73,8 @@ public class TestIcebergConfig
                 .setMetricsMaxInferredColumn(METRICS_MAX_INFERRED_COLUMN_DEFAULTS_DEFAULT)
                 .setManifestCacheMaxChunkSize(succinctDataSize(2, MEGABYTE))
                 .setMaxStatisticsFileCacheSize(succinctDataSize(256, MEGABYTE))
-                .setStatisticsKllSketchKParameter(1024));
+                .setStatisticsKllSketchKParameter(1024)
+                .setMaterializedViewStoragePrefix("__mv_storage__"));
     }
 
     @Test
@@ -93,7 +95,8 @@ public class TestIcebergConfig
                 .put("iceberg.statistic-snapshot-record-difference-weight", "1.0")
                 .put("iceberg.hive-statistics-merge-strategy", NUMBER_OF_DISTINCT_VALUES.name() + "," + TOTAL_SIZE_IN_BYTES.name())
                 .put("iceberg.pushdown-filter-enabled", "true")
-                .put("iceberg.delete-as-join-rewrite-enabled", "false")
+                .put("deprecated.iceberg.delete-as-join-rewrite-enabled", "false")
+                .put("iceberg.delete-as-join-rewrite-max-delete-columns", "1")
                 .put("iceberg.rows-for-metadata-optimization-threshold", "500")
                 .put("iceberg.io.manifest.cache-enabled", "false")
                 .put("iceberg.io-impl", "com.facebook.presto.iceberg.HdfsFileIO")
@@ -107,6 +110,7 @@ public class TestIcebergConfig
                 .put("iceberg.metrics-max-inferred-column", "16")
                 .put("iceberg.max-statistics-file-cache-size", "512MB")
                 .put("iceberg.statistics-kll-sketch-k-parameter", "4096")
+                .put("iceberg.materialized-view-storage-prefix", "custom_mv_prefix")
                 .build();
 
         IcebergConfig expected = new IcebergConfig()
@@ -125,6 +129,7 @@ public class TestIcebergConfig
                 .setHiveStatisticsMergeFlags("NUMBER_OF_DISTINCT_VALUES,TOTAL_SIZE_IN_BYTES")
                 .setPushdownFilterEnabled(true)
                 .setDeleteAsJoinRewriteEnabled(false)
+                .setDeleteAsJoinRewriteMaxDeleteColumns(1)
                 .setRowsForMetadataOptimizationThreshold(500)
                 .setManifestCachingEnabled(false)
                 .setFileIOImpl("com.facebook.presto.iceberg.HdfsFileIO")
@@ -137,7 +142,8 @@ public class TestIcebergConfig
                 .setMetadataDeleteAfterCommit(true)
                 .setMetricsMaxInferredColumn(16)
                 .setMaxStatisticsFileCacheSize(succinctDataSize(512, MEGABYTE))
-                .setStatisticsKllSketchKParameter(4096);
+                .setStatisticsKllSketchKParameter(4096)
+                .setMaterializedViewStoragePrefix("custom_mv_prefix");
 
         assertFullMapping(properties, expected);
     }

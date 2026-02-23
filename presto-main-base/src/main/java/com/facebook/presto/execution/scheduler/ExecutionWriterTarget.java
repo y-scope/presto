@@ -14,7 +14,12 @@
 
 package com.facebook.presto.execution.scheduler;
 
+import com.facebook.drift.annotations.ThriftConstructor;
+import com.facebook.drift.annotations.ThriftField;
+import com.facebook.drift.annotations.ThriftStruct;
+import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.metadata.DeleteTableHandle;
+import com.facebook.presto.metadata.DistributedProcedureHandle;
 import com.facebook.presto.metadata.InsertTableHandle;
 import com.facebook.presto.metadata.OutputTableHandle;
 import com.facebook.presto.spi.SchemaTableName;
@@ -32,10 +37,14 @@ import static java.util.Objects.requireNonNull;
         @JsonSubTypes.Type(value = ExecutionWriterTarget.InsertHandle.class, name = "InsertHandle"),
         @JsonSubTypes.Type(value = ExecutionWriterTarget.DeleteHandle.class, name = "DeleteHandle"),
         @JsonSubTypes.Type(value = ExecutionWriterTarget.RefreshMaterializedViewHandle.class, name = "RefreshMaterializedViewHandle"),
-        @JsonSubTypes.Type(value = ExecutionWriterTarget.UpdateHandle.class, name = "UpdateHandle")})
+        @JsonSubTypes.Type(value = ExecutionWriterTarget.UpdateHandle.class, name = "UpdateHandle"),
+        @JsonSubTypes.Type(value = ExecutionWriterTarget.ExecuteProcedureHandle.class, name = "ExecuteProcedureHandle"),
+        @JsonSubTypes.Type(value = ExecutionWriterTarget.MergeHandle.class, name = "MergeHandle")
+})
 @SuppressWarnings({"EmptyClass", "ClassMayBeInterface"})
 public abstract class ExecutionWriterTarget
 {
+    @ThriftStruct
     public static class CreateHandle
             extends ExecutionWriterTarget
     {
@@ -43,6 +52,7 @@ public abstract class ExecutionWriterTarget
         private final SchemaTableName schemaTableName;
 
         @JsonCreator
+        @ThriftConstructor
         public CreateHandle(
                 @JsonProperty("handle") OutputTableHandle handle,
                 @JsonProperty("schemaTableName") SchemaTableName schemaTableName)
@@ -52,12 +62,14 @@ public abstract class ExecutionWriterTarget
         }
 
         @JsonProperty
+        @ThriftField(1)
         public OutputTableHandle getHandle()
         {
             return handle;
         }
 
         @JsonProperty
+        @ThriftField(2)
         public SchemaTableName getSchemaTableName()
         {
             return schemaTableName;
@@ -70,6 +82,7 @@ public abstract class ExecutionWriterTarget
         }
     }
 
+    @ThriftStruct
     public static class InsertHandle
             extends ExecutionWriterTarget
     {
@@ -77,6 +90,7 @@ public abstract class ExecutionWriterTarget
         private final SchemaTableName schemaTableName;
 
         @JsonCreator
+        @ThriftConstructor
         public InsertHandle(
                 @JsonProperty("handle") InsertTableHandle handle,
                 @JsonProperty("schemaTableName") SchemaTableName schemaTableName)
@@ -86,12 +100,14 @@ public abstract class ExecutionWriterTarget
         }
 
         @JsonProperty
+        @ThriftField(1)
         public InsertTableHandle getHandle()
         {
             return handle;
         }
 
         @JsonProperty
+        @ThriftField(2)
         public SchemaTableName getSchemaTableName()
         {
             return schemaTableName;
@@ -104,6 +120,7 @@ public abstract class ExecutionWriterTarget
         }
     }
 
+    @ThriftStruct
     public static class DeleteHandle
             extends ExecutionWriterTarget
     {
@@ -111,6 +128,7 @@ public abstract class ExecutionWriterTarget
         private final SchemaTableName schemaTableName;
 
         @JsonCreator
+        @ThriftConstructor
         public DeleteHandle(
                 @JsonProperty("handle") DeleteTableHandle handle,
                 @JsonProperty("schemaTableName") SchemaTableName schemaTableName)
@@ -120,12 +138,14 @@ public abstract class ExecutionWriterTarget
         }
 
         @JsonProperty
+        @ThriftField(1)
         public DeleteTableHandle getHandle()
         {
             return handle;
         }
 
         @JsonProperty
+        @ThriftField(2)
         public SchemaTableName getSchemaTableName()
         {
             return schemaTableName;
@@ -138,6 +158,7 @@ public abstract class ExecutionWriterTarget
         }
     }
 
+    @ThriftStruct
     public static class RefreshMaterializedViewHandle
             extends ExecutionWriterTarget
     {
@@ -145,6 +166,7 @@ public abstract class ExecutionWriterTarget
         private final SchemaTableName schemaTableName;
 
         @JsonCreator
+        @ThriftConstructor
         public RefreshMaterializedViewHandle(
                 @JsonProperty("handle") InsertTableHandle handle,
                 @JsonProperty("schemaTableName") SchemaTableName schemaTableName)
@@ -154,12 +176,14 @@ public abstract class ExecutionWriterTarget
         }
 
         @JsonProperty
+        @ThriftField(1)
         public InsertTableHandle getHandle()
         {
             return handle;
         }
 
         @JsonProperty
+        @ThriftField(2)
         public SchemaTableName getSchemaTableName()
         {
             return schemaTableName;
@@ -172,6 +196,7 @@ public abstract class ExecutionWriterTarget
         }
     }
 
+    @ThriftStruct
     public static class UpdateHandle
             extends ExecutionWriterTarget
     {
@@ -179,6 +204,7 @@ public abstract class ExecutionWriterTarget
         private final SchemaTableName schemaTableName;
 
         @JsonCreator
+        @ThriftConstructor
         public UpdateHandle(
                 @JsonProperty("handle") TableHandle handle,
                 @JsonProperty("schemaTableName") SchemaTableName schemaTableName)
@@ -188,7 +214,46 @@ public abstract class ExecutionWriterTarget
         }
 
         @JsonProperty
+        @ThriftField(1)
         public TableHandle getHandle()
+        {
+            return handle;
+        }
+
+        @JsonProperty
+        @ThriftField(2)
+        public SchemaTableName getSchemaTableName()
+        {
+            return schemaTableName;
+        }
+
+        @Override
+        public String toString()
+        {
+            return handle.toString();
+        }
+    }
+
+    public static class ExecuteProcedureHandle
+            extends ExecutionWriterTarget
+    {
+        private final DistributedProcedureHandle handle;
+        private final SchemaTableName schemaTableName;
+        private final QualifiedObjectName procedureName;
+
+        @JsonCreator
+        public ExecuteProcedureHandle(
+                @JsonProperty("handle") DistributedProcedureHandle handle,
+                @JsonProperty("schemaTableName") SchemaTableName schemaTableName,
+                @JsonProperty("procedureName") QualifiedObjectName procedureName)
+        {
+            this.handle = requireNonNull(handle, "handle is null");
+            this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
+            this.procedureName = requireNonNull(procedureName, "procedureName is null");
+        }
+
+        @JsonProperty
+        public DistributedProcedureHandle getHandle()
         {
             return handle;
         }
@@ -197,6 +262,39 @@ public abstract class ExecutionWriterTarget
         public SchemaTableName getSchemaTableName()
         {
             return schemaTableName;
+        }
+
+        @JsonProperty
+        public QualifiedObjectName getProcedureName()
+        {
+            return procedureName;
+        }
+
+        @Override
+        public String toString()
+        {
+            return handle.toString();
+        }
+    }
+
+    @ThriftStruct
+    public static class MergeHandle
+            extends ExecutionWriterTarget
+    {
+        private final com.facebook.presto.spi.MergeHandle handle;
+
+        @JsonCreator
+        @ThriftConstructor
+        public MergeHandle(@JsonProperty("handle") com.facebook.presto.spi.MergeHandle handle)
+        {
+            this.handle = requireNonNull(handle, "tableHandle is null");
+        }
+
+        @JsonProperty
+        @ThriftField(1)
+        public com.facebook.presto.spi.MergeHandle getHandle()
+        {
+            return handle;
         }
 
         @Override

@@ -14,6 +14,8 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.common.QualifiedObjectName;
+import com.facebook.presto.metadata.Catalog.CatalogContext;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.SchemaTableName;
@@ -53,6 +55,20 @@ public final class MetadataListing
         return result.build();
     }
 
+    public static SortedMap<String, CatalogContext> listCatalogsWithConnectorContext(Session session, Metadata metadata, AccessControl accessControl)
+    {
+        Map<String, CatalogContext> catalogNamesWithConnectorContext = metadata.getCatalogNamesWithConnectorContext(session);
+        Set<String> allowedCatalogs = accessControl.filterCatalogs(session.getIdentity(), session.getAccessControlContext(), catalogNamesWithConnectorContext.keySet());
+
+        ImmutableSortedMap.Builder<String, CatalogContext> result = ImmutableSortedMap.naturalOrder();
+        for (Map.Entry<String, CatalogContext> entry : catalogNamesWithConnectorContext.entrySet()) {
+            if (allowedCatalogs.contains(entry.getKey())) {
+                result.put(entry);
+            }
+        }
+        return result.build();
+    }
+
     public static SortedSet<String> listSchemas(Session session, Metadata metadata, AccessControl accessControl, String catalogName)
     {
         Set<String> schemaNames = ImmutableSet.copyOf(metadata.listSchemaNames(session, catalogName));
@@ -70,6 +86,14 @@ public final class MetadataListing
     public static Set<SchemaTableName> listViews(Session session, Metadata metadata, AccessControl accessControl, QualifiedTablePrefix prefix)
     {
         Set<SchemaTableName> tableNames = metadata.listViews(session, prefix).stream()
+                .map(MetadataUtil::toSchemaTableName)
+                .collect(toImmutableSet());
+        return accessControl.filterTables(session.getRequiredTransactionId(), session.getIdentity(), session.getAccessControlContext(), prefix.getCatalogName(), tableNames);
+    }
+
+    public static Set<SchemaTableName> listMaterializedViews(Session session, Metadata metadata, AccessControl accessControl, QualifiedTablePrefix prefix)
+    {
+        Set<SchemaTableName> tableNames = metadata.listMaterializedViews(session, prefix).stream()
                 .map(MetadataUtil::toSchemaTableName)
                 .collect(toImmutableSet());
         return accessControl.filterTables(session.getRequiredTransactionId(), session.getIdentity(), session.getAccessControlContext(), prefix.getCatalogName(), tableNames);
@@ -104,7 +128,15 @@ public final class MetadataListing
         ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>> result = ImmutableMap.builder();
         for (Entry<SchemaTableName, List<ColumnMetadata>> entry : tableColumns.entrySet()) {
             if (allowedTables.contains(entry.getKey())) {
-                result.put(entry);
+                result.put(entry.getKey(), accessControl.filterColumns(
+                        session.getRequiredTransactionId(),
+                        session.getIdentity(),
+                        session.getAccessControlContext(),
+                        new QualifiedObjectName(
+                                prefix.getCatalogName(),
+                                entry.getKey().getSchemaName(),
+                                entry.getKey().getTableName()),
+                        entry.getValue()));
             }
         }
         return result.build();

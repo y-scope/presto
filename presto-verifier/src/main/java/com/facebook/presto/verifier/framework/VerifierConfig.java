@@ -20,9 +20,8 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.Optional;
 import java.util.Set;
@@ -63,6 +62,7 @@ public class VerifierConfig
     private boolean skipChecksum;
     private boolean runDeterminismAnalysisOnTest;
     private boolean concurrentControlAndTest;
+    private boolean resubmitNondeterministicQueries;
 
     private boolean explain;
     private boolean saveSnapshot;
@@ -398,6 +398,19 @@ public class VerifierConfig
     public VerifierConfig setConcurrentControlAndTest(boolean concurrentControlAndTest)
     {
         this.concurrentControlAndTest = concurrentControlAndTest;
+        return this;
+    }
+
+    public boolean isResubmitNondeterministicQueries()
+    {
+        return resubmitNondeterministicQueries;
+    }
+
+    @ConfigDescription("Automatically resubmit verification when determinism analysis detects nondeterministic results")
+    @Config("resubmit-nondeterministic-queries")
+    public VerifierConfig setResubmitNondeterministicQueries(boolean resubmitNondeterministicQueries)
+    {
+        this.resubmitNondeterministicQueries = resubmitNondeterministicQueries;
         return this;
     }
 

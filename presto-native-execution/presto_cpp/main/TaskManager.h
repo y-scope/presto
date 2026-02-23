@@ -14,8 +14,8 @@
 #pragma once
 
 #include <folly/Synchronized.h>
+#include <deque>
 #include <memory>
-#include <queue>
 #include "presto_cpp/main/PrestoTask.h"
 #include "presto_cpp/main/QueryContextManager.h"
 #include "presto_cpp/main/http/HttpServer.h"
@@ -24,7 +24,8 @@
 
 namespace facebook::presto {
 
-using TaskQueue = std::queue<std::weak_ptr<PrestoTask>>;
+// One entry can hold multiple queued tasks for the same query.
+using TaskQueue = std::deque<std::vector<std::weak_ptr<PrestoTask>>>;
 
 class TaskManager {
  public:
@@ -32,6 +33,8 @@ class TaskManager {
       folly::Executor* driverExecutor,
       folly::Executor* httpSrvExecutor,
       folly::Executor* spillerExecutor);
+
+  virtual ~TaskManager() = default;
 
   /// Invoked by Presto server shutdown to wait for all the tasks to complete
   /// and cleanup the completed tasks.
@@ -145,7 +148,7 @@ class TaskManager {
   int64_t getBytesProcessed() const;
 
   /// Stores the number of drivers in various states of execution.
-  velox::exec::Task::DriverCounts getDriverCounts() const;
+  velox::exec::Task::DriverCounts getDriverCounts();
 
   /// Returns array with number of tasks for each of six PrestoTaskState (enum
   /// defined in PrestoTask.h).
@@ -176,8 +179,20 @@ class TaskManager {
 
   /// Presto Server can notify the Task Manager that the former is overloaded,
   /// so the Task Manager can optionally change Task admission algorithm.
-  void setServerOverloaded(bool serverOverloaded) {
-    serverOverloaded_ = serverOverloaded;
+  void setServerOverloaded(bool serverOverloaded);
+
+  bool isServerOverloaded() const {
+    return serverOverloaded_;
+  }
+
+  uint64_t lastNotOverloadedTimeInSecs() const {
+    return lastNotOverloadedTimeInSecs_;
+  }
+
+  /// Returns last known number of queued drivers. Used in determining if the
+  /// server is CPU overloaded.
+  uint32_t numQueuedDrivers() const {
+    return numQueuedDrivers_;
   }
 
   /// Contains the logic on starting tasks if not overloaded.
@@ -187,6 +202,9 @@ class TaskManager {
 
   /// See if we have any queued tasks that can be started.
   void maybeStartNextQueuedTask();
+
+ protected:
+  std::unique_ptr<QueryContextManager> queryContextManager_;
 
  private:
   static constexpr folly::StringPiece kMaxDriversPerTask{
@@ -222,9 +240,10 @@ class TaskManager {
   std::shared_ptr<velox::exec::OutputBufferManager> bufferManager_;
   folly::Synchronized<TaskMap> taskMap_;
   folly::Synchronized<TaskQueue> taskQueue_;
-  std::unique_ptr<QueryContextManager> queryContextManager_;
   folly::Executor* httpSrvCpuExecutor_;
   std::atomic_bool serverOverloaded_{false};
+  std::atomic_uint64_t lastNotOverloadedTimeInSecs_;
+  std::atomic_uint32_t numQueuedDrivers_{0};
 };
 
 } // namespace facebook::presto
