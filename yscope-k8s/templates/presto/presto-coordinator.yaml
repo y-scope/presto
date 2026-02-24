@@ -1,0 +1,75 @@
+apiVersion: "v1"
+kind: "Pod"
+metadata:
+  labels:
+    app: "{{ .Values.presto.coordinator.serviceName }}"
+  name: "{{ .Values.presto.coordinator.serviceName }}"
+spec:
+  initContainers:
+    - name: "generate-configs"
+      image: "busybox"
+      command: ["/scripts/generate-configs.sh"]
+      volumeMounts:
+        - name: "presto-coordinator-config-script-volume"
+          mountPath: "/scripts"
+        - name: "presto-coordinator-config-dir-volume"
+          mountPath: "/opt/presto-server/etc"
+        - name: "presto-coordinator-config-volume"
+          mountPath: "/configs"
+  containers:
+    - name: "{{ .Values.presto.coordinator.serviceName }}"
+      image: "{{ .Values.presto.coordinator.image }}"
+      volumeMounts:
+        - name: "presto-coordinator-config-dir-volume"
+          mountPath: "/opt/presto-server/etc"
+        - name: "clp-archives-volume"
+          mountPath: "/var/data/archives"
+  volumes:
+    - name: "presto-coordinator-config-script-volume"
+      configMap:
+        name: "presto-coordinator-config-script"
+        defaultMode: 0755
+    - name: "presto-coordinator-config-dir-volume"
+      emptyDir: {}
+    - name: "presto-coordinator-config-volume"
+      configMap:
+        name: "presto-coordinator-config"
+    - name: "clp-archives-volume"
+      hostPath:
+        path: "/var/data/archives"
+---
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: "{{ .Values.presto.coordinator.serviceName }}"
+  labels:
+    app: "{{ .Values.presto.coordinator.serviceName }}"
+spec:
+  type: "ClusterIP"
+  ports:
+    - name: "http"
+      port: {{ .Values.presto.coordinator.httpPort }}
+      targetPort: {{ .Values.presto.coordinator.httpPort }}
+  selector:
+    app: "{{ .Values.presto.coordinator.serviceName }}"
+---
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: "presto-coordinator-config-script"
+data:
+  generate-configs.sh: |
+    #!/bin/sh
+
+    # Exit on error
+    set -e
+
+    PRESTO_CONFIG_DIR="/opt/presto-server/etc"
+
+    # Setup the config directory hierarchy
+    mkdir -p ${PRESTO_CONFIG_DIR}/catalog
+
+    # Copy over files
+    cp /configs/* ${PRESTO_CONFIG_DIR}
+    mv ${PRESTO_CONFIG_DIR}/clp.properties ${PRESTO_CONFIG_DIR}/catalog
+
