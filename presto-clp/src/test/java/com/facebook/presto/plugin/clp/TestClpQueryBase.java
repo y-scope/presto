@@ -17,6 +17,7 @@ import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.common.block.BlockEncodingManager;
 import com.facebook.presto.common.type.RowType;
+import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.AnalyzePropertyManager;
 import com.facebook.presto.metadata.CatalogManager;
@@ -51,6 +52,7 @@ import java.util.stream.Stream;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.FunctionAndTypeManager.createTestFunctionAndTypeManager;
 import static com.facebook.presto.metadata.SessionPropertyManager.createTestingSessionPropertyManager;
@@ -89,8 +91,9 @@ public class TestClpQueryBase
                             RowType.field("Name", VARCHAR)))))));
     protected static final ClpColumnHandle fare = new ClpColumnHandle("fare", DOUBLE);
     protected static final ClpColumnHandle isHoliday = new ClpColumnHandle("isHoliday", BOOLEAN);
+    protected static final ClpColumnHandle clpTimestamp = new ClpColumnHandle("clpTimestamp", TIMESTAMP);
     protected static final Map<VariableReferenceExpression, ColumnHandle> variableToColumnHandleMap =
-            Stream.of(city, fare, isHoliday)
+            Stream.of(city, fare, isHoliday, clpTimestamp)
                     .collect(toMap(
                             ch -> new VariableReferenceExpression(Optional.empty(), ch.getColumnName(), ch.getColumnType()),
                             ch -> ch));
@@ -129,6 +132,14 @@ public class TestClpQueryBase
         {
             connectorSession = SESSION;
             session = TestingSession.testSessionBuilder(createTestingSessionPropertyManager(new SystemSessionProperties().getSessionProperties())).build();
+        }
+
+        public SessionHolder(TimeZoneKey timeZoneKey)
+        {
+            connectorSession = SESSION;
+            session = TestingSession.testSessionBuilder(createTestingSessionPropertyManager(new SystemSessionProperties().getSessionProperties()))
+                    .setTimeZoneKey(timeZoneKey)
+                    .build();
         }
 
         public ConnectorSession getConnectorSession()

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.clp;
 
+import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.plugin.clp.optimization.ClpFilterToKqlConverter;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.relation.RowExpression;
@@ -269,6 +270,31 @@ public class TestClpFilterToKql
                 "(fare: 0 AND (city.Name: \"b*\" OR city.Region.Id: 1))",
                 "(\"fare\" = 0)",
                 testMetadataFilterColumns);
+    }
+
+    @Test
+    public void testTimestampPushDown()
+    {
+        // Use UTC to ensure stable epoch-ms values regardless of local timezone
+        SessionHolder sessionHolder = new SessionHolder(TimeZoneKey.UTC_KEY);
+
+        // Epoch ms for TIMESTAMP '2023-01-01 00:00:00.000' UTC = 1672531200000
+        testPushDown(sessionHolder, "clpTimestamp > TIMESTAMP '2023-01-01 00:00:00.000'",
+                "clpTimestamp > timestamp(\"1672531200000\", \"\\L\")", null);
+        testPushDown(sessionHolder, "clpTimestamp >= TIMESTAMP '2023-01-01 00:00:00.000'",
+                "clpTimestamp >= timestamp(\"1672531200000\", \"\\L\")", null);
+        testPushDown(sessionHolder, "clpTimestamp < TIMESTAMP '2023-01-01 00:00:00.000'",
+                "clpTimestamp < timestamp(\"1672531200000\", \"\\L\")", null);
+        testPushDown(sessionHolder, "clpTimestamp <= TIMESTAMP '2023-01-01 00:00:00.000'",
+                "clpTimestamp <= timestamp(\"1672531200000\", \"\\L\")", null);
+        testPushDown(sessionHolder, "clpTimestamp = TIMESTAMP '2023-01-01 00:00:00.000'",
+                "clpTimestamp: timestamp(\"1672531200000\", \"\\L\")", null);
+
+        // Epoch ms for TIMESTAMP '2023-01-02 00:00:00.000' UTC = 1672617600000
+        testPushDown(sessionHolder,
+                "clpTimestamp BETWEEN TIMESTAMP '2023-01-01 00:00:00.000' AND TIMESTAMP '2023-01-02 00:00:00.000'",
+                "clpTimestamp >= timestamp(\"1672531200000\", \"\\L\") AND clpTimestamp <= timestamp(\"1672617600000\", \"\\L\")",
+                null);
     }
 
     @Test
