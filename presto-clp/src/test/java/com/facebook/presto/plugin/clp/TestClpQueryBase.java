@@ -134,6 +134,13 @@ public class TestClpQueryBase
             session = TestingSession.testSessionBuilder(createTestingSessionPropertyManager(new SystemSessionProperties().getSessionProperties())).build();
         }
 
+        /**
+         * Creates a session with a fixed timezone. Use this when tests assert against hardcoded
+         * epoch-ms values derived from timestamp literals (e.g., {@code TIMESTAMP '2023-01-01
+         * 00:00:00.000'}), since Presto parses timestamp literals relative to the session timezone.
+         * Without pinning the timezone, the same literal produces different epoch-ms values on
+         * machines in different timezones, causing the assertions to fail.
+         */
         public SessionHolder(TimeZoneKey timeZoneKey)
         {
             connectorSession = SESSION;
