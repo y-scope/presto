@@ -31,7 +31,7 @@ import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.getN
 import static com.facebook.presto.plugin.clp.ClpQueryRunner.DEFAULT_NUM_OF_WORKERS;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Boolean;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.ClpString;
-import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DateString;
+import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.DeprecatedDateString;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.Integer;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.NullValue;
 import static com.facebook.presto.plugin.clp.metadata.ClpSchemaTreeNodeType.UnstructuredArray;
@@ -88,7 +88,7 @@ public class TestPrestoNativeClpGeneralQueries
                         UnstructuredArray,
                         UnstructuredArray,
                         NullValue,
-                        DateString))));
+                        DeprecatedDateString))));
         mockMetadataDatabase.addSplits(ImmutableMap.of(DEFAULT_TABLE_NAME, new ArchivesTableRows(
                 ImmutableList.of("mongodb-processed-single-file-archive"),
                 ImmutableList.of(1679441694576L),
