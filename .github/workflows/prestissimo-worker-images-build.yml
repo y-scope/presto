@@ -34,7 +34,7 @@ jobs:
           file: "./presto-native-execution/scripts/dockerfiles/ubuntu-22.04-dependency.dockerfile"
           push: >-
             ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+            && github.ref == 'refs/heads/presto-0.297-edge-10-clp-connector'}}
           tags: "${{steps.metadata-deps-image.outputs.tags}}"
           labels: "${{steps.metadata-deps-image.outputs.labels}}"
 
@@ -65,6 +65,6 @@ jobs:
           file: "./presto-native-execution/scripts/dockerfiles/prestissimo-runtime.dockerfile"
           push: >-
             ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+            && github.ref == 'refs/heads/presto-0.297-edge-10-clp-connector'}}
           tags: "${{steps.metadata-runtime-image.outputs.tags}}"
           labels: "${{steps.metadata-runtime-image.outputs.labels}}"

@@ -14,16 +14,16 @@ env:
 concurrency:
   group: "${{github.workflow}}-${{github.ref}}"
 
-  # Cancel in-progress jobs for efficiency. Exclude the `release-0.293-clp-connector` branch so
-  # that each commit to release-0.293-clp-connector is checked completely.
-  cancel-in-progress: "${{github.ref != 'refs/heads/release-0.293-clp-connector'}}"
+  # Cancel in-progress jobs for efficiency. Exclude the `presto-0.293-clp-connector` branch so
+  # that each commit to presto-0.293-clp-connector is checked completely.
+  cancel-in-progress: "${{github.ref != 'refs/heads/presto-0.293-clp-connector'}}"
 
 jobs:
   maven-checks:
     strategy:
       fail-fast: false
       matrix:
-        java: [ 8.0.442, 17.0.13 ]
+        java: [ 17.0.13 ]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -47,19 +47,17 @@ jobs:
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
           ./mvnw install -B -V -T 1C -DskipTests -Dmaven.javadoc.skip=true --no-transfer-progress -P ci -pl '!presto-test-coverage,!:presto-docs'
       - name: "Upload presto-server"
-        if: matrix.java == '8.0.442'
         uses: "actions/upload-artifact@v4"
         with:
           name: "presto-server"
-          path: "presto-server/target/presto-server-0.293.tar.gz"
+          path: "presto-server/target/presto-server-0.297-edge10.1-SNAPSHOT.tar.gz"
           if-no-files-found: "error"
           retention-days: 1
       - name: "Upload presto-cli"
-        if: matrix.java == '8.0.442'
         uses: "actions/upload-artifact@v4"
         with:
           name: "presto-cli"
-          path: "presto-cli/target/presto-cli-0.293-executable.jar"
+          path: "presto-cli/target/presto-cli-0.297-edge10.1-SNAPSHOT-executable.jar"
           if-no-files-found: "error"
           retention-days: 1
       - name: "Clean Maven output"
@@ -105,11 +103,11 @@ jobs:
         with:
           build-args: |-
             JMX_PROMETHEUS_JAVA_AGENT_VERSION=0.20.0
-            PRESTO_VERSION=0.293
+            PRESTO_VERSION=0.297-edge10.1-SNAPSHOT
           context: "./docker"
           file: "./docker/Dockerfile"
           push: >-
             ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.293-clp-connector'}}
+            && github.ref == 'refs/heads/presto-0.293-clp-connector'}}
           tags: "${{steps.meta.outputs.tags}}"
           labels: "${{steps.meta.outputs.labels}}"
