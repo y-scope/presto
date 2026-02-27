@@ -11,6 +11,7 @@
 # limitations under the License.
 add_library(
   presto_connectors
+  ClpPrestoToVeloxConnector.cpp
   IcebergPrestoToVeloxConnector.cpp
   PrestoToVeloxConnectorUtils.cpp
   HivePrestoToVeloxConnector.cpp
@@ -32,6 +33,7 @@ endif()
 target_link_libraries(
   presto_connectors
   presto_velox_expr_conversion
+  velox_clp_connector
   velox_type_fbhive
   velox_tpcds_connector
 )

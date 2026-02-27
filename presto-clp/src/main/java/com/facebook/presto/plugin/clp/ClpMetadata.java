@@ -203,4 +203,14 @@ public class ClpMetadata
     {
         return tableHandleCache.getUnchecked(schemaName);
     }
+
+    // Presto 0.297 added normalizeIdentifier() to MetadataManager.getColumnHandles(), which
+    // lowercases column names by default. CLP schema field names are case-sensitive, so we
+    // override this to return the identifier unchanged and prevent the case mismatch between
+    // getColumnHandles() and getTableMetadata().getColumns().
+    @Override
+    public String normalizeIdentifier(ConnectorSession session, String identifier)
+    {
+        return identifier;
+    }
 }
