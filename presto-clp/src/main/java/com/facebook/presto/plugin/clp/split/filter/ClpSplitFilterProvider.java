@@ -22,8 +22,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,7 +67,7 @@ public abstract class ClpSplitFilterProvider
         mapper.registerModule(module);
         try {
             filterMap = mapper.readValue(
-                    new File(config.getSplitFilterConfig()),
+                    Paths.get(config.getSplitFilterConfig()).toFile(),
                     new TypeReference<Map<String, List<ClpSplitFilterConfig>>>() {});
         }
         catch (IOException e) {

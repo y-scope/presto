@@ -23,6 +23,7 @@ import org.apache.commons.math3.util.Pair;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -180,7 +181,7 @@ public final class ClpMetadataDbSetUp
 
     public static void tearDown(DbHandle dbHandle)
     {
-        File dir = new File(dbHandle.dbPath).getParentFile();
+        File dir = Paths.get(dbHandle.dbPath).toFile().getParentFile();
         if (dir.exists()) {
             try {
                 FileUtils.deleteDirectory(dir);
