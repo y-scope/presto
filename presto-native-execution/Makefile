@@ -9,7 +9,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-.PHONY: all cmake build cmake-and-build clean debug release unittest submodules velox-submodule
+.PHONY: all cmake build cmake-and-build clean debug release unittest submodules velox-submodule format-fix format-check header-fix header-check
 
 BUILD_BASE_DIR=_build
 BUILD_DIR=release
@@ -126,6 +126,35 @@ presto_protocol:		#: Build the presto_protocol serde library
 
 TypeSignature:		#: Build the Presto TypeSignature parser
 	cd presto_cpp/main/types; $(MAKE) TypeSignature
+
+format-fix: 			#: Fix formatting issues in the presto-native-execution directory
+ifneq ("$(wildcard ${PYTHON_VENV}/pyvenv.cfg)","")
+	source ${PYTHON_VENV}/bin/activate; scripts/check.py format master --fix
+else
+	scripts/check.py format master --fix
+endif
+
+format-check: 			#: Check for formatting issues in the presto-native-execution directory
+	clang-format --version
+ifneq ("$(wildcard ${PYTHON_VENV}/pyvenv.cfg)","")
+	source ${PYTHON_VENV}/bin/activate; scripts/check.py format master
+else
+	scripts/check.py format master
+endif
+
+header-fix:			#: Fix license header issues in the presto-native-execution directory
+ifneq ("$(wildcard ${PYTHON_VENV}/pyvenv.cfg)","")
+	source ${PYTHON_VENV}/bin/activate; scripts/check.py header master --fix
+else
+	scripts/check.py header master --fix
+endif
+
+header-check:			#: Check for license header issues in the presto-native-execution directory
+ifneq ("$(wildcard ${PYTHON_VENV}/pyvenv.cfg)","")
+	source ${PYTHON_VENV}/bin/activate; scripts/check.py header master
+else
+	scripts/check.py header master
+endif
 
 help:					#: Show the help messages
 	@cat $(firstword $(MAKEFILE_LIST)) | \
