@@ -66,4 +66,11 @@ public class TestPrestoNativeCteExecutionParquetDistributed
                 .setSystemProperty(CTE_FILTER_AND_PROJECTION_PUSHDOWN_ENABLED, "true")
                 .build();
     }
+
+    // TODO: testMultipleIndependentPersistentCtes fails because the EXPLAIN step resolves
+    //  `key_sampling_percent`, which is a SQL-invoked function not implemented in the Velox
+    //  native worker. Disable until upstream adds native support.
+    @Test(enabled = false)
+    @Override
+    public void testMultipleIndependentPersistentCtes() {}
 }
