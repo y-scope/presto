@@ -18,10 +18,13 @@ import com.facebook.presto.common.resourceGroups.QueryType;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.WarningCollector;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static java.util.Collections.unmodifiableMap;
 import static java.util.Objects.requireNonNull;
 
 public class AccessControlContext
@@ -35,6 +38,8 @@ public class AccessControlContext
     private final Optional<QueryType> queryType;
     private final Optional<String> catalog;
     private final Optional<String> schema;
+    private final Optional<String> sqlText;
+    private final Map<String, String> preparedStatements;
 
     public AccessControlContext(
             QueryId queryId,
@@ -47,6 +52,32 @@ public class AccessControlContext
             Optional<String> catalog,
             Optional<String> schema)
     {
+        this(queryId,
+                clientInfo,
+                clientTags,
+                source,
+                warningCollector,
+                runtimeStats,
+                queryType,
+                catalog,
+                schema,
+                Optional.empty(),
+                new LinkedHashMap<>());
+    }
+
+    public AccessControlContext(
+            QueryId queryId,
+            Optional<String> clientInfo,
+            Set<String> clientTags,
+            Optional<String> source,
+            WarningCollector warningCollector,
+            RuntimeStats runtimeStats,
+            Optional<QueryType> queryType,
+            Optional<String> catalog,
+            Optional<String> schema,
+            Optional<String> sqlText,
+            Map<String, String> preparedStatements)
+    {
         this.queryId = requireNonNull(queryId, "queryId is null");
         this.clientInfo = requireNonNull(clientInfo, "clientInfo is null");
         this.clientTags = requireNonNull(clientTags, "clientTags is null");
@@ -56,6 +87,8 @@ public class AccessControlContext
         this.queryType = requireNonNull(queryType, "queryType is null");
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.schema = requireNonNull(schema, "schema is null");
+        this.sqlText = requireNonNull(sqlText, "sqlText is null");
+        this.preparedStatements = unmodifiableMap(new LinkedHashMap<>(requireNonNull(preparedStatements, "preparedStatements is null")));
     }
 
     public QueryId getQueryId()
@@ -103,10 +136,20 @@ public class AccessControlContext
         return schema;
     }
 
+    public Optional<String> getSqlText()
+    {
+        return sqlText;
+    }
+
+    public Map<String, String> getPreparedStatements()
+    {
+        return preparedStatements;
+    }
+
     @Override
     public int hashCode()
     {
-        return Objects.hash(queryId, clientInfo, clientTags, source, queryType, catalog, schema);
+        return Objects.hash(queryId, clientInfo, clientTags, source, queryType, catalog, schema, sqlText);
     }
 
     @Override
@@ -125,6 +168,7 @@ public class AccessControlContext
                 Objects.equals(this.source, other.source) &&
                 Objects.equals(this.queryType, other.queryType) &&
                 Objects.equals(this.catalog, other.catalog) &&
-                Objects.equals(this.schema, other.schema);
+                Objects.equals(this.schema, other.schema) &&
+                Objects.equals(this.sqlText, other.sqlText);
     }
 }

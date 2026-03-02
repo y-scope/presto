@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.ErrorCode;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
@@ -41,10 +42,8 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import io.airlift.units.Duration;
-
-import javax.annotation.concurrent.GuardedBy;
-import javax.annotation.concurrent.ThreadSafe;
+import com.google.errorprone.annotations.ThreadSafe;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -638,7 +637,13 @@ public final class SqlStageExecution
     {
         // Collect all CTE IDs referenced by TableScanNodes with TemporaryTableInfo
         return PlanNodeSearcher.searchFrom(planFragment.getRoot())
-                .where(planNode -> planNode instanceof TableScanNode)
+                .where(planNode -> {
+                    if (planNode instanceof TableScanNode) {
+                        TableScanNode tableScanNode = (TableScanNode) planNode;
+                        return tableScanNode.getCteMaterializationInfo().isPresent();
+                    }
+                    return false;
+                })
                 .findAll().stream()
                 .map(planNode -> ((TableScanNode) planNode).getCteMaterializationInfo()
                         .orElseThrow(() -> new IllegalStateException("TableScanNode has no TemporaryTableInfo")))

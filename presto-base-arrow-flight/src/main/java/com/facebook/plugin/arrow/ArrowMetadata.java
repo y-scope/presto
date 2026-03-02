@@ -29,10 +29,9 @@ import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import jakarta.inject.Inject;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
-
-import javax.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +43,7 @@ import java.util.Set;
 
 import static com.facebook.plugin.arrow.ArrowErrorCode.ARROW_FLIGHT_METADATA_ERROR;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 
 public class ArrowMetadata
@@ -51,12 +51,14 @@ public class ArrowMetadata
 {
     private final BaseArrowFlightClientHandler clientHandler;
     private final ArrowBlockBuilder arrowBlockBuilder;
+    private final ArrowFlightConfig arrowFlightConfig;
 
     @Inject
-    public ArrowMetadata(BaseArrowFlightClientHandler clientHandler, ArrowBlockBuilder arrowBlockBuilder)
+    public ArrowMetadata(BaseArrowFlightClientHandler clientHandler, ArrowBlockBuilder arrowBlockBuilder, ArrowFlightConfig arrowFlightConfig)
     {
         this.clientHandler = requireNonNull(clientHandler, "clientHandler is null");
         this.arrowBlockBuilder = requireNonNull(arrowBlockBuilder, "arrowBlockBuilder is null");
+        this.arrowFlightConfig = requireNonNull(arrowFlightConfig, "arrowFlightConfig is null");
     }
 
     @Override
@@ -84,10 +86,10 @@ public class ArrowMetadata
         return new ArrowTableHandle(tableName.getSchemaName(), tableName.getTableName());
     }
 
-    public List<Field> getColumnsList(String schema, String table, ConnectorSession connectorSession)
+    public List<Field> getColumnsList(ConnectorSession connectorSession, String schema, String table)
     {
         try {
-            Schema flightSchema = clientHandler.getSchemaForTable(schema, table, connectorSession);
+            Schema flightSchema = clientHandler.getSchemaForTable(connectorSession, schema, table);
             return flightSchema.getFields();
         }
         catch (Exception e) {
@@ -102,7 +104,7 @@ public class ArrowMetadata
 
         String schemaValue = ((ArrowTableHandle) tableHandle).getSchema();
         String tableValue = ((ArrowTableHandle) tableHandle).getTable();
-        List<Field> columnList = getColumnsList(schemaValue, tableValue, session);
+        List<Field> columnList = getColumnsList(session, schemaValue, tableValue);
 
         for (Field field : columnList) {
             String columnName = field.getName();
@@ -113,7 +115,11 @@ public class ArrowMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns)
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            Constraint<ColumnHandle> constraint,
+            Optional<Set<ColumnHandle>> desiredColumns)
     {
         checkArgument(table instanceof ArrowTableHandle,
                 "Invalid table handle: Expected an instance of ArrowTableHandle but received %s",
@@ -130,7 +136,7 @@ public class ArrowMetadata
         }
 
         ConnectorTableLayout layout = new ConnectorTableLayout(new ArrowTableLayoutHandle(tableHandle, columns, constraint.getSummary()));
-        return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
+        return new ConnectorTableLayoutResult(layout, constraint.getSummary());
     }
 
     @Override
@@ -143,12 +149,12 @@ public class ArrowMetadata
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
     {
         List<ColumnMetadata> meta = new ArrayList<>();
-        List<Field> columnList = getColumnsList(((ArrowTableHandle) table).getSchema(), ((ArrowTableHandle) table).getTable(), session);
+        List<Field> columnList = getColumnsList(session, ((ArrowTableHandle) table).getSchema(), ((ArrowTableHandle) table).getTable());
 
         for (Field field : columnList) {
             String columnName = field.getName();
             Type fieldType = getPrestoTypeFromArrowField(field);
-            meta.add(ColumnMetadata.builder().setName(columnName).setType(fieldType).build());
+            meta.add(ColumnMetadata.builder().setName(normalizeIdentifier(session, columnName)).setType(fieldType).build());
         }
         return new ConnectorTableMetadata(new SchemaTableName(((ArrowTableHandle) table).getSchema(), ((ArrowTableHandle) table).getTable()), meta);
     }
@@ -169,7 +175,7 @@ public class ArrowMetadata
             tables = ImmutableList.of(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()));
         }
         else {
-            tables = listTables(session, Optional.of(prefix.getSchemaName()));
+            tables = listTables(session, Optional.ofNullable(prefix.getSchemaName()));
         }
 
         for (SchemaTableName tableName : tables) {
@@ -187,6 +193,12 @@ public class ArrowMetadata
             }
         }
         return columns.build();
+    }
+
+    @Override
+    public String normalizeIdentifier(ConnectorSession session, String identifier)
+    {
+        return arrowFlightConfig.isCaseSensitiveNameMatching() ? identifier : identifier.toLowerCase(ROOT);
     }
 
     private Type getPrestoTypeFromArrowField(Field field)

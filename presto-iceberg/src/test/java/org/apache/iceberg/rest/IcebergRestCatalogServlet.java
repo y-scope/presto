@@ -17,19 +17,19 @@ import com.facebook.airlift.log.Logger;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.io.CharStreams;
-import org.apache.iceberg.rest.RESTCatalogAdapter.HTTPMethod;
+import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.RESTCatalogAdapter.Route;
 import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.iceberg.util.Pair;
-
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -42,8 +42,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static jakarta.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
 import static java.lang.String.format;
-import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
 
 /**
  * The IcebergRestCatalogServlet provides a servlet implementation used in combination with a
@@ -53,6 +53,11 @@ public class IcebergRestCatalogServlet
         extends HttpServlet
 {
     private static final Logger LOG = Logger.get(IcebergRestCatalogServlet.class);
+
+    private static final String SUBJECT_TOKEN = "subject_token";
+    private static final String GRANT_TYPE = "grant_type";
+    private static final String TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+    private static final String TOKEN_EXCHANGE_PREFIX = "token-exchange-token:sub=";
 
     private final RESTCatalogAdapter restCatalogAdapter;
     private final Map<String, String> responseHeaders =
@@ -106,36 +111,51 @@ public class IcebergRestCatalogServlet
         }
 
         if (context.error().isPresent()) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            RESTObjectMapper.mapper().writeValue(response.getWriter(), context.error().get());
+            ErrorResponse error = context.error().get();
+            response.setStatus(error.code());
+            RESTObjectMapper.mapper().writeValue(response.getWriter(), error);
             return;
         }
 
+        // Handle token exchange requests specially to preserve user identity
+        if (context.route() == Route.TOKENS && context.body() instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, String> tokenRequest = (Map<String, String>) context.body();
+            String grantType = tokenRequest.get(GRANT_TYPE);
+            String subjectToken = tokenRequest.get(SUBJECT_TOKEN);
+
+            if (TOKEN_EXCHANGE_GRANT_TYPE.equals(grantType) && subjectToken != null) {
+                // Return the subject token prefixed so that authorization check can extract the original JWT
+                String responseToken = TOKEN_EXCHANGE_PREFIX + subjectToken;
+                OAuthTokenResponse oauthResponse = OAuthTokenResponse.builder()
+                        .withToken(responseToken)
+                        .withTokenType("Bearer")
+                        .withIssuedTokenType("urn:ietf:params:oauth:token-type:access_token")
+                        .build();
+                RESTObjectMapper.mapper().writeValue(response.getWriter(), oauthResponse);
+                return;
+            }
+        }
+
         try {
+            HTTPRequest request = restCatalogAdapter.buildRequest(
+                    context.method(),
+                    context.path(),
+                    context.queryParams(),
+                    context.headers(),
+                    context.body());
             Object responseBody =
                     restCatalogAdapter.execute(
-                            context.method(),
-                            context.path(),
-                            context.queryParams(),
-                            context.body(),
+                            request,
                             context.route().responseClass(),
-                            context.headers(),
-                            handle(response));
+                            handleResponseError(response),
+                            handleResponseHeader(response));
 
             if (responseBody != null) {
                 RESTObjectMapper.mapper().writeValue(response.getWriter(), responseBody);
             }
         }
         catch (RESTException e) {
-            if ((context.route() == Route.LOAD_TABLE && e.getLocalizedMessage().contains("NoSuchTableException")) ||
-                    (context.route() == Route.LOAD_VIEW && e.getLocalizedMessage().contains("NoSuchViewException"))) {
-                // Suppress stack trace for load_table requests, most of which occur immediately
-                // preceding a create_table request
-                LOG.warn("Table at endpoint %s does not exist", context.path());
-            }
-            else {
-                LOG.error(e, "Error processing REST request at endpoint %s", context.path());
-            }
             response.setStatus(SC_INTERNAL_SERVER_ERROR);
         }
         catch (Exception e) {
@@ -144,7 +164,14 @@ public class IcebergRestCatalogServlet
         }
     }
 
-    protected Consumer<ErrorResponse> handle(HttpServletResponse response)
+    private Consumer<Map<String, String>> handleResponseHeader(HttpServletResponse response)
+    {
+        return (responseHeaders) -> {
+            throw new RuntimeException("Unexpected response header: " + responseHeaders);
+        };
+    }
+
+    protected Consumer<ErrorResponse> handleResponseError(HttpServletResponse response)
     {
         return (errorResponse) -> {
             response.setStatus(errorResponse.code());

@@ -57,10 +57,9 @@ import static com.facebook.presto.sql.planner.PlannerUtils.addAggregation;
 import static com.facebook.presto.sql.planner.PlannerUtils.addProjections;
 import static com.facebook.presto.sql.planner.PlannerUtils.clonePlanNode;
 import static com.facebook.presto.sql.planner.PlannerUtils.createMapType;
-import static com.facebook.presto.sql.planner.PlannerUtils.getHashExpression;
 import static com.facebook.presto.sql.planner.PlannerUtils.getTableScanNodeWithOnlyFilterAndProject;
+import static com.facebook.presto.sql.planner.PlannerUtils.getVariableHash;
 import static com.facebook.presto.sql.planner.PlannerUtils.projectExpressions;
-import static com.facebook.presto.sql.planner.optimizations.AggregationNodeUtils.isAllLowCardinalityGroupByKeys;
 import static com.facebook.presto.sql.planner.optimizations.JoinNodeUtils.typeConvert;
 import static com.facebook.presto.sql.planner.plan.ChildReplacer.replaceChildren;
 import static com.facebook.presto.sql.relational.Expressions.call;
@@ -183,8 +182,7 @@ public class PrefilterForLimitingAggregation
                 Optional<TableScanNode> scanNode = getTableScanNodeWithOnlyFilterAndProject(aggregationNode.getSource());
                 // Since we duplicate the source of the aggregation - we want to restrict it to simple scan/filter/project
                 // so we can do this opportunistic optimization without too much latency/cpu overhead to support common BI usecases
-                if (scanNode.isPresent() &&
-                        !isAllLowCardinalityGroupByKeys(aggregationNode, scanNode.get(), session, statsCalculator, types, limitNode.getCount())) {
+                if (scanNode.isPresent()) {
                     PlanNode rewrittenAggregation = addPrefilter(aggregationNode, limitNode.getCount());
                     if (rewrittenAggregation != aggregationNode) {
                         planChanged = true;
@@ -225,8 +223,8 @@ public class PrefilterForLimitingAggregation
                     SystemSessionProperties.getPrefilterForGroupbyLimitTimeoutMS(session));
 
             FunctionAndTypeManager functionAndTypeManager = metadata.getFunctionAndTypeManager();
-            RowExpression leftHashExpression = getHashExpression(functionAndTypeManager, keys).get();
-            RowExpression rightHashExpression = getHashExpression(functionAndTypeManager, timedDistinctLimitNode.getOutputVariables()).get();
+            RowExpression leftHashExpression = getVariableHash(keys, functionAndTypeManager);
+            RowExpression rightHashExpression = getVariableHash(timedDistinctLimitNode.getOutputVariables(), functionAndTypeManager);
 
             Type mapType = createMapType(functionAndTypeManager, BIGINT, BOOLEAN);
             PlanNode rightProjectNode = projectExpressions(timedDistinctLimitNode, idAllocator, variableAllocator, ImmutableList.of(rightHashExpression, constant(TRUE, BOOLEAN)), ImmutableList.of());

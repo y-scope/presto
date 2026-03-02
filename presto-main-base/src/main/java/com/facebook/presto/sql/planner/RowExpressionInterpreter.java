@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner;
 
 import com.facebook.airlift.json.JsonCodec;
+import com.facebook.presto.FullConnectorSession;
 import com.facebook.presto.client.FailureInfo;
 import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.block.BlockBuilder;
@@ -60,6 +61,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import static com.facebook.presto.SystemSessionProperties.getMaxSerializableObjectSize;
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
@@ -111,7 +113,6 @@ import static com.facebook.presto.type.LikeFunctions.unescapeLiteralLikePattern;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.instanceOf;
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.airlift.slice.Slices.utf8Slice;
@@ -122,7 +123,6 @@ import static java.util.stream.Collectors.toList;
 
 public class RowExpressionInterpreter
 {
-    private static final long MAX_SERIALIZABLE_OBJECT_SIZE = 1000;
     private final RowExpression expression;
     private final ConnectorSession session;
     private final Level optimizationLevel;
@@ -132,15 +132,6 @@ public class RowExpressionInterpreter
     private final FunctionResolution resolution;
 
     private final Visitor visitor;
-
-    public static Object evaluateConstantRowExpression(RowExpression expression, FunctionAndTypeManager functionAndTypeManager, ConnectorSession session)
-    {
-        // evaluate the expression
-        Object result = new RowExpressionInterpreter(expression, functionAndTypeManager, session, EVALUATED).evaluate();
-        verify(!(result instanceof RowExpression), "RowExpression interpreter returned an unresolved expression");
-        return result;
-    }
-
     public static RowExpressionInterpreter rowExpressionInterpreter(RowExpression expression, FunctionAndTypeManager functionAndTypeManager, ConnectorSession session)
     {
         return new RowExpressionInterpreter(expression, functionAndTypeManager, session, EVALUATED);
@@ -273,7 +264,7 @@ public class RowExpressionInterpreter
                     (!functionMetadata.isDeterministic() ||
                             hasUnresolvedValue(argumentValues) ||
                             isDynamicFilter(node) ||
-                            resolution.isFailFunction(functionHandle))) {
+                            resolution.isJavaBuiltInFailFunction(functionHandle))) {
                 return call(node.getDisplayName(), functionHandle, node.getType(), toRowExpressions(argumentValues, node.getArguments()));
             }
 
@@ -779,7 +770,7 @@ public class RowExpressionInterpreter
         private boolean isSerializable(Object value, Type type)
         {
             // If value is already RowExpression, constant values contained inside should already have been made serializable. Otherwise, we make sure the object is small and serializable.
-            return value instanceof RowExpression || (isSupportedLiteralType(type) && estimatedSizeInBytes(value) <= MAX_SERIALIZABLE_OBJECT_SIZE);
+            return value instanceof RowExpression || (isSupportedLiteralType(type) && estimatedSizeInBytes(value) <= getMaxSerializableObjectSize(((FullConnectorSession) session).getSession()));
         }
 
         private SpecialCallResult tryHandleArrayConstructor(CallExpression callExpression, List<Object> argumentValues)

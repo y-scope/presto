@@ -177,7 +177,7 @@ std::string PrestoServerOperations::veloxQueryConfigOperation(
           "Have set system property value '{}' to '{}'. Old value was '{}'.\n",
           name,
           value,
-          BaseVeloxQueryConfig::instance()
+          SystemConfig::instance()
               ->setValue(name, value)
               .value_or("<default>"));
     }
@@ -190,7 +190,7 @@ std::string PrestoServerOperations::veloxQueryConfigOperation(
           ServerOperation::actionString(op.action));
       return fmt::format(
           "{}\n",
-          BaseVeloxQueryConfig::instance()->optionalProperty(name).value_or(
+          SystemConfig::instance()->optionalProperty(name).value_or(
               "<default>"));
     }
     default:
@@ -222,7 +222,7 @@ std::string PrestoServerOperations::taskOperation(
         limit = limitStr == proxygen::empty_string
             ? std::numeric_limits<uint32_t>::max()
             : stoi(limitStr);
-      } catch (std::exception& ex) {
+      } catch (const std::exception& /* unused */) {
         VELOX_USER_FAIL("Invalid limit provided '{}'.", limitStr);
       }
       std::stringstream oss;

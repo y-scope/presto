@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.airlift.units.DataSize;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.Page;
 import com.facebook.presto.common.PageBuilder;
@@ -36,12 +37,10 @@ import com.facebook.presto.sql.gen.OrderingCompiler;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
-import io.airlift.units.DataSize;
 import it.unimi.dsi.fastutil.Swapper;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import jakarta.inject.Inject;
 import org.openjdk.jol.info.ClassLayout;
-
-import javax.inject.Inject;
 
 import java.util.Arrays;
 import java.util.Iterator;
@@ -54,6 +53,7 @@ import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.facebook.airlift.units.DataSize.Unit.BYTE;
 import static com.facebook.presto.operator.SyntheticAddress.decodePosition;
 import static com.facebook.presto.operator.SyntheticAddress.decodeSliceIndex;
 import static com.facebook.presto.operator.SyntheticAddress.encodeSyntheticAddress;
@@ -61,7 +61,6 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.SizeOf.sizeOf;
-import static io.airlift.units.DataSize.Unit.BYTE;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -271,9 +270,12 @@ public class PagesIndex
         valueAddresses.swap(a, b);
     }
 
-    public int buildPage(int position, int[] outputChannels, PageBuilder pageBuilder)
+    public int buildPage(int position, int endPosition, int[] outputChannels, PageBuilder pageBuilder)
     {
-        while (!pageBuilder.isFull() && position < positionCount) {
+        // Check both endPosition (for range-based iteration) and positionCount (to handle concurrent clear()).
+        // If clear() is called while an iterator is consuming pages, positionCount becomes 0,
+        // allowing the loop to exit gracefully instead of accessing cleared internal arrays.
+        while (!pageBuilder.isFull() && position < endPosition && position < positionCount) {
             long pageAddress = valueAddresses.get(position);
             int blockIndex = decodeSliceIndex(pageAddress);
             int blockPosition = decodePosition(pageAddress);
@@ -564,9 +566,28 @@ public class PagesIndex
 
     public Iterator<Page> getSortedPages()
     {
+        return getSortedPagesFromRange(0, positionCount);
+    }
+
+    /**
+     * Get sorted pages from the specified section of the PagesIndex.
+     *
+     * @param start start position of the section, inclusive
+     * @param end end position of the section, exclusive
+     * @return iterator of pages
+     */
+    public Iterator<Page> getSortedPages(int start, int end)
+    {
+        checkArgument(start >= 0 && end <= positionCount, "position range out of bounds");
+        checkArgument(start <= end, "invalid position range");
+        return getSortedPagesFromRange(start, end);
+    }
+
+    private Iterator<Page> getSortedPagesFromRange(int start, int end)
+    {
         return new AbstractIterator<Page>()
         {
-            private int currentPosition;
+            private int currentPosition = start;
             private final PageBuilder pageBuilder = new PageBuilder(types);
             private final int[] outputChannels = new int[types.size()];
 
@@ -577,7 +598,7 @@ public class PagesIndex
             @Override
             public Page computeNext()
             {
-                currentPosition = buildPage(currentPosition, outputChannels, pageBuilder);
+                currentPosition = buildPage(currentPosition, end, outputChannels, pageBuilder);
                 if (pageBuilder.isEmpty()) {
                     return endOfData();
                 }

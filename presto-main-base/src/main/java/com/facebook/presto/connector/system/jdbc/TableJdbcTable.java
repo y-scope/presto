@@ -27,8 +27,7 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.security.AccessControl;
 import com.google.common.collect.ImmutableSet;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Optional;
 import java.util.Set;
@@ -38,6 +37,7 @@ import static com.facebook.presto.connector.system.jdbc.FilterUtil.filter;
 import static com.facebook.presto.connector.system.jdbc.FilterUtil.stringFilter;
 import static com.facebook.presto.connector.system.jdbc.FilterUtil.tablePrefix;
 import static com.facebook.presto.metadata.MetadataListing.listCatalogs;
+import static com.facebook.presto.metadata.MetadataListing.listMaterializedViews;
 import static com.facebook.presto.metadata.MetadataListing.listTables;
 import static com.facebook.presto.metadata.MetadataListing.listViews;
 import static com.facebook.presto.metadata.MetadataUtil.TableMetadataBuilder.tableMetadataBuilder;
@@ -98,9 +98,17 @@ public class TableJdbcTable
                 }
             }
 
+            Set<SchemaTableName> materializedViews = ImmutableSet.of();
+            if (FilterUtil.emptyOrEquals(typeFilter, "MATERIALIZED VIEW")) {
+                materializedViews = ImmutableSet.copyOf(listMaterializedViews(session, metadata, accessControl, prefix));
+                for (SchemaTableName name : materializedViews) {
+                    table.addRow(tableRow(catalog, name, "MATERIALIZED VIEW"));
+                }
+            }
+
             if (FilterUtil.emptyOrEquals(typeFilter, "TABLE")) {
                 for (SchemaTableName name : listTables(session, metadata, accessControl, prefix)) {
-                    if (!views.contains(name)) {
+                    if (!views.contains(name) && !materializedViews.contains(name)) {
                         table.addRow(tableRow(catalog, name, "TABLE"));
                     }
                 }

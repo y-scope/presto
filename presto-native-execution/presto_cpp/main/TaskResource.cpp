@@ -19,6 +19,7 @@
 #include "presto_cpp/main/thrift/ThriftIO.h"
 #include "presto_cpp/main/thrift/gen-cpp2/PrestoThrift.h"
 #include "presto_cpp/main/types/PrestoToVeloxQueryPlan.h"
+#include "velox/core/PlanConsistencyChecker.h"
 
 namespace facebook::presto {
 
@@ -147,7 +148,9 @@ proxygen::RequestHandler* TaskResource::abortResults(
               taskManager_.abortResults(taskId, destination);
               return true;
             })
-            .via(folly::EventBaseManager::get()->getEventBase())
+            .via(
+                folly::getKeepAliveToken(
+                    folly::EventBaseManager::get()->getEventBase()))
             .thenValue([downstream, handlerState](auto&& /* unused */) {
               if (!handlerState->requestExpired()) {
                 http::sendOkResponse(downstream);
@@ -182,17 +185,14 @@ proxygen::RequestHandler* TaskResource::acknowledgeResults(
               taskManager_.acknowledgeResults(taskId, bufferId, token);
               return true;
             })
-            .via(folly::EventBaseManager::get()->getEventBase())
+            .via(
+                folly::getKeepAliveToken(
+                    folly::EventBaseManager::get()->getEventBase()))
             .thenValue([downstream, handlerState](auto&& /* unused */) {
               if (!handlerState->requestExpired()) {
                 http::sendOkResponse(downstream);
               }
             })
-            .thenError(
-                folly::tag_t<velox::VeloxException>{},
-                [downstream](auto&& e) {
-                  http::sendErrorResponse(downstream, e.what());
-                })
             .thenError(
                 folly::tag_t<std::exception>{},
                 [downstream, handlerState](auto&& e) {
@@ -215,31 +215,53 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTaskImpl(
   protocol::TaskId taskId = pathMatch[1];
   bool summarize = message->hasQueryParam("summarize");
 
-  auto& headers = message->getHeaders();
-  const auto& acceptHeader = headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
+  const auto& headers = message->getHeaders();
+  const auto& acceptHeader =
+      headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
   const auto sendThrift =
       acceptHeader.find(http::kMimeTypeApplicationThrift) != std::string::npos;
-  const auto& contentHeader = headers.getSingleOrEmpty(proxygen::HTTP_HEADER_CONTENT_TYPE);
+  const auto& contentHeader =
+      headers.getSingleOrEmpty(proxygen::HTTP_HEADER_CONTENT_TYPE);
   const auto receiveThrift =
       contentHeader.find(http::kMimeTypeApplicationThrift) != std::string::npos;
+  const auto contentEncoding = headers.getSingleOrEmpty("Content-Encoding");
+  const auto isCompressed =
+      !contentEncoding.empty() && contentEncoding != "identity";
 
   return new http::CallbackRequestHandler(
-      [this, taskId, summarize, createOrUpdateFunc, sendThrift, receiveThrift](
+      [this,
+       taskId,
+       summarize,
+       createOrUpdateFunc,
+       sendThrift,
+       receiveThrift,
+       contentEncoding,
+       isCompressed](
           proxygen::HTTPMessage* /*message*/,
           const std::vector<std::unique_ptr<folly::IOBuf>>& body,
           proxygen::ResponseHandler* downstream,
           std::shared_ptr<http::CallbackRequestHandlerState> handlerState) {
         folly::via(
             httpSrvCpuExecutor_,
-            [this, &body, taskId, summarize, createOrUpdateFunc, receiveThrift]() {
+            [this,
+             requestBody = isCompressed
+                 ? util::decompressMessageBody(body, contentEncoding)
+                 : util::extractMessageBody(body),
+             taskId,
+             summarize,
+             createOrUpdateFunc,
+             receiveThrift]() {
               const auto startProcessCpuTimeNs = util::getProcessCpuTimeNs();
-              std::string requestBody = util::extractMessageBody(body);
 
               std::unique_ptr<protocol::TaskInfo> taskInfo;
               try {
                 taskInfo = createOrUpdateFunc(
-                    taskId, requestBody, summarize, startProcessCpuTimeNs, receiveThrift);
-              } catch (const velox::VeloxException& e) {
+                    taskId,
+                    requestBody,
+                    summarize,
+                    startProcessCpuTimeNs,
+                    receiveThrift);
+              } catch (const velox::VeloxException&) {
                 // Creating an empty task, putting errors inside so that next
                 // status fetch from coordinator will catch the error and well
                 // categorize it.
@@ -249,13 +271,15 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTaskImpl(
                       std::current_exception(),
                       summarize,
                       startProcessCpuTimeNs);
-                } catch (const velox::VeloxUserError& e) {
+                } catch (const velox::VeloxUserError&) {
                   throw;
                 }
               }
               return taskInfo;
             })
-            .via(folly::EventBaseManager::get()->getEventBase())
+            .via(
+                folly::getKeepAliveToken(
+                    folly::EventBaseManager::get()->getEventBase()))
             .thenValue([downstream, handlerState, sendThrift](auto taskInfo) {
               if (!handlerState->requestExpired()) {
                 if (sendThrift) {
@@ -268,13 +292,6 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTaskImpl(
                 }
               }
             })
-            .thenError(
-                folly::tag_t<velox::VeloxException>{},
-                [downstream, handlerState](auto&& e) {
-                  if (!handlerState->requestExpired()) {
-                    http::sendErrorResponse(downstream, e.what());
-                  }
-                })
             .thenError(
                 folly::tag_t<std::exception>{},
                 [downstream, handlerState](auto&& e) {
@@ -316,7 +333,7 @@ proxygen::RequestHandler* TaskResource::createOrUpdateBatchTask(
         }
 
         auto queryCtx =
-            taskManager_.getQueryContextManager()->findOrCreateQueryCtx(
+            taskManager_.getQueryContextManager()->findOrCreateBatchQueryCtx(
                 taskId, updateRequest);
 
         VeloxBatchQueryPlanConverter converter(
@@ -327,6 +344,9 @@ proxygen::RequestHandler* TaskResource::createOrUpdateBatchTask(
             pool_);
         auto planFragment = converter.toVeloxQueryPlan(
             prestoPlan, updateRequest.tableWriteInfo, taskId);
+        if (SystemConfig::instance()->planConsistencyCheckEnabled()) {
+          velox::core::PlanConsistencyChecker::check(planFragment.planNode);
+        }
 
         return taskManager_.createOrUpdateBatchTask(
             taskId,
@@ -351,7 +371,8 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTask(
           bool receiveThrift) {
         protocol::TaskUpdateRequest updateRequest;
         if (receiveThrift) {
-          auto thriftTaskUpdateRequest = std::make_shared<thrift::TaskUpdateRequest>();
+          auto thriftTaskUpdateRequest =
+              std::make_shared<thrift::TaskUpdateRequest>();
           thriftRead(requestBody, thriftTaskUpdateRequest);
           fromThrift(*thriftTaskUpdateRequest, updateRequest);
         } else {
@@ -360,7 +381,10 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTask(
         velox::core::PlanFragment planFragment;
         std::shared_ptr<velox::core::QueryCtx> queryCtx;
         if (updateRequest.fragment) {
-          protocol::PlanFragment prestoPlan = json::parse(receiveThrift ? *updateRequest.fragment : velox::encoding::Base64::decode(*updateRequest.fragment));
+          protocol::PlanFragment prestoPlan = json::parse(
+              receiveThrift
+                  ? *updateRequest.fragment
+                  : velox::encoding::Base64::decode(*updateRequest.fragment));
 
           queryCtx =
               taskManager_.getQueryContextManager()->findOrCreateQueryCtx(
@@ -369,6 +393,9 @@ proxygen::RequestHandler* TaskResource::createOrUpdateTask(
           VeloxInteractiveQueryPlanConverter converter(queryCtx.get(), pool_);
           planFragment = converter.toVeloxQueryPlan(
               prestoPlan, updateRequest.tableWriteInfo, taskId);
+          if (SystemConfig::instance()->planConsistencyCheckEnabled()) {
+            velox::core::PlanConsistencyChecker::check(planFragment.planNode);
+          }
           planValidator_->validatePlanFragment(planFragment);
         }
 
@@ -392,9 +419,14 @@ proxygen::RequestHandler* TaskResource::deleteTask(
         message->getQueryParam(protocol::PRESTO_ABORT_TASK_URL_PARAM) == "true";
   }
   bool summarize = message->hasQueryParam("summarize");
+  const auto& headers = message->getHeaders();
+  const auto& acceptHeader =
+      headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
+  const auto sendThrift =
+      acceptHeader.find(http::kMimeTypeApplicationThrift) != std::string::npos;
 
   return new http::CallbackRequestHandler(
-      [this, taskId, abort, summarize](
+      [this, taskId, abort, summarize, sendThrift](
           proxygen::HTTPMessage* /*message*/,
           const std::vector<std::unique_ptr<folly::IOBuf>>& /*body*/,
           proxygen::ResponseHandler* downstream,
@@ -406,22 +438,26 @@ proxygen::RequestHandler* TaskResource::deleteTask(
               taskInfo = taskManager_.deleteTask(taskId, abort, summarize);
               return std::move(taskInfo);
             })
-            .via(folly::EventBaseManager::get()->getEventBase())
-            .thenValue([taskId, downstream, handlerState](auto&& taskInfo) {
+            .via(
+                folly::getKeepAliveToken(
+                    folly::EventBaseManager::get()->getEventBase()))
+            .thenValue([taskId, downstream, handlerState, sendThrift](
+                           auto&& taskInfo) {
               if (!handlerState->requestExpired()) {
                 if (taskInfo == nullptr) {
                   sendTaskNotFound(downstream, taskId);
+                  return;
                 }
-                http::sendOkResponse(downstream, json(*taskInfo));
+                if (sendThrift) {
+                  thrift::TaskInfo thriftTaskInfo;
+                  toThrift(*taskInfo, thriftTaskInfo);
+                  http::sendOkThriftResponse(
+                      downstream, thriftWrite(thriftTaskInfo));
+                } else {
+                  http::sendOkResponse(downstream, json(*taskInfo));
+                }
               }
             })
-            .thenError(
-                folly::tag_t<velox::VeloxException>{},
-                [downstream, handlerState](auto&& e) {
-                  if (!handlerState->requestExpired()) {
-                    http::sendErrorResponse(downstream, e.what());
-                  }
-                })
             .thenError(
                 folly::tag_t<std::exception>{},
                 [downstream, handlerState](auto&& e) {
@@ -459,11 +495,11 @@ proxygen::RequestHandler* TaskResource::getResults(
           const std::vector<std::unique_ptr<folly::IOBuf>>& /*body*/,
           proxygen::ResponseHandler* downstream,
           std::shared_ptr<http::CallbackRequestHandlerState> handlerState) {
-        auto evb = folly::EventBaseManager::get()->getEventBase();
         folly::via(
             httpSrvCpuExecutor_,
             [this,
-             evb,
+             evb = folly::getKeepAliveToken(
+                 folly::EventBaseManager::get()->getEventBase()),
              taskId,
              bufferId,
              token,
@@ -505,16 +541,13 @@ proxygen::RequestHandler* TaskResource::getResults(
                           protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER,
                           folly::join(',', result->remainingBytes));
                     }
+                    if (result->waitTimeMs > 0) {
+                      builder.header(
+                          protocol::PRESTO_BUFFER_WAIT_TIME_MS_HEADER,
+                          std::to_string(result->waitTimeMs));
+                    }
                     builder.body(std::move(result->data)).sendWithEOM();
                   })
-                  .thenError(
-                      folly::tag_t<velox::VeloxException>{},
-                      [downstream,
-                       handlerState](const velox::VeloxException& e) {
-                        if (!handlerState->requestExpired()) {
-                          http::sendErrorResponse(downstream, e.what());
-                        }
-                      })
                   .thenError(
                       folly::tag_t<std::exception>{},
                       [downstream, handlerState](const std::exception& e) {
@@ -533,8 +566,9 @@ proxygen::RequestHandler* TaskResource::getTaskStatus(
   auto currentState = getCurrentState(message);
   auto maxWait = getMaxWait(message);
 
-  auto& headers = message->getHeaders();
-  const auto& acceptHeader = headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
+  const auto& headers = message->getHeaders();
+  const auto& acceptHeader =
+      headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
   const auto sendThrift =
       acceptHeader.find(http::kMimeTypeApplicationThrift) != std::string::npos;
 
@@ -544,11 +578,11 @@ proxygen::RequestHandler* TaskResource::getTaskStatus(
           const std::vector<std::unique_ptr<folly::IOBuf>>& /*body*/,
           proxygen::ResponseHandler* downstream,
           std::shared_ptr<http::CallbackRequestHandlerState> handlerState) {
-        auto evb = folly::EventBaseManager::get()->getEventBase();
         folly::via(
             httpSrvCpuExecutor_,
             [this,
-             evb,
+             evb = folly::getKeepAliveToken(
+                 folly::EventBaseManager::get()->getEventBase()),
              sendThrift,
              taskId,
              currentState,
@@ -574,14 +608,6 @@ proxygen::RequestHandler* TaskResource::getTaskStatus(
                         }
                       })
                   .thenError(
-                      folly::tag_t<velox::VeloxException>{},
-                      [downstream,
-                       handlerState](const velox::VeloxException& e) {
-                        if (!handlerState->requestExpired()) {
-                          http::sendErrorResponse(downstream, e.what());
-                        }
-                      })
-                  .thenError(
                       folly::tag_t<std::exception>{},
                       [downstream, handlerState](const std::exception& e) {
                         if (!handlerState->requestExpired()) {
@@ -604,8 +630,14 @@ proxygen::RequestHandler* TaskResource::getTaskInfo(
   auto maxWait = getMaxWait(message);
   bool summarize = message->hasQueryParam("summarize");
 
+  const auto& headers = message->getHeaders();
+  const auto& acceptHeader =
+      headers.getSingleOrEmpty(proxygen::HTTP_HEADER_ACCEPT);
+  const auto sendThrift =
+      acceptHeader.find(http::kMimeTypeApplicationThrift) != std::string::npos;
+
   return new http::CallbackRequestHandler(
-      [this, taskId, currentState, maxWait, summarize](
+      [this, taskId, currentState, maxWait, summarize, sendThrift](
           proxygen::HTTPMessage* /*message*/,
           const std::vector<std::unique_ptr<folly::IOBuf>>& /*body*/,
           proxygen::ResponseHandler* downstream,
@@ -613,32 +645,32 @@ proxygen::RequestHandler* TaskResource::getTaskInfo(
         folly::via(
             httpSrvCpuExecutor_,
             [this,
-             evb = folly::EventBaseManager::get()->getEventBase(),
+             evb = folly::getKeepAliveToken(
+                 folly::EventBaseManager::get()->getEventBase()),
              taskId,
              currentState,
              maxWait,
              summarize,
              handlerState,
-             downstream]() {
+             downstream,
+             sendThrift]() {
               taskManager_
                   .getTaskInfo(
                       taskId, summarize, currentState, maxWait, handlerState)
                   .via(evb)
-                  .thenValue([downstream, taskId, handlerState](
+                  .thenValue([downstream, taskId, handlerState, sendThrift](
                                  std::unique_ptr<protocol::TaskInfo> taskInfo) {
                     if (!handlerState->requestExpired()) {
-                      json taskInfoJson = *taskInfo;
-                      http::sendOkResponse(downstream, taskInfoJson);
+                      if (sendThrift) {
+                        thrift::TaskInfo thriftTaskInfo;
+                        toThrift(*taskInfo, thriftTaskInfo);
+                        http::sendOkThriftResponse(
+                            downstream, thriftWrite(thriftTaskInfo));
+                      } else {
+                        http::sendOkResponse(downstream, json(*taskInfo));
+                      }
                     }
                   })
-                  .thenError(
-                      folly::tag_t<velox::VeloxException>{},
-                      [downstream,
-                       handlerState](const velox::VeloxException& e) {
-                        if (!handlerState->requestExpired()) {
-                          http::sendErrorResponse(downstream, e.what());
-                        }
-                      })
                   .thenError(
                       folly::tag_t<std::exception>{},
                       [downstream, handlerState](const std::exception& e) {
@@ -670,19 +702,14 @@ proxygen::RequestHandler* TaskResource::removeRemoteSource(
             [this, taskId, remoteId, downstream]() {
               taskManager_.removeRemoteSource(taskId, remoteId);
             })
-            .via(folly::EventBaseManager::get()->getEventBase())
+            .via(
+                folly::getKeepAliveToken(
+                    folly::EventBaseManager::get()->getEventBase()))
             .thenValue([downstream, handlerState](auto&& /* unused */) {
               if (!handlerState->requestExpired()) {
                 http::sendOkResponse(downstream);
               }
             })
-            .thenError(
-                folly::tag_t<velox::VeloxException>{},
-                [downstream, handlerState](const velox::VeloxException& e) {
-                  if (!handlerState->requestExpired()) {
-                    http::sendErrorResponse(downstream, e.what());
-                  }
-                })
             .thenError(
                 folly::tag_t<std::exception>{},
                 [downstream, handlerState](const std::exception& e) {

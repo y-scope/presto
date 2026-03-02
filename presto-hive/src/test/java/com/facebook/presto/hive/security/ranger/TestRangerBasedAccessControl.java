@@ -19,6 +19,7 @@ import com.facebook.airlift.http.client.testing.TestingHttpClient;
 import com.facebook.airlift.http.client.testing.TestingResponse;
 import com.facebook.presto.common.RuntimeStats;
 import com.facebook.presto.common.Subfield;
+import com.facebook.presto.hive.security.SecurityConfig;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.WarningCollector;
@@ -76,10 +77,32 @@ public class TestRangerBasedAccessControl
     }
 
     @Test
+    public void testDefaultProcedureCallNotAllowed()
+    {
+        // `restrictProcedureCall` default to `true`
+        ConnectorAccessControl accessControl = createRangerAccessControl("default-allow-all.json", "user_groups.json");
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("system", "procedure1")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("system", "procedure1")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("system", "procedure1")));
+        assertDenied(() -> accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("anyuser"), CONTEXT, new SchemaTableName("system", "procedure1")));
+    }
+
+    @Test
+    public void testProcedureCallAllowedWithSpecificConfiguration()
+    {
+        ConnectorAccessControl accessControl = createRangerAccessControl("default-allow-all.json", "user_groups.json", false);
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("system", "procedure1"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("system", "procedure1"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("system", "procedure1"));
+        accessControl.checkCanCallProcedure(TRANSACTION_HANDLE, user("anyuser"), CONTEXT, new SchemaTableName("system", "procedure1"));
+    }
+
+    @Test
     public void testDefaultTableAccessIfNotDefined()
     {
         ConnectorAccessControl accessControl = createRangerAccessControl("default-allow-all.json", "user_groups.json");
         accessControl.checkCanCreateTable(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("test", "test"));
+        accessControl.checkCanShowCreateTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobtable"));
         accessControl.checkCanSelectFromColumns(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("test", "test"), ImmutableSet.of());
         accessControl.checkCanSelectFromColumns(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("bobschema", "bobtable"), ImmutableSet.of());
         accessControl.checkCanRenameTable(TRANSACTION_HANDLE, user("admin"), CONTEXT, new SchemaTableName("test", "test"), new SchemaTableName("test1", "test1"));
@@ -93,6 +116,7 @@ public class TestRangerBasedAccessControl
     {
         ConnectorAccessControl accessControl = createRangerAccessControl("default-schema-level-access.json", "user_groups.json");
         // 'etladmin' group have all access {group - etladmin, user - alice}
+        accessControl.checkCanShowCreateTable(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("foodmart", "test"));
         accessControl.checkCanCreateTable(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("foodmart", "test"));
         accessControl.checkCanRenameTable(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("foodmart", "test"), new SchemaTableName("foodmart", "test1"));
         accessControl.checkCanDropTable(TRANSACTION_HANDLE, user("alice"), CONTEXT, new SchemaTableName("foodmart", "test"));
@@ -111,6 +135,7 @@ public class TestRangerBasedAccessControl
         assertDenied(() -> accessControl.checkCanRenameColumn(TRANSACTION_HANDLE, user("joe"), CONTEXT, new SchemaTableName("foodmart", "test")));
 
         //  Access denied to others {group - readall, user - bob}
+        assertDenied(() -> accessControl.checkCanShowCreateTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("foodmart", "test")));
         assertDenied(() -> accessControl.checkCanSelectFromColumns(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("foodmart", "test"), ImmutableSet.of(new Subfield("column1"))));
         assertDenied(() -> accessControl.checkCanCreateTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("foodmart", "test")));
         assertDenied(() -> accessControl.checkCanRenameTable(TRANSACTION_HANDLE, user("bob"), CONTEXT, new SchemaTableName("foodmart", "test"), new SchemaTableName("foodmart", "test1")));
@@ -181,6 +206,11 @@ public class TestRangerBasedAccessControl
 
     private ConnectorAccessControl createRangerAccessControl(String policyFile, String usersFile)
     {
+        return createRangerAccessControl(policyFile, usersFile, new SecurityConfig().isRestrictProcedureCall());
+    }
+
+    private ConnectorAccessControl createRangerAccessControl(String policyFile, String usersFile, boolean restrictProcedureCall)
+    {
         String policyFilePath = "com.facebook.presto.hive.security.ranger/" + policyFile;
         String usersFilePath = "com.facebook.presto.hive.security.ranger/" + usersFile;
 
@@ -212,7 +242,9 @@ public class TestRangerBasedAccessControl
         RangerBasedAccessControlConfig config = new RangerBasedAccessControlConfig()
                 .setRangerHttpEndPoint("http://test")
                 .setRangerHiveServiceName("dummy");
-        RangerBasedAccessControl rangerBasedAccessControl = new RangerBasedAccessControl(config, httpClient);
+        RangerBasedAccessControl rangerBasedAccessControl = new RangerBasedAccessControl(config,
+                new SecurityConfig().setRestrictProcedureCall(restrictProcedureCall),
+                httpClient);
         return rangerBasedAccessControl;
     }
 

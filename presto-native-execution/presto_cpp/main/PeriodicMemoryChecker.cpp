@@ -22,8 +22,8 @@
 #include "velox/common/time/Timer.h"
 
 namespace facebook::presto {
-PeriodicMemoryChecker::PeriodicMemoryChecker(Config config)
-    : config_(std::move(config)) {
+PeriodicMemoryChecker::PeriodicMemoryChecker(const Config& config)
+    : config_(config) {
   if (config_.systemMemPushbackEnabled) {
     VELOX_CHECK_GT(config_.systemMemLimitBytes, 0);
   }
@@ -71,6 +71,7 @@ void PeriodicMemoryChecker::start() {
   scheduler_->setThreadName("MemoryCheckerThread");
   scheduler_->addFunction(
       [&]() {
+        loadSystemMemoryUsage();
         periodicCb();
         if (config_.mallocMemHeapDumpEnabled) {
           maybeDumpHeap();
@@ -90,6 +91,13 @@ void PeriodicMemoryChecker::stop() {
   VELOX_CHECK_NOT_NULL(scheduler_);
   scheduler_->shutdown();
   scheduler_.reset();
+}
+
+int64_t PeriodicMemoryChecker::systemUsedMemoryBytes(bool fetchFresh) {
+  if (fetchFresh) {
+    loadSystemMemoryUsage();
+  }
+  return cachedSystemUsedMemoryBytes_;
 }
 
 std::string PeriodicMemoryChecker::createHeapDumpFilePath() const {
@@ -210,7 +218,9 @@ void PeriodicMemoryChecker::pushbackMemory() {
   RECORD_HISTOGRAM_METRIC_VALUE(
       kCounterMemoryPushbackLatencyMs, latencyUs / 1000);
   const auto actualFreedBytes = std::max<int64_t>(
-      0, static_cast<int64_t>(currentMemBytes) - systemUsedMemoryBytes());
+      0,
+      static_cast<int64_t>(currentMemBytes) -
+          systemUsedMemoryBytes(/*fetchFresh=*/true));
   RECORD_HISTOGRAM_METRIC_VALUE(
       kCounterMemoryPushbackExpectedReductionBytes, freedBytes);
   RECORD_HISTOGRAM_METRIC_VALUE(

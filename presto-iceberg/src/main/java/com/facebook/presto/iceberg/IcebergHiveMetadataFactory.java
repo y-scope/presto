@@ -19,22 +19,31 @@ import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.NodeVersion;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.iceberg.statistics.StatisticsFileCache;
+import com.facebook.presto.spi.ConnectorSystemConfig;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.function.StandardFunctionResolution;
 import com.facebook.presto.spi.plan.FilterStatsCalculatorService;
+import com.facebook.presto.spi.procedure.ProcedureRegistry;
 import com.facebook.presto.spi.relation.RowExpressionService;
+import jakarta.inject.Inject;
 
-import javax.inject.Inject;
+import java.util.List;
 
+import static com.facebook.presto.spi.MaterializedViewDefinition.ColumnMapping;
 import static java.util.Objects.requireNonNull;
 
 public class IcebergHiveMetadataFactory
         implements IcebergMetadataFactory
 {
+    final IcebergCatalogName catalogName;
     final ExtendedHiveMetastore metastore;
     final HdfsEnvironment hdfsEnvironment;
     final TypeManager typeManager;
+    final ProcedureRegistry procedureRegistry;
     final JsonCodec<CommitTaskData> commitTaskCodec;
+    final JsonCodec<List<ColumnMapping>> columnMappingsCodec;
+    final JsonCodec<List<SchemaTableName>> schemaTableNamesCodec;
     final StandardFunctionResolution functionResolution;
     final RowExpressionService rowExpressionService;
     final NodeVersion nodeVersion;
@@ -43,50 +52,66 @@ public class IcebergHiveMetadataFactory
     final StatisticsFileCache statisticsFileCache;
     final ManifestFileCache manifestFileCache;
     final IcebergTableProperties tableProperties;
+    final ConnectorSystemConfig connectorSystemConfig;
 
     @Inject
     public IcebergHiveMetadataFactory(
+            IcebergCatalogName catalogName,
             ExtendedHiveMetastore metastore,
             HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
+            ProcedureRegistry procedureRegistry,
             StandardFunctionResolution functionResolution,
             RowExpressionService rowExpressionService,
             JsonCodec<CommitTaskData> commitTaskCodec,
+            JsonCodec<List<ColumnMapping>> columnMappingsCodec,
+            JsonCodec<List<SchemaTableName>> schemaTableNamesCodec,
             NodeVersion nodeVersion,
             FilterStatsCalculatorService filterStatsCalculatorService,
             IcebergHiveTableOperationsConfig operationsConfig,
             StatisticsFileCache statisticsFileCache,
             ManifestFileCache manifestFileCache,
-            IcebergTableProperties tableProperties)
+            IcebergTableProperties tableProperties,
+            ConnectorSystemConfig connectorSystemConfig)
     {
+        this.catalogName = requireNonNull(catalogName, "catalogName is null");
         this.metastore = requireNonNull(metastore, "metastore is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
+        this.procedureRegistry = requireNonNull(procedureRegistry, "procedureRegistry is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
         this.rowExpressionService = requireNonNull(rowExpressionService, "rowExpressionService is null");
         this.commitTaskCodec = requireNonNull(commitTaskCodec, "commitTaskCodec is null");
+        this.columnMappingsCodec = requireNonNull(columnMappingsCodec, "columnMappingsCodec is null");
+        this.schemaTableNamesCodec = requireNonNull(schemaTableNamesCodec, "schemaTableNamesCodec is null");
         this.nodeVersion = requireNonNull(nodeVersion, "nodeVersion is null");
         this.filterStatsCalculatorService = requireNonNull(filterStatsCalculatorService, "filterStatsCalculatorService is null");
         this.operationsConfig = requireNonNull(operationsConfig, "operationsConfig is null");
         this.statisticsFileCache = requireNonNull(statisticsFileCache, "statisticsFileCache is null");
         this.manifestFileCache = requireNonNull(manifestFileCache, "manifestFileCache is null");
         this.tableProperties = requireNonNull(tableProperties, "icebergTableProperties is null");
+        this.connectorSystemConfig = requireNonNull(connectorSystemConfig, "connectorSystemConfig is null");
     }
 
     public ConnectorMetadata create()
     {
         return new IcebergHiveMetadata(
+                catalogName,
                 metastore,
                 hdfsEnvironment,
                 typeManager,
+                procedureRegistry,
                 functionResolution,
                 rowExpressionService,
                 commitTaskCodec,
+                columnMappingsCodec,
+                schemaTableNamesCodec,
                 nodeVersion,
                 filterStatsCalculatorService,
                 operationsConfig,
                 statisticsFileCache,
                 manifestFileCache,
-                tableProperties);
+                tableProperties,
+                connectorSystemConfig);
     }
 }

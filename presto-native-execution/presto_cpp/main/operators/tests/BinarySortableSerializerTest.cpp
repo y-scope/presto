@@ -26,12 +26,13 @@
 
 namespace facebook::presto::operators::test {
 namespace {
+
 // return -1 if key1 < key2, 0 if key1 == key2, 1 if key1 > key 2
-int lexicographicalCompare(std::string key1, std::string key2) {
+int lexicographicalCompare(velox::StringView key1, velox::StringView key2) {
   // doing unsinged byte comparison following the Cosco test suite's semantic.
-  const auto begin1 = reinterpret_cast<unsigned char*>(key1.data());
+  const auto begin1 = reinterpret_cast<unsigned const char*>(key1.data());
   const auto end1 = begin1 + key1.size();
-  const auto begin2 = reinterpret_cast<unsigned char*>(key2.data());
+  const auto begin2 = reinterpret_cast<unsigned const char*>(key2.data());
   const auto end2 = begin2 + key2.size();
   bool lessThan = std::lexicographical_compare(begin1, end1, begin2, end2);
 
@@ -41,10 +42,11 @@ int lexicographicalCompare(std::string key1, std::string key2) {
 }
 
 void serializeRow(
-    BinarySortableSerializer binarySortableSerializer,
-    size_t index,
+    const BinarySortableSerializer& binarySortableSerializer,
+    velox::vector_size_t index,
+    velox::vector_size_t offset,
     velox::StringVectorBuffer* out) {
-  binarySortableSerializer.serialize(/*rowId=*/index, out);
+  binarySortableSerializer.serialize(/*rowId=*/index + offset, out);
   out->flushRow(index);
 }
 
@@ -52,7 +54,8 @@ class BinarySortableSerializerTest : public ::testing::Test,
                                      public velox::test::VectorTestBase {
  protected:
   static void SetUpTestCase() {
-    velox::memory::MemoryManager::testingSetInstance(velox::memory::MemoryManagerOptions{});
+    velox::memory::MemoryManager::testingSetInstance(
+        velox::memory::MemoryManager::Options{});
   }
 
   int compareRowVector(
@@ -69,8 +72,8 @@ class BinarySortableSerializerTest : public ::testing::Test,
             velox::VARBINARY(), 2, pool_.get());
     // Create a ResizableVectorBuffer with initial and max capacity.
     velox::StringVectorBuffer buffer(vector.get(), 10, 1000);
-    serializeRow(binarySortableSerializer, /*index=*/0, &buffer);
-    serializeRow(binarySortableSerializer, /*index=*/1, &buffer);
+    serializeRow(binarySortableSerializer, /*index=*/0, /*offset=*/0, &buffer);
+    serializeRow(binarySortableSerializer, /*index=*/1, /*offset=*/0, &buffer);
 
     return lexicographicalCompare(vector->valueAt(0), vector->valueAt(1));
   }
@@ -85,8 +88,9 @@ class BinarySortableSerializerTest : public ::testing::Test,
 
     std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>>
         fields;
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::CppToType<T>::create(), /*name=*/"c0"));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::CppToType<T>::create(), /*name=*/"c0"));
     return compareRowVector(rowVector, fields, {ordering});
   }
 
@@ -101,8 +105,9 @@ class BinarySortableSerializerTest : public ::testing::Test,
 
     std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>>
         fields;
-    fields.push_back(std::make_shared<velox::core::FieldAccessTypedExpr>(
-        velox::CppToType<T>::create(), /*name=*/"c0"));
+    fields.push_back(
+        std::make_shared<velox::core::FieldAccessTypedExpr>(
+            velox::CppToType<T>::create(), /*name=*/"c0"));
     return compareRowVector(rowVector, fields, {ordering});
   }
 
@@ -126,8 +131,9 @@ class BinarySortableSerializerTest : public ::testing::Test,
     }
     std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>>
         fields;
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        rowField->type(), /*name=*/"c0"));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            rowField->type(), /*name=*/"c0"));
     return compareRowVector(rowVector, fields, {ordering});
   }
 
@@ -142,7 +148,8 @@ class BinarySortableSerializerFuzzerTest : public ::testing::Test,
                                            public velox::test::VectorTestBase {
  protected:
   static void SetUpTestCase() {
-    velox::memory::MemoryManager::testingSetInstance(velox::memory::MemoryManagerOptions{});
+    velox::memory::MemoryManager::testingSetInstance(
+        velox::memory::MemoryManager::Options{});
   }
 
   void runFuzzerTest(const velox::RowTypePtr& rowType) {
@@ -163,7 +170,38 @@ class BinarySortableSerializerFuzzerTest : public ::testing::Test,
     const auto rowVector = makeData(rowType);
     const auto fields = getFields(rowType);
 
+    checkSizeCalculation(rowVector, fields, testOrdering);
+    checkBatchedSizeCalculation(
+        rowVector, /*offset=*/0, rowVector->size(), fields, testOrdering);
     ensureSorted(rowVector, fields, testOrdering);
+  }
+
+  void runFuzzerTestBatchedSizeCalculation(
+      const velox::RowTypePtr& rowType,
+      velox::vector_size_t batchSize) {
+    const auto seed = 1;
+    // Create a random number generator and seed it
+    std::mt19937 rng(seed);
+
+    const boost::random::uniform_int_distribution<int> distribution(
+        0, sortingOrders_.size() - 1);
+
+    // Generate random sort ordering
+    std::vector<velox::core::SortOrder> testOrdering;
+    for (uint32_t i = 0; i < rowType->size(); ++i) {
+      const int randomIndex = distribution(rng);
+      testOrdering.push_back(sortingOrders_[randomIndex]);
+    }
+
+    const auto rowVector = makeData(rowType);
+    const auto fields = getFields(rowType);
+
+    for (velox::vector_size_t offset = 0;
+         offset + batchSize < rowVector->size();
+         offset += batchSize) {
+      checkBatchedSizeCalculation(
+          rowVector, offset, batchSize, fields, testOrdering);
+    }
   }
 
   bool sortedAfterSerialization(
@@ -179,8 +217,9 @@ class BinarySortableSerializerFuzzerTest : public ::testing::Test,
         velox::VARBINARY(), vectorSize, pool_.get());
     // Create a ResizableVectorBuffer with initial and max capacity.
     velox::StringVectorBuffer buffer(vec.get(), 1024, 1 << 20);
-    for (size_t i = 0; i < vectorSize; ++i) {
-      serializeRow(binarySortableSerializer, /*index=*/i, &buffer);
+    for (velox::vector_size_t i = 0; i < vectorSize; ++i) {
+      serializeRow(
+          binarySortableSerializer, /*index=*/i, /*offset=*/0, &buffer);
     }
 
     for (velox::vector_size_t i = 0; i < vec->size() - 1; ++i) {
@@ -211,12 +250,75 @@ class BinarySortableSerializerFuzzerTest : public ::testing::Test,
         sortedVector, keys, ordering, sortedVector->size()));
   }
 
+  void checkSizeCalculation(
+      const velox::RowVectorPtr& input,
+      const std::vector<
+          std::shared_ptr<const velox::core::FieldAccessTypedExpr>>& keys,
+      const std::vector<velox::core::SortOrder>& ordering) {
+    BinarySortableSerializer binarySortableSerializer(input, ordering, keys);
+    auto vec = velox::BaseVector::create<velox::FlatVector<velox::StringView>>(
+        velox::VARBINARY(), input->size(), pool_.get());
+    // Create a ResizableVectorBuffer with initial and max capacity.
+    velox::StringVectorBuffer buffer(vec.get(), 1024, 1 << 20);
+    for (velox::vector_size_t i = 0; i < input->size(); ++i) {
+      const size_t expectedSize =
+          binarySortableSerializer.serializedSizeInBytes(i);
+      serializeRow(
+          binarySortableSerializer, /*index=*/i, /*offset=*/0, &buffer);
+      EXPECT_EQ(expectedSize, vec->valueAt(i).size());
+    }
+  }
+
+  void checkBatchedSizeCalculation(
+      const velox::RowVectorPtr& input,
+      velox::vector_size_t offset,
+      velox::vector_size_t size,
+      const std::vector<
+          std::shared_ptr<const velox::core::FieldAccessTypedExpr>>& keys,
+      const std::vector<velox::core::SortOrder>& ordering) {
+    BinarySortableSerializer binarySortableSerializer(input, ordering, keys);
+
+    // Create size variables and pointer array for batched call
+    std::vector<velox::vector_size_t> sizes(size, 0);
+    std::vector<velox::vector_size_t*> sizePointers(size);
+    for (velox::vector_size_t i = 0; i < size; ++i) {
+      sizePointers[i] = &sizes[i];
+    }
+
+    // Call batched size calculation
+    velox::Scratch scratch;
+    binarySortableSerializer.serializedSizeInBytes(
+        offset, size, sizePointers.data(), scratch);
+
+    // Create vector for actual serialization to verify sizes
+    auto vec = velox::BaseVector::create<velox::FlatVector<velox::StringView>>(
+        velox::VARBINARY(), size, pool_.get());
+    velox::StringVectorBuffer buffer(vec.get(), 1024, 1 << 20);
+
+    // Serialize each row and compare with batched size calculation
+    for (velox::vector_size_t i = 0; i < size; ++i) {
+      serializeRow(binarySortableSerializer, /*index=*/i, offset, &buffer);
+      EXPECT_EQ(sizes[i], vec->valueAt(i).size())
+          << "Batched size calculation mismatch at row " << i << ": expected "
+          << sizes[i] << ", actual " << vec->valueAt(i).size();
+    }
+  }
+
   velox::RowVectorPtr makeData(const velox::RowTypePtr& rowType) {
     velox::VectorFuzzer::Options options;
     options.vectorSize = 1'000;
     options.allowDictionaryVector = true;
+    options.allowConstantVector = true;
+    options.stringVariableLength = true;
+    options.containerVariableLength = true;
+    options.allowLazyVector = true;
+    options.nullRatio = 0.1;
 
-    const auto seed = 1; // For reproducibility.
+    const auto seed = folly::Random::rand32();
+
+    // For reproducibility.
+    LOG(ERROR) << "Seed: " << seed;
+    SCOPED_TRACE(fmt::format("seed: {}", seed));
     velox::VectorFuzzer fuzzer(options, pool_.get(), seed);
 
     return fuzzer.fuzzInputRow(rowType);
@@ -246,13 +348,17 @@ class BinarySortableSerializerFuzzerTest : public ::testing::Test,
 } // namespace
 
 TEST_F(BinarySortableSerializerFuzzerTest, fuzzerTestString) {
-  const auto rowType = velox::ROW({"c1", "c2"}, {velox::BIGINT(), velox::VARCHAR()});
+  const auto rowType =
+      velox::ROW({"c1", "c2"}, {velox::BIGINT(), velox::VARCHAR()});
   runFuzzerTest(rowType);
 }
 
 TEST_F(BinarySortableSerializerFuzzerTest, fuzzerTestArray) {
   const auto rowType = velox::ROW(
-      {"c1", "c2"}, {velox::BIGINT(), velox::ARRAY(velox::BIGINT())});
+      {"c1", "c2", "c3"},
+      {velox::BIGINT(),
+       velox::ARRAY(velox::BIGINT()),
+       velox::ARRAY(velox::VARBINARY())});
   runFuzzerTest(rowType);
 }
 
@@ -273,10 +379,23 @@ TEST_F(BinarySortableSerializerFuzzerTest, fuzzerTestNestedStruct) {
   const auto innerRowType = velox::ROW(
       {velox::BIGINT(),
        velox::DOUBLE(),
-       velox::BOOLEAN(),
-       velox::ROW({velox::TINYINT(), velox::REAL()})});
-  const auto rowType = velox::ROW({"c0", "c1"}, {velox::BIGINT(), innerRowType});
+       velox::VARCHAR(),
+       velox::ROW({velox::TINYINT(), velox::VARCHAR()})});
+  const auto rowType =
+      velox::ROW({"c0", "c1"}, {velox::BIGINT(), innerRowType});
   runFuzzerTest(rowType);
+}
+
+TEST_F(BinarySortableSerializerFuzzerTest, fuzzerTestBatchedSizeCalculation) {
+  const auto innerRowType = velox::ROW(
+      {velox::ARRAY(velox::VARCHAR()),
+       velox::DOUBLE(),
+       velox::VARCHAR(),
+       velox::ROW({velox::TINYINT(), velox::VARCHAR()})});
+  const auto rowType =
+      velox::ROW({"c0", "c1"}, {velox::BIGINT(), innerRowType});
+
+  runFuzzerTestBatchedSizeCalculation(rowType, 10);
 }
 
 TEST_F(BinarySortableSerializerTest, LongTypeAllFields) {
@@ -291,8 +410,9 @@ TEST_F(BinarySortableSerializerTest, LongTypeAllFields) {
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -314,8 +434,9 @@ TEST_F(BinarySortableSerializerTest, LongTypeAllFieldsDescending) {
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -339,8 +460,9 @@ TEST_F(BinarySortableSerializerTest, LongTypeAllFieldsWithNulls) {
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -364,8 +486,9 @@ TEST_F(BinarySortableSerializerTest, DefaultNullsOrdering) {
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -391,8 +514,9 @@ TEST_F(
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -418,8 +542,9 @@ TEST_F(
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
   fields.reserve(3);
   for (int32_t i = 0; i < 3; ++i) {
-    fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-        velox::BIGINT(), fmt::format("c{}", i)));
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
   }
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -439,10 +564,12 @@ TEST_F(BinarySortableSerializerTest, LongTypeSubsetOfFields) {
   auto c2 = vectorMaker_.flatVectorNullable<int64_t>({2, 0});
 
   std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
-  fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-      velox::BIGINT(), /*name=*/"c2"));
-  fields.push_back(std::make_shared<const velox::core::FieldAccessTypedExpr>(
-      velox::BIGINT(), /*name=*/"c0"));
+  fields.push_back(
+      std::make_shared<const velox::core::FieldAccessTypedExpr>(
+          velox::BIGINT(), /*name=*/"c2"));
+  fields.push_back(
+      std::make_shared<const velox::core::FieldAccessTypedExpr>(
+          velox::BIGINT(), /*name=*/"c0"));
 
   auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
 
@@ -488,6 +615,70 @@ TEST_F(BinarySortableSerializerTest, ComplexTypeDictionaryEncoded) {
   // 0: {{0, 1, 2}, [1, 2, 3]} < 1: {{2, 1, 0}, [4, 5,6]}
   // the dictionary indices are reversed, so result is > 0.
   EXPECT_TRUE(result > 0);
+}
+
+TEST_F(BinarySortableSerializerTest, DictionaryEncodedLazyVector) {
+  auto ordering = {
+      velox::core::SortOrder(velox::core::kAscNullsFirst),
+      velox::core::SortOrder(velox::core::kAscNullsFirst)};
+
+  std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields =
+      {
+          std::make_shared<const velox::core::FieldAccessTypedExpr>(
+              velox::ROW(
+                  {"f0", "f1", "f2"},
+                  {velox::BIGINT(), velox::BIGINT(), velox::BIGINT()}),
+              "c0"),
+          std::make_shared<const velox::core::FieldAccessTypedExpr>(
+              velox::ARRAY(velox::INTEGER()), "c1"),
+      };
+
+  auto c0 = vectorMaker_.flatVectorNullable<int64_t>({0, 2});
+  auto c1 = vectorMaker_.flatVectorNullable<int64_t>({1, 1});
+  auto c2 = vectorMaker_.flatVectorNullable<int64_t>({1, 2});
+
+  auto baseRow = vectorMaker_.rowVector({"f0", "f1", "f2"}, {c0, c1, c2});
+  auto baseArray = makeArrayVector<int32_t>({{1, 2, 3}, {4, 5, 6}});
+  auto rowVector = vectorMaker_.rowVector(
+      {"c0", "c1"},
+      {
+          velox::VectorFuzzer::wrapInLazyVector(
+              velox::BaseVector::wrapInDictionary(
+                  nullptr, makeIndicesInReverse(2), 2, baseRow)),
+          velox::VectorFuzzer::wrapInLazyVector(
+              velox::BaseVector::wrapInDictionary(
+                  nullptr, makeIndicesInReverse(2), 2, baseArray)),
+      });
+
+  auto result = compareRowVector(rowVector, fields, ordering);
+
+  // 0: {{0, 1, 1}, [1, 2, 3]} < 1: {{2, 1, 2}, [4, 5,6]}
+  // the dictionary indices are reversed, so result is > 0.
+  EXPECT_TRUE(result > 0);
+}
+
+TEST_F(BinarySortableSerializerTest, ConstantVector) {
+  auto ordering = {
+      velox::core::SortOrder(velox::core::kAscNullsFirst),
+      velox::core::SortOrder(velox::core::kAscNullsFirst),
+      velox::core::SortOrder(velox::core::kAscNullsLast)};
+  auto c0 = vectorMaker_.flatVectorNullable<int64_t>({0, 2});
+  auto c1 = vectorMaker_.flatVectorNullable<int64_t>({1, 1});
+  auto c2 = vectorMaker_.constantVector<int64_t>({2});
+
+  std::vector<std::shared_ptr<const velox::core::FieldAccessTypedExpr>> fields;
+  fields.reserve(3);
+  for (int32_t i = 0; i < 3; ++i) {
+    fields.push_back(
+        std::make_shared<const velox::core::FieldAccessTypedExpr>(
+            velox::BIGINT(), fmt::format("c{}", i)));
+  }
+  auto rowVector = vectorMaker_.rowVector({c0, c1, c2});
+
+  auto result = compareRowVector(rowVector, fields, ordering);
+
+  // (0,1,2) < (2,1,2)
+  EXPECT_TRUE(result < 0);
 }
 
 TEST_F(BinarySortableSerializerTest, BooleanTypeSingleFieldTests) {
@@ -868,7 +1059,8 @@ TEST_F(BinarySortableSerializerTest, ArrayTypeSingleFieldTests) {
   // null < []
   EXPECT_TRUE(
       singleArrayFieldCompare<int64_t>(
-          {std::nullopt, {{}}}, velox::core::kAscNullsFirst) < 0);
+          {std::nullopt, {std::vector<std::optional<int64_t>>{}}},
+          velox::core::kAscNullsFirst) < 0);
 }
 
 TEST_F(BinarySortableSerializerTest, RowTypeSingleFieldTests) {

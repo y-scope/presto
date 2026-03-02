@@ -26,15 +26,15 @@ velox::core::PlanNodeId deserializePlanNodeId(const folly::dynamic& obj) {
 #define CALL_SHUFFLE(call, methodName)                                \
   try {                                                               \
     call;                                                             \
-  } catch (const VeloxException& e) {                                 \
+  } catch (const VeloxException&) {                                   \
     throw;                                                            \
   } catch (const std::exception& e) {                                 \
     VELOX_FAIL("ShuffleWriter::{} failed: {}", methodName, e.what()); \
   }
 
-class ShuffleWriteOperator : public Operator {
+class ShuffleWrite : public Operator {
  public:
-  ShuffleWriteOperator(
+  ShuffleWrite(
       int32_t operatorId,
       DriverCtx* FOLLY_NONNULL ctx,
       const std::shared_ptr<const ShuffleWriteNode>& planNode)
@@ -73,9 +73,10 @@ class ShuffleWriteOperator : public Operator {
     constexpr int kReplicateNullsAndAny = 3;
 
     checkCreateShuffleWriter();
-    auto partitions = input->childAt(kPartition)->as<SimpleVector<int32_t>>();
-    auto serializedKeys = input->childAt(kKey)->as<SimpleVector<StringView>>();
-    auto serializedData = input->childAt(kData)->as<SimpleVector<StringView>>();
+    auto* partitions = input->childAt(kPartition)->as<SimpleVector<int32_t>>();
+    auto* serializedKeys = input->childAt(kKey)->as<SimpleVector<StringView>>();
+    auto* serializedData =
+        input->childAt(kData)->as<SimpleVector<StringView>>();
     SimpleVector<bool>* replicate = nullptr;
     if (input->type()->size() == 4) {
       replicate =
@@ -104,6 +105,8 @@ class ShuffleWriteOperator : public Operator {
             "collect");
       }
     }
+    auto lockedStats = stats_.wlock();
+    lockedStats->addOutputVector(input->estimateFlatSize(), input->size());
   }
 
   void noMoreInput() override {
@@ -117,19 +120,34 @@ class ShuffleWriteOperator : public Operator {
 
   void recordShuffleWriteClientStats() {
     auto lockedStats = stats_.wlock();
-    const auto shuffleStats = shuffle_->stats();
-    for (const auto& [name, value] : shuffleStats) {
-      lockedStats->runtimeStats[name] = RuntimeMetric(value);
+    std::optional<uint64_t> backgroundCpuTimeNanosOpt = std::nullopt;
+    if (shuffle_->supportsMetrics()) {
+      const auto shuffleMetrics = shuffle_->metrics();
+      for (const auto& [name, metric] : shuffleMetrics) {
+        lockedStats->runtimeStats[name] = metric;
+      }
+
+      if (shuffleMetrics.contains(Operator::kBackgroundCpuTimeNanos)) {
+        backgroundCpuTimeNanosOpt =
+            shuffleMetrics.at(Operator::kBackgroundCpuTimeNanos).sum;
+      }
+    } else {
+      const auto shuffleStats = shuffle_->stats();
+      for (const auto& [name, value] : shuffleStats) {
+        lockedStats->runtimeStats[name] = RuntimeMetric(value);
+      }
+
+      if (shuffleStats.contains(Operator::kBackgroundCpuTimeNanos)) {
+        backgroundCpuTimeNanosOpt =
+            shuffleStats.at(Operator::kBackgroundCpuTimeNanos);
+      }
     }
 
-    auto backgroundCpuTimeMs =
-        shuffleStats.find(ExchangeClient::kBackgroundCpuTimeMs);
-    if (backgroundCpuTimeMs != shuffleStats.end()) {
+    if (backgroundCpuTimeNanosOpt.has_value()) {
       const CpuWallTiming backgroundTiming{
-          static_cast<uint64_t>(1),
-          0,
-          static_cast<uint64_t>(backgroundCpuTimeMs->second) *
-              Timestamp::kNanosecondsInMillisecond};
+          .count = static_cast<uint64_t>(1),
+          .wallNanos = 0,
+          .cpuNanos = static_cast<uint64_t>(*backgroundCpuTimeNanosOpt)};
       lockedStats->backgroundTiming.clear();
       lockedStats->backgroundTiming.add(backgroundTiming);
     }
@@ -192,7 +210,7 @@ std::unique_ptr<Operator> ShuffleWriteTranslator::toOperator(
     const core::PlanNodePtr& node) {
   if (auto shuffleWriteNode =
           std::dynamic_pointer_cast<const ShuffleWriteNode>(node)) {
-    return std::make_unique<ShuffleWriteOperator>(id, ctx, shuffleWriteNode);
+    return std::make_unique<ShuffleWrite>(id, ctx, shuffleWriteNode);
   }
   return nullptr;
 }

@@ -154,7 +154,7 @@ Database Resource Group Manager Properties
    * - ``resource-groups.exact-match-selector-enabled``
      - Setting this flag enables usage of an additional
        ``exact_match_source_selectors`` table to configure resource group
-       selection rules defined exact name based matches for source, environment
+       selection rules which define exact name based matches for source, environment
        and query type. By default, the rules are only loaded from the
        ``selectors`` table, with a regex-based filter for ``source``, among
        other filters.
@@ -199,7 +199,7 @@ Here are the key properties that can be set for a Resource Group:
     sub-group is computed based on the weights for all currently eligible sub-groups. The sub-group
     with the least concurrency relative to its share is selected to start the next query.
   - ``weighted``: queued queries are selected stochastically in proportion to their priority,
-    specified via the ``query_priority`` {doc} ``session property </sql/set-session>``. Sub groups are selected
+    specified by the :ref:`admin/properties-session:\`\`query_priority\`\``. Sub groups are selected
     to start new queries in proportion to their ``schedulingWeight``.
   - ``query_priority``: all sub-groups must also be configured with ``query_priority``.
     Queued queries are selected strictly according to their priority.
@@ -277,6 +277,8 @@ Here are the key components of selector rules in PrestoDB:
   - ``ANALYZE``: ``ANALYZE`` queries.
   - ``DATA_DEFINITION``: Queries that alter/create/drop the metadata of schemas/tables/views,
     and that manage prepared statements, privileges, sessions, and transactions.
+  - ``CONTROL``: Transaction control queries like ``COMMIT``, ``ROLLBACK`` and session control queries like
+    ``USE``, ``SET SESSION``.
 
 * ``clientTags`` (optional): List of tags. To match, every tag in this list must be in the list of
   client-provided tags associated with the query.
@@ -352,13 +354,13 @@ There are four selectors, that define which queries run in which resource group:
   dynamically-created per-user pipeline group under the ``global.pipeline`` group.
 
 * The fourth selector matches queries that come from BI tools which have a source matching the regular
-  expression ``jdbc#(?<toolname>.*)``, and have client provided tags that are a superset of ``hi-pri``.
-  These are placed in a dynamically-created sub-group under the ``global.pipeline.tools`` group. The dynamic
-  sub-group is created based on the named variable ``toolname``, which is extracted from the
-  regular expression for source.
+  expression ``jdbc#(?<toolname>.*)``, and have client provided tags that are a superset of ``hipri``.
+  These are placed in a dynamically created sub-group under the ``global.adhoc`` group. The dynamic sub-groups
+  are created based on the values of named variables ``toolname`` and ``USER``. The values are derived from the
+  source regular expression and the query user respectively.
 
   Consider a query with a source ``jdbc#powerfulbi``, user ``kayla``, and
-  client tags ``hipri`` and ``fast``. This query is routed to the ``global.pipeline.bi-powerfulbi.kayla``
+  client tags ``hipri`` and ``fast``. This query is routed to the ``global.adhoc.bi-powerfulbi.kayla``
   resource group.
 
 * The last selector is a catch-all, which places all queries that have not yet been matched into a per-user
@@ -373,9 +375,9 @@ For the remaining users:
 
 * No more than 100 total queries may run concurrently.
 
-* Up to 5 concurrent DDL queries with a source ``pipeline`` can run. Queries are run in FIFO order.
+* Up to 5 concurrent DDL queries with a source that includes ``pipeline`` in its name can run. Queries are run in FIFO order.
 
-* Non-DDL queries will run under the ``global.pipeline`` group, with a total concurrency of 45, and a per-user
+* Non-DDL queries with a source that includes ``pipeline`` in its name run under the ``global.pipeline`` group, with a total concurrency of 45, and a per-user
   concurrency of 5. Queries are run in FIFO order.
 
 * For BI tools, each tool can run up to 10 concurrent queries, and each user can run up to 3. If the total demand

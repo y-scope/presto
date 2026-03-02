@@ -37,7 +37,23 @@ class BinarySortableSerializer {
 
   /// Serialize the data into an raw buffer, the caller needs to ensure there
   /// serialized data won't overflow the buffer.
-  void serialize(velox::vector_size_t rowId, velox::StringVectorBuffer* out);
+  void serialize(velox::vector_size_t rowId, velox::StringVectorBuffer* out)
+      const;
+
+  /// Returns the serialized byte size of a given input row at 'rowId'.
+  size_t serializedSizeInBytes(velox::vector_size_t rowId) const;
+
+  /// Returns the serialized byte sizes for a batch of input rows in columnar
+  /// order.
+  /// @param offset Starting offset in the input vector
+  /// @param size Number of rows to process
+  /// @param sizes Output array of size pointers to store results
+  /// @param scratch Scratch memory for temporary allocations
+  void serializedSizeInBytes(
+      velox::vector_size_t offset,
+      velox::vector_size_t size,
+      velox::vector_size_t** sizes,
+      velox::Scratch& scratch) const;
 
  private:
   const velox::RowVectorPtr input_;

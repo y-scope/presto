@@ -14,18 +14,18 @@
 package com.facebook.presto.execution;
 
 import com.facebook.airlift.configuration.testing.ConfigAssertions;
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.execution.QueryManagerConfig.ExchangeMaterializationStrategy;
 import com.google.common.collect.ImmutableMap;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
 import org.testng.annotations.Test;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.airlift.units.DataSize.Unit.PETABYTE;
-import static io.airlift.units.DataSize.Unit.TERABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.PETABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.TERABYTE;
 import static java.util.concurrent.TimeUnit.HOURS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
@@ -62,6 +62,7 @@ public class TestQueryManagerConfig
                 .setRemoteTaskMaxCallbackThreads(Runtime.getRuntime().availableProcessors())
                 .setQueryExecutionPolicy("all-at-once")
                 .setQueryMaxRunTime(new Duration(100, TimeUnit.DAYS))
+                .setQueryMaxQueuedTime(new Duration(100, TimeUnit.DAYS))
                 .setQueryMaxExecutionTime(new Duration(100, TimeUnit.DAYS))
                 .setQueryMaxCpuTime(new Duration(1_000_000_000, TimeUnit.DAYS))
                 .setQueryMaxScanRawInputBytes(new DataSize(1000, PETABYTE))
@@ -84,7 +85,9 @@ public class TestQueryManagerConfig
                 .setRateLimiterCacheLimit(1000)
                 .setRateLimiterCacheWindowMinutes(5)
                 .setEnableWorkerIsolation(false)
-                .setMinColumnarEncodingChannelsToPreferRowWiseEncoding(1000));
+                .setMinColumnarEncodingChannelsToPreferRowWiseEncoding(1000)
+                .setMaxQueryAdmissionsPerSecond(Integer.MAX_VALUE)
+                .setMinRunningQueriesForPacing(30));
     }
 
     @Test
@@ -115,6 +118,7 @@ public class TestQueryManagerConfig
                 .put("query.remote-task.max-callback-threads", "11")
                 .put("query.execution-policy", "phased")
                 .put("query.max-run-time", "2h")
+                .put("query.max-queued-time", "1h")
                 .put("query.max-execution-time", "3h")
                 .put("query.max-cpu-time", "2d")
                 .put("query.max-scan-raw-input-bytes", "1MB")
@@ -139,6 +143,8 @@ public class TestQueryManagerConfig
                 .put("query.cte-partitioning-provider-catalog", "hive")
                 .put("query-manager.enable-worker-isolation", "true")
                 .put("min-columnar-encoding-channels-to-prefer-row-wise-encoding", "123")
+                .put("query-manager.query-pacing.max-queries-per-second", "10")
+                .put("query-manager.query-pacing.min-running-queries", "5")
                 .build();
 
         QueryManagerConfig expected = new QueryManagerConfig()
@@ -167,6 +173,7 @@ public class TestQueryManagerConfig
                 .setRemoteTaskMaxCallbackThreads(11)
                 .setQueryExecutionPolicy("phased")
                 .setQueryMaxRunTime(new Duration(2, TimeUnit.HOURS))
+                .setQueryMaxQueuedTime(new Duration(1, TimeUnit.HOURS))
                 .setQueryMaxExecutionTime(new Duration(3, TimeUnit.HOURS))
                 .setQueryMaxCpuTime(new Duration(2, TimeUnit.DAYS))
                 .setQueryMaxScanRawInputBytes(new DataSize(1, MEGABYTE))
@@ -190,7 +197,9 @@ public class TestQueryManagerConfig
                 .setRateLimiterCacheWindowMinutes(60)
                 .setCtePartitioningProviderCatalog("hive")
                 .setEnableWorkerIsolation(true)
-                .setMinColumnarEncodingChannelsToPreferRowWiseEncoding(123);
+                .setMinColumnarEncodingChannelsToPreferRowWiseEncoding(123)
+                .setMaxQueryAdmissionsPerSecond(10)
+                .setMinRunningQueriesForPacing(5);
         ConfigAssertions.assertFullMapping(properties, expected);
     }
 }

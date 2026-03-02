@@ -14,13 +14,15 @@
 package com.facebook.presto.spi.connector.classloader;
 
 import com.facebook.presto.common.CatalogSchemaName;
+import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorDeleteTableHandle;
+import com.facebook.presto.spi.ConnectorDistributedProcedureHandle;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
-import com.facebook.presto.spi.ConnectorMetadataUpdateHandle;
+import com.facebook.presto.spi.ConnectorMergeTableHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.facebook.presto.spi.ConnectorResolvedIndex;
@@ -34,7 +36,6 @@ import com.facebook.presto.spi.ConnectorViewDefinition;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.MaterializedViewDefinition;
 import com.facebook.presto.spi.MaterializedViewStatus;
-import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.SystemTable;
@@ -45,7 +46,10 @@ import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
 import com.facebook.presto.spi.connector.ConnectorPartitioningHandle;
 import com.facebook.presto.spi.connector.ConnectorPartitioningMetadata;
 import com.facebook.presto.spi.connector.ConnectorTableVersion;
+import com.facebook.presto.spi.connector.RowChangeParadigm;
+import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.constraints.TableConstraint;
+import com.facebook.presto.spi.function.table.ConnectorTableFunctionHandle;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.spi.security.GrantInfo;
@@ -503,6 +507,14 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
+    public Optional<ColumnHandle> getDeleteRowIdColumn(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getDeleteRowIdColumn(session, tableHandle);
+        }
+    }
+
+    @Override
     public void dropView(ConnectorSession session, SchemaTableName viewName)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
@@ -523,6 +535,24 @@ public class ClassLoaderSafeConnectorMetadata
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             return delegate.listViews(session, schemaNameOrNull);
+        }
+    }
+
+    @Override
+    public List<SchemaTableName> listMaterializedViews(ConnectorSession session, String schemaName)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.listMaterializedViews(session, schemaName);
+        }
+    }
+
+    @Override
+    public Map<SchemaTableName, MaterializedViewDefinition> getMaterializedViews(
+            ConnectorSession session,
+            List<SchemaTableName> viewNames)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getMaterializedViews(session, viewNames);
         }
     }
 
@@ -559,12 +589,6 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public MaterializedViewStatus getMaterializedViewStatus(ConnectorSession session, SchemaTableName materializedViewName)
-    {
-        return delegate.getMaterializedViewStatus(session, materializedViewName);
-    }
-
-    @Override
     public MaterializedViewStatus getMaterializedViewStatus(ConnectorSession session, SchemaTableName materializedViewName, TupleDomain<String> baseQueryDomain)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
@@ -597,6 +621,34 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
+    public Optional<ColumnHandle> getUpdateRowIdColumn(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> updatedColumns)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getUpdateRowIdColumn(session, tableHandle, updatedColumns);
+        }
+    }
+
+    @Override
+    public ConnectorDistributedProcedureHandle beginCallDistributedProcedure(
+            ConnectorSession session,
+            QualifiedObjectName procedureName,
+            ConnectorTableLayoutHandle tableLayoutHandle,
+            Object[] arguments)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.beginCallDistributedProcedure(session, procedureName, tableLayoutHandle, arguments);
+        }
+    }
+
+    @Override
+    public void finishCallDistributedProcedure(ConnectorSession session, ConnectorDistributedProcedureHandle procedureHandle, QualifiedObjectName procedureName, Collection<Slice> fragments)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.finishCallDistributedProcedure(session, procedureHandle, procedureName, fragments);
+        }
+    }
+
+    @Override
     public ConnectorDeleteTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
@@ -613,6 +665,14 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
+    public Optional<ConnectorOutputMetadata> finishDeleteWithOutput(ConnectorSession session, ConnectorDeleteTableHandle tableHandle, Collection<Slice> fragments)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.finishDeleteWithOutput(session, tableHandle, fragments);
+        }
+    }
+
+    @Override
     public ConnectorTableHandle beginUpdate(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> updatedColumns)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
@@ -625,6 +685,42 @@ public class ClassLoaderSafeConnectorMetadata
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             delegate.finishUpdate(session, tableHandle, fragments);
+        }
+    }
+
+    @Override
+    public RowChangeParadigm getRowChangeParadigm(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getRowChangeParadigm(session, tableHandle);
+        }
+    }
+
+    /**
+     * Get the column handle that will generate row IDs for the merge operation.
+     * These IDs will be passed to the {@link com.facebook.presto.spi.ConnectorMergeSink#storeMergedRows}
+     * method of the {@link com.facebook.presto.spi.ConnectorMergeSink} that created them.
+     */
+    public ColumnHandle getMergeTargetTableRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getMergeTargetTableRowIdColumnHandle(session, tableHandle);
+        }
+    }
+
+    @Override
+    public ConnectorMergeTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.beginMerge(session, tableHandle);
+        }
+    }
+
+    @Override
+    public void finishMerge(ConnectorSession session, ConnectorMergeTableHandle mergeTableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.finishMerge(session, mergeTableHandle, fragments, computedStatistics);
         }
     }
 
@@ -765,26 +861,26 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public List<ConnectorMetadataUpdateHandle> getMetadataUpdateResults(List<ConnectorMetadataUpdateHandle> metadataUpdateRequests, QueryId queryId)
-    {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            return delegate.getMetadataUpdateResults(metadataUpdateRequests, queryId);
-        }
-    }
-
-    @Override
-    public void doMetadataUpdateCleanup(QueryId queryId)
-    {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            delegate.doMetadataUpdateCleanup(queryId);
-        }
-    }
-
-    @Override
     public TableLayoutFilterCoverage getTableLayoutFilterCoverage(ConnectorTableLayoutHandle tableHandle, Set<String> relevantPartitionColumns)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             return delegate.getTableLayoutFilterCoverage(tableHandle, relevantPartitionColumns);
+        }
+    }
+
+    @Override
+    public void dropBranch(ConnectorSession session, ConnectorTableHandle tableHandle, String branchName, boolean branchExists)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.dropBranch(session, tableHandle, branchName, branchExists);
+        }
+    }
+
+    @Override
+    public void dropTag(ConnectorSession session, ConnectorTableHandle tableHandle, String tagName, boolean tagExists)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.dropTag(session, tableHandle, tagName, tagExists);
         }
     }
 
@@ -809,6 +905,21 @@ public class ClassLoaderSafeConnectorMetadata
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             return delegate.isPushdownSupportedForFilter(session, tableHandle, filter, symbolToColumnHandleMap);
+        }
+    }
+
+    public String normalizeIdentifier(ConnectorSession session, String identifier)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.normalizeIdentifier(session, identifier);
+        }
+    }
+
+    @Override
+    public Optional<TableFunctionApplicationResult<ConnectorTableHandle>> applyTableFunction(ConnectorSession session, ConnectorTableFunctionHandle handle)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.applyTableFunction(session, handle);
         }
     }
 }

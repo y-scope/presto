@@ -14,7 +14,9 @@
 package com.facebook.presto.execution;
 
 import com.facebook.airlift.concurrent.SetThreadName;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
+import com.facebook.presto.common.InvalidFunctionArgumentException;
 import com.facebook.presto.common.analyzer.PreparedQuery;
 import com.facebook.presto.common.resourceGroups.QueryType;
 import com.facebook.presto.cost.CostCalculator;
@@ -65,10 +67,8 @@ import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
 import com.facebook.presto.sql.planner.sanity.PlanChecker;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.airlift.units.Duration;
-
-import javax.annotation.concurrent.ThreadSafe;
-import javax.inject.Inject;
+import com.google.errorprone.annotations.ThreadSafe;
+import jakarta.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
@@ -97,6 +97,7 @@ import static com.facebook.presto.execution.QueryStateMachine.pruneHistogramsFro
 import static com.facebook.presto.execution.buffer.OutputBuffers.BROADCAST_PARTITION_ID;
 import static com.facebook.presto.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static com.facebook.presto.execution.buffer.OutputBuffers.createSpoolingOutputBuffers;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.Optimizer.PlanStage.OPTIMIZED_AND_VALIDATED;
 import static com.facebook.presto.sql.planner.PlanNodeCanonicalInfo.getCanonicalInfo;
@@ -218,11 +219,11 @@ public class SqlQueryExecution
                         .recordWallAndCpuTime(ANALYZE_TIME_NANOS, () -> queryAnalyzer.analyze(analyzerContext, preparedQuery));
             }
 
-            stateMachine.setUpdateType(queryAnalysis.getUpdateType());
+            stateMachine.setUpdateInfo(queryAnalysis.getUpdateInfo());
             stateMachine.setExpandedQuery(queryAnalysis.getExpandedQuery());
 
             stateMachine.beginColumnAccessPermissionChecking();
-            checkAccessPermissions(queryAnalysis.getAccessControlReferences(), query);
+            checkAccessPermissions(queryAnalysis.getAccessControlReferences(), queryAnalysis.getViewDefinitionReferences(), query, getSession().getPreparedStatements(), getSession().getIdentity(), accessControl, getSession().getAccessControlContext());
             stateMachine.endColumnAccessPermissionChecking();
 
             // when the query finishes cache the final query info, and clear the reference to the output stage
@@ -337,6 +338,12 @@ public class SqlQueryExecution
     public long getCreateTimeInMillis()
     {
         return stateMachine.getCreateTimeInMillis();
+    }
+
+    @Override
+    public Duration getQueuedTime()
+    {
+        return stateMachine.getQueuedTime();
     }
 
     /**
@@ -620,6 +627,9 @@ public class SqlQueryExecution
         catch (StackOverflowError e) {
             throw new PrestoException(NOT_SUPPORTED, "statement is too large (stack overflow during analysis)", e);
         }
+        catch (InvalidFunctionArgumentException e) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e.getMessage(), e);
+        }
     }
 
     private PlanRoot runCreateLogicalPlanAsync()
@@ -639,7 +649,7 @@ public class SqlQueryExecution
 
     private void createQueryScheduler(PlanRoot plan)
     {
-        CloseableSplitSourceProvider splitSourceProvider = new CloseableSplitSourceProvider(splitManager::getSplits);
+        CloseableSplitSourceProvider splitSourceProvider = new CloseableSplitSourceProvider(splitManager);
 
         // ensure split sources are closed
         stateMachine.addStateChangeListener(state -> {

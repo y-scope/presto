@@ -39,17 +39,16 @@ import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
-
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.HEAD;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import java.io.UnsupportedEncodingException;
 import java.lang.invoke.MethodHandle;
@@ -141,7 +140,8 @@ public class FunctionResource
                                 function.getSignature().getArgumentTypes())),
                 Optional.of("1"),
                 Optional.of(function.getSignature().getTypeVariableConstraints()),
-                Optional.ofNullable(function.getSignature().getLongVariableConstraints()));
+                Optional.ofNullable(function.getSignature().getLongVariableConstraints()),
+                Optional.empty());
     }
 
     @GET
@@ -223,26 +223,41 @@ public class FunctionResource
         SerializedPage serializedPage = readSerializedPage(new BasicSliceInput(slice));
         Page inputPage = pagesSerde.deserialize(serializedPage);
 
-        // Use functionId to retrieve argument types
         List<TypeSignatureProvider> argumentTypeSignatures = extractArgumentTypeSignatures(functionId);
+        Type[] types = new Type[argumentTypeSignatures.size()];
+        Block[] blocks = new Block[argumentTypeSignatures.size()];
+        for (int i = 0; i < argumentTypeSignatures.size(); i++) {
+            types[i] = manager.getType(argumentTypeSignatures.get(i).getTypeSignature());
+            blocks[i] = inputPage.getBlock(i);
+        }
 
         FunctionHandle functionHandle = manager.lookupFunction(functionName, argumentTypeSignatures);
         BuiltInScalarFunctionImplementation functionImplementation = (BuiltInScalarFunctionImplementation) manager.getJavaScalarFunctionImplementation(functionHandle);
 
-        Object[] inputValues = new Object[inputPage.getChannelCount()];
-        for (int i = 0; i < inputPage.getChannelCount(); i++) {
-            TypeSignatureProvider typeSignatureProvider = argumentTypeSignatures.get(i);
-            Type type = manager.getType(typeSignatureProvider.getTypeSignature());
+        int positionCount = inputPage.getPositionCount();
+        int channelCount = inputPage.getChannelCount();
+        Type returnType = manager.getType(manager.getFunctionMetadata(functionHandle).getReturnType());
+        PageBuilder pageBuilder = new PageBuilder(Collections.singletonList(returnType));
 
-            inputValues[i] = deserializeBlock(type, inputPage.getBlock(i));
+        for (int position = 0; position < positionCount; position++) {
+            Object[] inputValues = new Object[blocks.length];
+            for (int i = 0; i < blocks.length; i++) {
+                if (blocks[i].isNull(position)) {
+                    inputValues[i] = null;
+                }
+                else {
+                    inputValues[i] = deserializeBlock(types[i], blocks[i].getRegion(position, 1));
+                }
+            }
+            Object result = executeFunction(functionImplementation, inputValues);
+            pageBuilder.declarePosition();
+            BlockBuilder output = pageBuilder.getBlockBuilder(0);
+            createResultBlock(output, returnType, result);
         }
 
-        Object result = executeFunction(functionImplementation, inputValues);
-        Type returnType = manager.getType(manager.getFunctionMetadata(functionHandle).getReturnType());
-        Page outputPage = createResultPage(returnType, result);
+        Page outputPage = pageBuilder.build();
         DynamicSliceOutput sliceOutput = new DynamicSliceOutput((int) outputPage.getRetainedSizeInBytes());
         writeSerializedPage(sliceOutput, pagesSerde.serialize(outputPage));
-
         return sliceOutput.slice().byteArray();
     }
 
@@ -310,11 +325,8 @@ public class FunctionResource
                 Optional.empty());
     }
 
-    private Page createResultPage(Type type, Object result)
+    private void createResultBlock(BlockBuilder output, Type type, Object result)
     {
-        PageBuilder pageBuilder = new PageBuilder(Collections.singletonList(type));
-        pageBuilder.declarePosition();
-        BlockBuilder output = pageBuilder.getBlockBuilder(0);
         switch (type.getTypeSignature().getBase()) {
             case "integer":
             case "bigint":
@@ -358,7 +370,6 @@ public class FunctionResource
                 type.writeObject(output, result);
                 break;
         }
-        return pageBuilder.build();
     }
 
     @HEAD

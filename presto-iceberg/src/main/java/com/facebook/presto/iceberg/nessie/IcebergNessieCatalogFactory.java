@@ -20,8 +20,7 @@ import com.facebook.presto.iceberg.IcebergConfig;
 import com.facebook.presto.iceberg.IcebergNativeCatalogFactory;
 import com.facebook.presto.spi.ConnectorSession;
 import com.google.common.collect.ImmutableMap;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Map;
 import java.util.Optional;
@@ -60,6 +59,7 @@ public class IcebergNessieCatalogFactory
         if (hash != null) {
             properties.put("ref.hash", hash);
         }
+        catalogConfig.getAuthenticationType().ifPresent(val -> properties.put("nessie.authentication.type", val.toString()));
         catalogConfig.getReadTimeoutMillis().ifPresent(val -> properties.put("transport.read-timeout", val.toString()));
         catalogConfig.getConnectTimeoutMillis().ifPresent(val -> properties.put("transport.connect-timeout", val.toString()));
         catalogConfig.getClientBuilderImpl().ifPresent(val -> properties.put("client-builder-impl", val));

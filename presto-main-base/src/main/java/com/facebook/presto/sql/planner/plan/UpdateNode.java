@@ -21,8 +21,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-
-import javax.annotation.concurrent.Immutable;
+import com.google.errorprone.annotations.Immutable;
 
 import java.util.List;
 import java.util.Optional;
@@ -34,7 +33,7 @@ public class UpdateNode
         extends InternalPlanNode
 {
     private final PlanNode source;
-    private final VariableReferenceExpression rowId;
+    private final Optional<VariableReferenceExpression> rowId;
     private final List<VariableReferenceExpression> columnValueAndRowIdSymbols;
     private final List<VariableReferenceExpression> outputVariables;
 
@@ -43,7 +42,7 @@ public class UpdateNode
             Optional<SourceLocation> sourceLocation,
             @JsonProperty("id") PlanNodeId id,
             @JsonProperty("source") PlanNode source,
-            @JsonProperty("rowId") VariableReferenceExpression rowId,
+            @JsonProperty("rowId") Optional<VariableReferenceExpression> rowId,
             @JsonProperty("columnValueAndRowIdSymbols") List<VariableReferenceExpression> columnValueAndRowIdSymbols,
             @JsonProperty("outputVariables") List<VariableReferenceExpression> outputVariables)
     {
@@ -55,7 +54,7 @@ public class UpdateNode
             PlanNodeId id,
             Optional<PlanNode> statsEquivalentPlanNode,
             PlanNode source,
-            VariableReferenceExpression rowId,
+            Optional<VariableReferenceExpression> rowId,
             List<VariableReferenceExpression> columnValueAndRowIdSymbols,
             List<VariableReferenceExpression> outputVariables)
     {
@@ -74,7 +73,7 @@ public class UpdateNode
     }
 
     @JsonProperty
-    public VariableReferenceExpression getRowId()
+    public Optional<VariableReferenceExpression> getRowId()
     {
         return rowId;
     }

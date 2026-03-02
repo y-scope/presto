@@ -14,6 +14,8 @@
 package com.facebook.presto.testing;
 
 import com.facebook.airlift.node.NodeInfo;
+import com.facebook.airlift.units.Duration;
+import com.facebook.drift.codec.ThriftCodecManager;
 import com.facebook.presto.ClientRequestFilterManager;
 import com.facebook.presto.GroupByHashPageIndexerFactory;
 import com.facebook.presto.PagesIndexPageSorter;
@@ -26,8 +28,8 @@ import com.facebook.presto.common.block.BlockEncodingManager;
 import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.type.BooleanType;
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.connector.ConnectorCodecManager;
 import com.facebook.presto.connector.ConnectorManager;
-import com.facebook.presto.connector.ConnectorTypeSerdeManager;
 import com.facebook.presto.connector.system.AnalyzePropertiesSystemTable;
 import com.facebook.presto.connector.system.CatalogSystemTable;
 import com.facebook.presto.connector.system.ColumnPropertiesSystemTable;
@@ -96,18 +98,20 @@ import com.facebook.presto.index.IndexManager;
 import com.facebook.presto.memory.MemoryManagerConfig;
 import com.facebook.presto.memory.NodeMemoryConfig;
 import com.facebook.presto.metadata.AnalyzePropertyManager;
+import com.facebook.presto.metadata.BuiltInProcedureRegistry;
 import com.facebook.presto.metadata.CatalogManager;
 import com.facebook.presto.metadata.ColumnPropertyManager;
-import com.facebook.presto.metadata.ConnectorMetadataUpdaterManager;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.HandleResolver;
 import com.facebook.presto.metadata.InMemoryNodeManager;
+import com.facebook.presto.metadata.MaterializedViewPropertyManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.metadata.MetadataUtil;
 import com.facebook.presto.metadata.QualifiedTablePrefix;
 import com.facebook.presto.metadata.SchemaPropertyManager;
 import com.facebook.presto.metadata.Split;
+import com.facebook.presto.metadata.TableFunctionRegistry;
 import com.facebook.presto.metadata.TablePropertyManager;
 import com.facebook.presto.nodeManager.PluginNodeManager;
 import com.facebook.presto.operator.Driver;
@@ -122,7 +126,7 @@ import com.facebook.presto.operator.SourceOperatorFactory;
 import com.facebook.presto.operator.TableCommitContext;
 import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.operator.index.IndexJoinLookupStats;
-import com.facebook.presto.server.ConnectorMetadataUpdateHandleJsonSerde;
+import com.facebook.presto.operator.table.ExcludeColumns;
 import com.facebook.presto.server.NodeStatusNotificationManager;
 import com.facebook.presto.server.PluginManager;
 import com.facebook.presto.server.PluginManagerConfig;
@@ -150,6 +154,8 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.SimplePlanFragment;
 import com.facebook.presto.spi.plan.StageExecutionDescriptor;
 import com.facebook.presto.spi.plan.TableScanNode;
+import com.facebook.presto.spi.procedure.ProcedureRegistry;
+import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spiller.FileSingleStreamSpillerFactory;
 import com.facebook.presto.spiller.GenericPartitioningSpillerFactory;
 import com.facebook.presto.spiller.GenericSpillerFactory;
@@ -176,6 +182,7 @@ import com.facebook.presto.sql.analyzer.JavaFeaturesConfig;
 import com.facebook.presto.sql.analyzer.QueryExplainer;
 import com.facebook.presto.sql.analyzer.QueryPreparerProviderManager;
 import com.facebook.presto.sql.expressions.ExpressionOptimizerManager;
+import com.facebook.presto.sql.expressions.JsonCodecRowExpressionSerde;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.gen.JoinCompiler;
 import com.facebook.presto.sql.gen.JoinFilterFunctionCompiler;
@@ -240,7 +247,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Closer;
-import io.airlift.units.Duration;
 import org.intellij.lang.annotations.Language;
 import org.weakref.jmx.MBeanExporter;
 import org.weakref.jmx.testing.TestingMBeanServer;
@@ -317,6 +323,7 @@ public class LocalQueryRunner
     private final PageSorter pageSorter;
     private final PageIndexerFactory pageIndexerFactory;
     private final MetadataManager metadata;
+    private final ProcedureRegistry procedureRegistry;
     private final ScalarStatsCalculator scalarStatsCalculator;
     private final StatsNormalizer statsNormalizer;
     private final FilterStatsCalculator filterStatsCalculator;
@@ -332,8 +339,6 @@ public class LocalQueryRunner
     private final PartitioningProviderManager partitioningProviderManager;
     private final NodePartitioningManager nodePartitioningManager;
     private final ConnectorPlanOptimizerManager planOptimizerManager;
-    private final ConnectorMetadataUpdaterManager distributedMetadataManager;
-    private final ConnectorTypeSerdeManager connectorTypeSerdeManager;
     private final PageSinkManager pageSinkManager;
     private final TransactionManager transactionManager;
     private final FileSingleStreamSpillerFactory singleStreamSpillerFactory;
@@ -431,14 +436,14 @@ public class LocalQueryRunner
         this.partitioningProviderManager = new PartitioningProviderManager();
         this.nodePartitioningManager = new NodePartitioningManager(nodeScheduler, partitioningProviderManager, new NodeSelectionStats());
         this.planOptimizerManager = new ConnectorPlanOptimizerManager();
-        this.distributedMetadataManager = new ConnectorMetadataUpdaterManager();
-        this.connectorTypeSerdeManager = new ConnectorTypeSerdeManager(new ConnectorMetadataUpdateHandleJsonSerde());
 
         this.blockEncodingManager = new BlockEncodingManager();
         featuresConfig.setIgnoreStatsCalculatorFailures(false);
 
+        FunctionAndTypeManager functionAndTypeManager = new FunctionAndTypeManager(transactionManager, new TableFunctionRegistry(), blockEncodingManager, featuresConfig, functionsConfig, new HandleResolver(), ImmutableSet.of());
+        this.procedureRegistry = new BuiltInProcedureRegistry(functionAndTypeManager);
         this.metadata = new MetadataManager(
-                new FunctionAndTypeManager(transactionManager, blockEncodingManager, featuresConfig, functionsConfig, new HandleResolver(), ImmutableSet.of()),
+                functionAndTypeManager,
                 blockEncodingManager,
                 createTestingSessionPropertyManager(
                         new SystemSessionProperties(
@@ -458,9 +463,11 @@ public class LocalQueryRunner
                         nodeSpillConfig),
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
+                new MaterializedViewPropertyManager(),
                 new ColumnPropertyManager(),
                 new AnalyzePropertyManager(),
-                transactionManager);
+                transactionManager,
+                procedureRegistry);
         this.splitManager = new SplitManager(metadata, new QueryManagerConfig(), nodeSchedulerConfig);
         this.planCheckerProviderManager = new PlanCheckerProviderManager(new JsonCodecSimplePlanFragmentSerde(jsonCodec(SimplePlanFragment.class)), new PlanCheckerProviderManagerConfig());
         this.distributedPlanChecker = new PlanChecker(featuresConfig, false, planCheckerProviderManager);
@@ -470,7 +477,7 @@ public class LocalQueryRunner
         this.pageIndexerFactory = new GroupByHashPageIndexerFactory(joinCompiler);
 
         NodeInfo nodeInfo = new NodeInfo("test");
-        expressionOptimizerManager = new ExpressionOptimizerManager(new PluginNodeManager(nodeManager, nodeInfo.getEnvironment()), getFunctionAndTypeManager());
+        expressionOptimizerManager = new ExpressionOptimizerManager(new PluginNodeManager(nodeManager, nodeInfo.getEnvironment()), getFunctionAndTypeManager(), new JsonCodecRowExpressionSerde(jsonCodec(RowExpression.class)));
 
         this.accessControl = new TestingAccessControlManager(transactionManager);
         this.statsNormalizer = new StatsNormalizer();
@@ -478,7 +485,7 @@ public class LocalQueryRunner
         this.filterStatsCalculator = new FilterStatsCalculator(metadata, scalarStatsCalculator, statsNormalizer);
         this.historyBasedPlanStatisticsManager = new HistoryBasedPlanStatisticsManager(objectMapper, createTestingSessionPropertyManager(), metadata, new HistoryBasedOptimizationConfig(), featuresConfig, new NodeVersion("1"));
         this.fragmentStatsProvider = new FragmentStatsProvider();
-        this.statsCalculator = createNewStatsCalculator(metadata, scalarStatsCalculator, statsNormalizer, filterStatsCalculator, historyBasedPlanStatisticsManager, fragmentStatsProvider);
+        this.statsCalculator = createNewStatsCalculator(metadata, scalarStatsCalculator, statsNormalizer, filterStatsCalculator, historyBasedPlanStatisticsManager, fragmentStatsProvider, expressionOptimizerManager);
         this.taskCountEstimator = new TaskCountEstimator(() -> nodeCountForStats);
         this.costCalculator = new CostCalculatorUsingExchanges(taskCountEstimator);
         this.estimatedExchangesCostCalculator = new CostCalculatorWithEstimatedExchanges(costCalculator, taskCountEstimator);
@@ -499,13 +506,12 @@ public class LocalQueryRunner
                 indexManager,
                 partitioningProviderManager,
                 planOptimizerManager,
-                distributedMetadataManager,
-                connectorTypeSerdeManager,
                 pageSinkManager,
                 new HandleResolver(),
                 nodeManager,
                 nodeInfo,
                 metadata.getFunctionAndTypeManager(),
+                procedureRegistry,
                 pageSorter,
                 pageIndexerFactory,
                 transactionManager,
@@ -515,7 +521,8 @@ public class LocalQueryRunner
                 new RowExpressionDeterminismEvaluator(metadata.getFunctionAndTypeManager()),
                 new FilterStatsCalculator(metadata, scalarStatsCalculator, statsNormalizer),
                 blockEncodingManager,
-                featuresConfig);
+                featuresConfig,
+                new ConnectorCodecManager(ThriftCodecManager::new));
 
         GlobalSystemConnectorFactory globalSystemConnectorFactory = new GlobalSystemConnectorFactory(ImmutableSet.of(
                 new NodeSystemTable(nodeManager),
@@ -525,11 +532,12 @@ public class LocalQueryRunner
                 new ColumnPropertiesSystemTable(transactionManager, metadata),
                 new AnalyzePropertiesSystemTable(transactionManager, metadata),
                 new TransactionsSystemTable(metadata.getFunctionAndTypeManager(), transactionManager)),
-                ImmutableSet.of());
+                ImmutableSet.of(),
+                ImmutableSet.of(new ExcludeColumns.ExcludeColumnsFunction()));
 
         BuiltInQueryAnalyzer queryAnalyzer = new BuiltInQueryAnalyzer(metadata, sqlParser, accessControl, Optional.empty(), metadataExtractorExecutor);
         BuiltInAnalyzerProvider analyzerProvider = new BuiltInAnalyzerProvider(queryAnalyzer);
-        BuiltInQueryPreparer queryPreparer = new BuiltInQueryPreparer(sqlParser);
+        BuiltInQueryPreparer queryPreparer = new BuiltInQueryPreparer(sqlParser, procedureRegistry);
         BuiltInQueryPreparerProvider queryPreparerProvider = new BuiltInQueryPreparerProvider(queryPreparer);
 
         this.pluginManager = new PluginManager(
@@ -777,7 +785,8 @@ public class LocalQueryRunner
     @Override
     public void createCatalog(String catalogName, String connectorName, Map<String, String> properties)
     {
-        throw new UnsupportedOperationException();
+        nodeManager.addCurrentNodeConnector(new ConnectorId(catalogName));
+        connectorManager.createConnection(catalogName, connectorName, properties);
     }
 
     @Override
@@ -918,7 +927,7 @@ public class LocalQueryRunner
     private MaterializedResultWithPlan executeExplainTypeValidate(String sql, Session session, WarningCollector warningCollector)
     {
         AnalyzerOptions analyzerOptions = createAnalyzerOptions(session, warningCollector);
-        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
+        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser, procedureRegistry).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
         assertFormattedSql(sqlParser, createParsingOptions(session), preparedQuery.getStatement());
 
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
@@ -939,7 +948,7 @@ public class LocalQueryRunner
         AnalyzerContext analyzerContext = getAnalyzerContext(queryAnalyzer, metadata.getMetadataResolver(session), idAllocator, new VariableAllocator(), session, sql);
 
         QueryAnalysis queryAnalysis = queryAnalyzer.analyze(analyzerContext, preparedQuery);
-        checkAccessPermissions(queryAnalysis.getAccessControlReferences(), sql);
+        checkAccessPermissions(queryAnalysis.getAccessControlReferences(), queryAnalysis.getViewDefinitionReferences(), sql, session.getPreparedStatements(), session.getIdentity(), accessControl, session.getAccessControlContext());
 
         MaterializedResult result = MaterializedResult.resultBuilder(session, BooleanType.BOOLEAN)
                 .row(true)
@@ -950,7 +959,7 @@ public class LocalQueryRunner
     private boolean isExplainTypeValidate(String sql, Session session, WarningCollector warningCollector)
     {
         AnalyzerOptions analyzerOptions = createAnalyzerOptions(session, warningCollector);
-        PreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
+        PreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser, procedureRegistry).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
         return preparedQuery.isExplainTypeValidate();
     }
 
@@ -990,7 +999,6 @@ public class LocalQueryRunner
                 partitioningProviderManager,
                 nodePartitioningManager,
                 pageSinkManager,
-                distributedMetadataManager,
                 expressionCompiler,
                 pageFunctionCompiler,
                 joinFilterFunctionCompiler,
@@ -1125,11 +1133,16 @@ public class LocalQueryRunner
 
     public Plan createPlan(Session session, @Language("SQL") String sql, Optimizer.PlanStage stage, boolean noExchange, WarningCollector warningCollector)
     {
+        return createPlan(session, sql, stage, noExchange, false, warningCollector);
+    }
+
+    public Plan createPlan(Session session, @Language("SQL") String sql, Optimizer.PlanStage stage, boolean noExchange, boolean nativeExecutionEnabled, WarningCollector warningCollector)
+    {
         AnalyzerOptions analyzerOptions = createAnalyzerOptions(session, warningCollector);
-        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
+        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser, procedureRegistry).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
         assertFormattedSql(sqlParser, createParsingOptions(session), preparedQuery.getStatement());
 
-        return createPlan(session, sql, getPlanOptimizers(noExchange), stage, warningCollector);
+        return createPlan(session, sql, getPlanOptimizers(noExchange, nativeExecutionEnabled), stage, warningCollector);
     }
 
     public void setAdditionalOptimizer(List<PlanOptimizer> additionalOptimizer)
@@ -1139,9 +1152,15 @@ public class LocalQueryRunner
 
     public List<PlanOptimizer> getPlanOptimizers(boolean noExchange)
     {
+        return getPlanOptimizers(noExchange, false);
+    }
+
+    public List<PlanOptimizer> getPlanOptimizers(boolean noExchange, boolean nativeExecutionEnabled)
+    {
         FeaturesConfig featuresConfig = new FeaturesConfig()
                 .setDistributedIndexJoinsEnabled(false)
-                .setOptimizeHashGeneration(true);
+                .setOptimizeHashGeneration(true)
+                .setNativeExecutionEnabled(nativeExecutionEnabled);
         ImmutableList.Builder<PlanOptimizer> planOptimizers = ImmutableList.builder();
         if (!additionalOptimizer.isEmpty()) {
             planOptimizers.addAll(additionalOptimizer);
@@ -1162,7 +1181,8 @@ public class LocalQueryRunner
                 partitioningProviderManager,
                 featuresConfig,
                 expressionOptimizerManager,
-                taskManagerConfig).getPlanningTimeOptimizers());
+                taskManagerConfig,
+                accessControl).getPlanningTimeOptimizers());
         return planOptimizers.build();
     }
 
@@ -1174,7 +1194,7 @@ public class LocalQueryRunner
     public Plan createPlan(Session session, @Language("SQL") String sql, List<PlanOptimizer> optimizers, Optimizer.PlanStage stage, WarningCollector warningCollector)
     {
         AnalyzerOptions analyzerOptions = createAnalyzerOptions(session, warningCollector);
-        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
+        BuiltInPreparedQuery preparedQuery = new BuiltInQueryPreparer(sqlParser, procedureRegistry).prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
         assertFormattedSql(sqlParser, createParsingOptions(session), preparedQuery.getStatement());
 
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
@@ -1195,7 +1215,7 @@ public class LocalQueryRunner
         AnalyzerContext analyzerContext = getAnalyzerContext(queryAnalyzer, metadata.getMetadataResolver(session), idAllocator, new VariableAllocator(), session, sql);
 
         QueryAnalysis queryAnalysis = queryAnalyzer.analyze(analyzerContext, preparedQuery);
-        checkAccessPermissions(queryAnalysis.getAccessControlReferences(), sql);
+        checkAccessPermissions(queryAnalysis.getAccessControlReferences(), queryAnalysis.getViewDefinitionReferences(), sql, session.getPreparedStatements(), session.getIdentity(), accessControl, session.getAccessControlContext());
 
         PlanNode planNode = session.getRuntimeStats().recordWallAndCpuTime(
                 LOGICAL_PLANNER_TIME_NANOS,

@@ -15,6 +15,8 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.ErrorCode;
+import com.facebook.presto.common.type.TimeZoneKey;
+import com.facebook.presto.delta.DeltaQueryRunner;
 import com.facebook.presto.functionNamespace.FunctionNamespaceManagerPlugin;
 import com.facebook.presto.functionNamespace.json.JsonFileBasedFunctionNamespaceManagerFactory;
 import com.facebook.presto.hive.HiveQueryRunner;
@@ -24,6 +26,7 @@ import com.facebook.presto.hive.metastore.PrincipalPrivileges;
 import com.facebook.presto.hive.metastore.Storage;
 import com.facebook.presto.hive.metastore.StorageFormat;
 import com.facebook.presto.hive.metastore.Table;
+import com.facebook.presto.iceberg.CatalogType;
 import com.facebook.presto.iceberg.FileFormat;
 import com.facebook.presto.iceberg.IcebergQueryRunner;
 import com.facebook.presto.plugin.clp.ClpQueryRunner;
@@ -46,10 +49,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.TimeZone;
 import java.util.UUID;
 import java.util.function.BiFunction;
 
@@ -61,7 +66,6 @@ import static com.facebook.presto.hive.HiveTestUtils.getProperty;
 import static com.facebook.presto.hive.metastore.PrestoTableType.EXTERNAL_TABLE;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeSidecarProperties;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerHiveProperties;
-import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerIcebergProperties;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerSystemProperties;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerTpcdsProperties;
 import static com.facebook.presto.nativeworker.SymlinkManifestGeneratorUtils.createSymlinkManifest;
@@ -73,13 +77,20 @@ import static org.testng.Assert.assertTrue;
 
 public class PrestoNativeQueryRunnerUtils
 {
+    public enum QueryRunnerType
+    {
+        JAVA,
+        NATIVE
+    }
+
     // The unix domain socket (UDS) used to communicate with the remote function server.
     public static final String REMOTE_FUNCTION_UDS = "remote_function_server.socket";
     public static final String REMOTE_FUNCTION_JSON_SIGNATURES = "remote_function_server.json";
     public static final String REMOTE_FUNCTION_CATALOG_NAME = "remote";
     public static final String HIVE_DATA = "hive_data";
 
-    protected static final String ICEBERG_DEFAULT_STORAGE_FORMAT = "PARQUET";
+    public static final String ICEBERG_DEFAULT_STORAGE_FORMAT = "PARQUET";
+    public static final String DELTA_DEFAULT_STORAGE_FORMAT = "PARQUET";
 
     private static final Logger log = Logger.get(PrestoNativeQueryRunnerUtils.class);
     private static final String DEFAULT_STORAGE_FORMAT = "DWRF";
@@ -94,101 +105,445 @@ public class PrestoNativeQueryRunnerUtils
 
     private PrestoNativeQueryRunnerUtils() {}
 
-    public static QueryRunner createQueryRunner(boolean addStorageFormatToPath, boolean isCoordinatorSidecarEnabled, boolean enableRuntimeMetricsCollection, boolean enableSsdCache)
+    public static HiveQueryRunnerBuilder nativeHiveQueryRunnerBuilder()
+    {
+        return new HiveQueryRunnerBuilder(QueryRunnerType.NATIVE);
+    }
+
+    public static HiveQueryRunnerBuilder javaHiveQueryRunnerBuilder()
+    {
+        return new HiveQueryRunnerBuilder(QueryRunnerType.JAVA);
+    }
+
+    public static class HiveQueryRunnerBuilder
+    {
+        private NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
+        private Path dataDirectory = nativeQueryRunnerParameters.dataDirectory;
+        private String serverBinary = nativeQueryRunnerParameters.serverBinary.toString();
+        private Integer workerCount = nativeQueryRunnerParameters.workerCount.orElse(4);
+        private Integer cacheMaxSize = 0;
+        private String storageFormat = DEFAULT_STORAGE_FORMAT;
+        private Optional<String> remoteFunctionServerUds = Optional.empty();
+        private Map<String, String> extraProperties = new HashMap<>();
+        private Map<String, String> extraCoordinatorProperties = new HashMap<>();
+        private Map<String, String> hiveProperties = new HashMap<>();
+        private Map<String, String> tpcdsProperties = new HashMap<>();
+        private Optional<String> pluginDirectory = Optional.empty();
+        private String security;
+        private boolean addStorageFormatToPath;
+        private boolean coordinatorSidecarEnabled;
+        private boolean builtInWorkerFunctionsEnabled;
+        private boolean enableRuntimeMetricsCollection;
+        private boolean enableSsdCache;
+        private boolean failOnNestedLoopJoin;
+        private boolean implicitCastCharNToVarchar;
+        // External worker launcher is applicable only for the native hive query runner, since it depends on other
+        // properties it should be created once all the other query runner configs are set. This variable indicates
+        // whether the query runner returned by builder should use an external worker launcher, it will be true only
+        // for the native query runner and should NOT be explicitly configured by users.
+        private boolean useExternalWorkerLauncher;
+
+        private HiveQueryRunnerBuilder(QueryRunnerType queryRunnerType)
+        {
+            this.hiveProperties.putAll(ImmutableMap.<String, String>builder()
+                    .put("hive.storage-format", this.storageFormat)
+                    .put("hive.pushdown-filter-enabled", "true")
+                    .build());
+            this.tpcdsProperties.putAll(getNativeWorkerTpcdsProperties());
+
+            if (queryRunnerType.equals(QueryRunnerType.NATIVE)) {
+                this.extraProperties.putAll(getNativeWorkerSystemProperties());
+                this.extraCoordinatorProperties.putAll(ImmutableMap.<String, String>builder()
+                        .put("native-execution-enabled", "true")
+                        .put("http-server.http.port", "8081")
+                        .build());
+                // The property "hive.allow-drop-table" needs to be set to true because security is always "legacy" in NativeQueryRunner.
+                this.hiveProperties.putAll(ImmutableMap.<String, String>builder()
+                        .putAll(getNativeWorkerHiveProperties())
+                        .put("hive.allow-drop-table", "true")
+                        .build());
+                this.security = "legacy";
+                this.useExternalWorkerLauncher = true;
+            }
+            else {
+                this.extraProperties.putAll(ImmutableMap.of(
+                        "regex-library", "RE2J",
+                        "offset-clause-enabled", "true"));
+                this.security = "sql-standard";
+                this.useExternalWorkerLauncher = false;
+            }
+        }
+
+        public HiveQueryRunnerBuilder setRemoteFunctionServerUds(Optional<String> remoteFunctionServerUds)
+        {
+            this.remoteFunctionServerUds = remoteFunctionServerUds;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setPluginDirectory(Optional<String> pluginDirectory)
+        {
+            this.pluginDirectory = pluginDirectory;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setFailOnNestedLoopJoin(boolean failOnNestedLoopJoin)
+        {
+            this.failOnNestedLoopJoin = failOnNestedLoopJoin;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setUseThrift(boolean useThrift)
+        {
+            this.extraProperties.put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift));
+            this.extraProperties.put("experimental.internal-communication.task-info-thrift-transport-enabled", String.valueOf(useThrift));
+            this.extraProperties.put("experimental.internal-communication.task-update-request-thrift-serde-enabled", String.valueOf(useThrift));
+            this.extraProperties.put("experimental.internal-communication.task-info-response-thrift-serde-enabled", String.valueOf(useThrift));
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setUseReactorNettyHttpClient(boolean useReactorNettyHttpClient)
+        {
+            this.extraProperties
+                    .put("reactor.netty-http-client-enabled", String.valueOf(useReactorNettyHttpClient));
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setSingleNodeExecutionEnabled(boolean singleNodeExecutionEnabled)
+        {
+            if (singleNodeExecutionEnabled) {
+                this.extraCoordinatorProperties.put("single-node-execution-enabled", "true");
+            }
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setEnableSsdCache(boolean enableSsdCache)
+        {
+            this.enableSsdCache = enableSsdCache;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setEnableRuntimeMetricsCollection(boolean enableRuntimeMetricsCollection)
+        {
+            this.enableRuntimeMetricsCollection = enableRuntimeMetricsCollection;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setCoordinatorSidecarEnabled(boolean coordinatorSidecarEnabled)
+        {
+            this.coordinatorSidecarEnabled = coordinatorSidecarEnabled;
+            if (coordinatorSidecarEnabled) {
+                this.extraProperties.putAll(getNativeSidecarProperties());
+            }
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setBuiltInWorkerFunctionsEnabled(boolean builtInWorkerFunctionsEnabled)
+        {
+            this.builtInWorkerFunctionsEnabled = builtInWorkerFunctionsEnabled;
+            if (builtInWorkerFunctionsEnabled) {
+                this.extraProperties.put("built-in-sidecar-functions-enabled", "true");
+            }
+
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setStorageFormat(String storageFormat)
+        {
+            this.storageFormat = storageFormat;
+            this.hiveProperties.put("hive.storage-format", storageFormat);
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setAddStorageFormatToPath(boolean addStorageFormatToPath)
+        {
+            this.addStorageFormatToPath = addStorageFormatToPath;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setCacheMaxSize(Integer cacheMaxSize)
+        {
+            this.cacheMaxSize = cacheMaxSize;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setImplicitCastCharNToVarchar(boolean implicitCastCharNToVarchar)
+        {
+            this.implicitCastCharNToVarchar = implicitCastCharNToVarchar;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setExtraProperties(Map<String, String> extraProperties)
+        {
+            this.extraProperties.putAll(extraProperties);
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setExtraCoordinatorProperties(Map<String, String> extraCoordinatorProperties)
+        {
+            this.extraCoordinatorProperties.putAll(extraCoordinatorProperties);
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setHiveProperties(Map<String, String> hiveProperties)
+        {
+            this.hiveProperties.putAll(hiveProperties);
+            return this;
+        }
+
+        public QueryRunner build()
+                throws Exception
+        {
+            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+            if (this.useExternalWorkerLauncher) {
+                externalWorkerLauncher = getExternalWorkerLauncher("hive", "hive", serverBinary, cacheMaxSize, remoteFunctionServerUds,
+                        pluginDirectory, failOnNestedLoopJoin, coordinatorSidecarEnabled, builtInWorkerFunctionsEnabled, enableRuntimeMetricsCollection, enableSsdCache, implicitCastCharNToVarchar);
+            }
+            return HiveQueryRunner.createQueryRunner(
+                    ImmutableList.of(),
+                    ImmutableList.of(),
+                    extraProperties,
+                    extraCoordinatorProperties,
+                    security,
+                    hiveProperties,
+                    Optional.ofNullable(workerCount),
+                    Optional.of(Paths.get(addStorageFormatToPath ? dataDirectory.toString() + "/" + storageFormat : dataDirectory.toString())),
+                    externalWorkerLauncher,
+                    tpcdsProperties);
+        }
+    }
+
+    public static IcebergQueryRunnerBuilder nativeIcebergQueryRunnerBuilder()
+    {
+        return new IcebergQueryRunnerBuilder(QueryRunnerType.NATIVE);
+    }
+
+    public static IcebergQueryRunnerBuilder javaIcebergQueryRunnerBuilder()
+    {
+        return new IcebergQueryRunnerBuilder(QueryRunnerType.JAVA);
+    }
+
+    public static class IcebergQueryRunnerBuilder
+    {
+        private NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
+        private Path dataDirectory = nativeQueryRunnerParameters.dataDirectory;
+        private String serverBinary = nativeQueryRunnerParameters.serverBinary.toString();
+        private Integer workerCount = nativeQueryRunnerParameters.workerCount.orElse(4);
+        private CatalogType catalogType = Optional
+                .ofNullable(nativeQueryRunnerParameters.runnerParameters.get("iceberg.catalog.type"))
+                .map(v -> CatalogType.valueOf(v.toUpperCase()))
+                .orElse(CatalogType.HIVE);
+        private Integer cacheMaxSize = 0;
+        private String storageFormat = ICEBERG_DEFAULT_STORAGE_FORMAT;
+        private Map<String, String> extraProperties = new HashMap<>();
+        private Map<String, String> extraConnectorProperties = new HashMap<>();
+        private Optional<String> remoteFunctionServerUds = Optional.empty();
+        private boolean addStorageFormatToPath;
+        // External worker launcher is applicable only for the native iceberg query runner, since it depends on other
+        // properties it should be created once all the other query runner configs are set. This variable indicates
+        // whether the query runner returned by builder should use an external worker launcher, it will be true only
+        // for the native query runner and should NOT be explicitly configured by users.
+        private boolean useExternalWorkerLauncher;
+
+        private IcebergQueryRunnerBuilder(QueryRunnerType queryRunnerType)
+        {
+            if (queryRunnerType.equals(QueryRunnerType.NATIVE)) {
+                this.extraProperties.putAll(ImmutableMap.<String, String>builder()
+                        .put("http-server.http.port", "8080")
+                        .put("query.max-stage-count", "110")
+                        .putAll(getNativeWorkerSystemProperties())
+                        .build());
+                this.useExternalWorkerLauncher = true;
+            }
+            else {
+                this.extraProperties.putAll(ImmutableMap.of(
+                        "regex-library", "RE2J",
+                        "offset-clause-enabled", "true",
+                        "query.max-stage-count", "110"));
+                this.extraConnectorProperties.putAll(ImmutableMap.of("hive.parquet.writer.version", "PARQUET_1_0"));
+                this.useExternalWorkerLauncher = false;
+            }
+        }
+
+        public IcebergQueryRunnerBuilder setStorageFormat(String storageFormat)
+        {
+            this.storageFormat = storageFormat;
+            return this;
+        }
+
+        public IcebergQueryRunnerBuilder setAddStorageFormatToPath(boolean addStorageFormatToPath)
+        {
+            this.addStorageFormatToPath = addStorageFormatToPath;
+            return this;
+        }
+
+        public IcebergQueryRunnerBuilder setUseThrift(boolean useThrift)
+        {
+            this.extraProperties
+                    .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift));
+            return this;
+        }
+
+        public QueryRunner build()
+                throws Exception
+        {
+            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+            if (this.useExternalWorkerLauncher) {
+                externalWorkerLauncher = getExternalWorkerLauncher("iceberg", "iceberg", serverBinary, cacheMaxSize, remoteFunctionServerUds,
+                        Optional.empty(), false, false, false, false, false, false);
+            }
+            return IcebergQueryRunner.builder()
+                    .setExtraProperties(extraProperties)
+                    .setExtraConnectorProperties(extraConnectorProperties)
+                    .setFormat(FileFormat.valueOf(storageFormat))
+                    .setCreateTpchTables(false)
+                    .setAddJmxPlugin(false)
+                    .setNodeCount(OptionalInt.of(workerCount))
+                    .setExternalWorkerLauncher(externalWorkerLauncher)
+                    .setAddStorageFormatToPath(addStorageFormatToPath)
+                    .setDataDirectory(Optional.of(dataDirectory))
+                    .setTpcdsProperties(getNativeWorkerTpcdsProperties())
+                    .setCatalogType(catalogType)
+                    .build().getQueryRunner();
+        }
+    }
+
+    public static DeltaQueryRunnerBuilder nativeDeltaQueryRunnerBuilder()
+    {
+        return new DeltaQueryRunnerBuilder(QueryRunnerType.NATIVE);
+    }
+
+    public static DeltaQueryRunnerBuilder javaDeltaQueryRunnerBuilder()
+    {
+        return new DeltaQueryRunnerBuilder(QueryRunnerType.JAVA);
+    }
+
+    /**
+     * Builder for Delta Lake query runners that supports both Java and Native execution modes.
+     * <p>
+     * This builder wraps {@link DeltaQueryRunner.Builder} to provide native execution capabilities
+     * while maintaining separation between the presto-delta and presto-native-execution modules.
+     * <p>
+     * <b>Why This Separation Exists:</b>
+     * <ul>
+     *   <li><b>Prevents Circular Dependencies</b>: presto-native-execution depends on presto-delta
+     *       for testing, but presto-delta cannot depend on presto-native-execution (which would
+     *       create a cycle). This builder lives in presto-native-execution to configure native
+     *       workers without modifying the core Delta connector.</li>
+     *   <li><b>Module Independence</b>: The Delta connector (presto-delta) remains independent
+     *       and can be used standalone. Native execution is an optional extension.</li>
+     * </ul>
+     * <p>
+     * The builder configures native-specific properties (worker launcher, system properties) and
+     * delegates to {@link DeltaQueryRunner.Builder} for Delta-specific configuration.
+     *
+     * @see DeltaQueryRunner.Builder
+     */
+    public static class DeltaQueryRunnerBuilder
+    {
+        private NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
+        private Path dataDirectory = nativeQueryRunnerParameters.dataDirectory;
+        private String serverBinary = nativeQueryRunnerParameters.serverBinary.toString();
+        private Integer workerCount = nativeQueryRunnerParameters.workerCount.orElse(4);
+        private CatalogType catalogType = Optional
+                .ofNullable(nativeQueryRunnerParameters.runnerParameters.get("delta.catalog.type"))
+                .map(v -> CatalogType.valueOf(v.toUpperCase()))
+                .orElse(CatalogType.HIVE);
+        private Integer cacheMaxSize = 0;
+        private Map<String, String> extraProperties = new HashMap<>();
+        private Map<String, String> extraConnectorProperties = new HashMap<>();
+        private Optional<String> remoteFunctionServerUds = Optional.empty();
+        private TimeZoneKey timeZoneKey = TimeZoneKey.getTimeZoneKey(TimeZone.getDefault().getID());
+        private boolean caseSensitiveParitions;
+        // External worker launcher is applicable only for the native iceberg query runner, since it depends on other
+        // properties it should be created once all the other query runner configs are set. This variable indicates
+        // whether the query runner returned by builder should use an external worker launcher, it will be true only
+        // for the native query runner and should NOT be explicitly configured by users.
+        private boolean useExternalWorkerLauncher;
+
+        private DeltaQueryRunnerBuilder(QueryRunnerType queryRunnerType)
+        {
+            if (queryRunnerType.equals(QueryRunnerType.NATIVE)) {
+                this.extraProperties.putAll(ImmutableMap.<String, String>builder()
+                        .put("http-server.http.port", "8080")
+                        .put("query.max-stage-count", "110")
+                        .putAll(getNativeWorkerSystemProperties())
+                        .build());
+                this.useExternalWorkerLauncher = true;
+            }
+            else {
+                this.extraProperties.putAll(ImmutableMap.of(
+                        "regex-library", "RE2J",
+                        "offset-clause-enabled", "true",
+                        "query.max-stage-count", "110"));
+                this.extraConnectorProperties.putAll(ImmutableMap.of("hive.parquet.writer.version", "PARQUET_1_0"));
+                this.useExternalWorkerLauncher = false;
+            }
+        }
+
+        public DeltaQueryRunnerBuilder setUseThrift(boolean useThrift)
+        {
+            this.extraProperties
+                    .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift));
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder addExtraProperties(Map<String, String> extraProperties)
+        {
+            this.extraProperties.putAll(extraProperties);
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder setTimeZoneKey(TimeZoneKey timeZoneKey)
+        {
+            this.timeZoneKey = timeZoneKey;
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder caseSensitivePartitions()
+        {
+            this.caseSensitiveParitions = true;
+            return this;
+        }
+
+        public QueryRunner build()
+                throws Exception
+        {
+            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+            if (this.useExternalWorkerLauncher) {
+                externalWorkerLauncher = getExternalWorkerLauncher("delta", "delta", serverBinary, cacheMaxSize, remoteFunctionServerUds,
+                        Optional.empty(), false, false, false, false, false, false);
+            }
+            DeltaQueryRunner.Builder builder = DeltaQueryRunner.builder()
+                    .setExtraProperties(extraProperties)
+                    .setNodeCount(OptionalInt.of(workerCount))
+                    .setExternalWorkerLauncher(externalWorkerLauncher)
+                    .setTimeZoneKey(timeZoneKey);
+
+            if (caseSensitiveParitions) {
+                builder.caseSensitivePartitions();
+            }
+
+            return builder.build().getQueryRunner();
+        }
+    }
+
+    public static QueryRunner createNativeClpQueryRunner(
+            String metadataDbUrl,
+            String metadataDbUser,
+            String metadataDbPassword,
+            String metadataDbTablePrefix)
             throws Exception
     {
-        int cacheMaxSize = 4096; // 4GB size cache
         NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return createQueryRunner(
-                Optional.of(nativeQueryRunnerParameters.serverBinary.toString()),
-                Optional.of(nativeQueryRunnerParameters.dataDirectory),
+        return ClpQueryRunner.createQueryRunner(
+                metadataDbUrl,
+                metadataDbUser,
+                metadataDbPassword,
+                metadataDbTablePrefix,
                 nativeQueryRunnerParameters.workerCount,
-                cacheMaxSize,
-                DEFAULT_STORAGE_FORMAT,
-                addStorageFormatToPath,
-                isCoordinatorSidecarEnabled,
-                enableRuntimeMetricsCollection,
-                enableSsdCache);
-    }
-
-    public static QueryRunner createQueryRunner(
-            Optional<String> prestoServerPath,
-            Optional<Path> dataDirectory,
-            Optional<Integer> workerCount,
-            int cacheMaxSize,
-            String storageFormat,
-            boolean addStorageFormatToPath,
-            boolean isCoordinatorSidecarEnabled,
-            boolean enableRuntimeMetricsCollection,
-            boolean enableSsdCache)
-            throws Exception
-    {
-        QueryRunner defaultQueryRunner = createJavaQueryRunner(dataDirectory, storageFormat, addStorageFormatToPath);
-
-        if (!prestoServerPath.isPresent()) {
-            return defaultQueryRunner;
-        }
-
-        defaultQueryRunner.close();
-
-        return createNativeQueryRunner(dataDirectory.get().toString(), prestoServerPath.get(), workerCount, cacheMaxSize, true, Optional.empty(),
-                storageFormat, addStorageFormatToPath, false, isCoordinatorSidecarEnabled, false, enableRuntimeMetricsCollection, enableSsdCache, Collections.emptyMap());
-    }
-
-    public static QueryRunner createJavaQueryRunner()
-            throws Exception
-    {
-        return createJavaQueryRunner(true);
-    }
-
-    public static QueryRunner createJavaQueryRunner(boolean addStorageFormatToPath)
-            throws Exception
-    {
-        return createJavaQueryRunner(DEFAULT_STORAGE_FORMAT, addStorageFormatToPath);
-    }
-
-    public static QueryRunner createJavaQueryRunner(String storageFormat)
-            throws Exception
-    {
-        return createJavaQueryRunner(Optional.of(getNativeQueryRunnerParameters().dataDirectory), storageFormat, true);
-    }
-
-    public static QueryRunner createJavaQueryRunner(String storageFormat, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        return createJavaQueryRunner(Optional.of(getNativeQueryRunnerParameters().dataDirectory), storageFormat, addStorageFormatToPath);
-    }
-
-    public static QueryRunner createJavaQueryRunner(Optional<Path> dataDirectory, String storageFormat, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        return createJavaQueryRunner(dataDirectory, "sql-standard", storageFormat, addStorageFormatToPath);
-    }
-
-    public static QueryRunner createJavaQueryRunner(Optional<Path> baseDataDirectory, String security, String storageFormat, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        ImmutableMap.Builder<String, String> hivePropertiesBuilder = new ImmutableMap.Builder<>();
-        hivePropertiesBuilder
-                .put("hive.storage-format", storageFormat)
-                .put("hive.pushdown-filter-enabled", "true");
-
-        if ("legacy".equals(security)) {
-            hivePropertiesBuilder.put("hive.allow-drop-table", "true");
-        }
-
-        Optional<Path> dataDirectory = addStorageFormatToPath ? baseDataDirectory.map(path -> Paths.get(path.toString() + '/' + storageFormat)) : baseDataDirectory;
-        DistributedQueryRunner queryRunner =
-                HiveQueryRunner.createQueryRunner(
-                        ImmutableList.of(),
-                        ImmutableMap.of(
-                                "regex-library", "RE2J",
-                                "offset-clause-enabled", "true"),
-                        security,
-                        hivePropertiesBuilder.build(),
-                        dataDirectory,
-                        getNativeWorkerTpcdsProperties());
-        return queryRunner;
+                getExternalClpWorkerLauncher(
+                        CLP_CATALOG,
+                        nativeQueryRunnerParameters.serverBinary.toString()));
     }
 
     public static void createSchemaIfNotExist(QueryRunner queryRunner, String schemaName)
@@ -217,302 +572,6 @@ public class PrestoNativeQueryRunnerUtils
         if (!metastore.getTable(METASTORE_CONTEXT, targetSchemaName, tableName).isPresent()) {
             metastore.createTable(METASTORE_CONTEXT, createHiveSymlinkTable(targetSchemaName, tableName, columns, symlinkTableDataPath.toString()), PRINCIPAL_PRIVILEGES, emptyList());
         }
-    }
-
-    public static QueryRunner createNativeClpQueryRunner(
-            String metadataDbUrl,
-            String metadataDbUser,
-            String metadataDbPassword,
-            String metadataDbTablePrefix)
-            throws Exception
-    {
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return ClpQueryRunner.createQueryRunner(
-                metadataDbUrl,
-                metadataDbUser,
-                metadataDbPassword,
-                metadataDbTablePrefix,
-                nativeQueryRunnerParameters.workerCount,
-                getExternalClpWorkerLauncher(
-                        CLP_CATALOG,
-                        nativeQueryRunnerParameters.serverBinary.toString()));
-    }
-
-    public static QueryRunner createJavaIcebergQueryRunner(boolean addStorageFormatToPath)
-            throws Exception
-    {
-        return createJavaIcebergQueryRunner(Optional.of(getNativeQueryRunnerParameters().dataDirectory), ICEBERG_DEFAULT_STORAGE_FORMAT, addStorageFormatToPath);
-    }
-
-    public static QueryRunner createJavaIcebergQueryRunner(String storageFormat)
-            throws Exception
-    {
-        return createJavaIcebergQueryRunner(Optional.of(getNativeQueryRunnerParameters().dataDirectory), storageFormat, false);
-    }
-
-    public static QueryRunner createJavaIcebergQueryRunner(Optional<Path> baseDataDirectory, String storageFormat, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        ImmutableMap.Builder<String, String> icebergPropertiesBuilder = new ImmutableMap.Builder<>();
-        icebergPropertiesBuilder.put("hive.parquet.writer.version", "PARQUET_1_0");
-
-        return IcebergQueryRunner.builder()
-                .setExtraProperties(ImmutableMap.of(
-                        "regex-library", "RE2J",
-                        "offset-clause-enabled", "true",
-                        "query.max-stage-count", "110"))
-                .setExtraConnectorProperties(icebergPropertiesBuilder.build())
-                .setAddJmxPlugin(false)
-                .setCreateTpchTables(false)
-                .setDataDirectory(baseDataDirectory)
-                .setAddStorageFormatToPath(addStorageFormatToPath)
-                .setFormat(FileFormat.valueOf(storageFormat))
-                .setTpcdsProperties(getNativeWorkerTpcdsProperties())
-                .build().getQueryRunner();
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(boolean useThrift)
-            throws Exception
-    {
-        return createNativeIcebergQueryRunner(useThrift, ICEBERG_DEFAULT_STORAGE_FORMAT, Optional.empty());
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(boolean useThrift, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        return createNativeIcebergQueryRunner(useThrift, ICEBERG_DEFAULT_STORAGE_FORMAT, Optional.empty(), addStorageFormatToPath);
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(boolean useThrift, String storageFormat)
-            throws Exception
-    {
-        return createNativeIcebergQueryRunner(useThrift, storageFormat, Optional.empty());
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(boolean useThrift, String storageFormat, Optional<String> remoteFunctionServerUds)
-            throws Exception
-    {
-        return createNativeIcebergQueryRunner(useThrift, storageFormat, remoteFunctionServerUds, false);
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(boolean useThrift, String storageFormat, Optional<String> remoteFunctionServerUds, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        int cacheMaxSize = 0;
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return createNativeIcebergQueryRunner(
-                Optional.of(nativeQueryRunnerParameters.dataDirectory),
-                nativeQueryRunnerParameters.serverBinary.toString(),
-                nativeQueryRunnerParameters.workerCount,
-                cacheMaxSize,
-                useThrift,
-                remoteFunctionServerUds,
-                storageFormat,
-                addStorageFormatToPath);
-    }
-
-    public static QueryRunner createNativeIcebergQueryRunner(
-            Optional<Path> dataDirectory,
-            String prestoServerPath,
-            Optional<Integer> workerCount,
-            int cacheMaxSize,
-            boolean useThrift,
-            Optional<String> remoteFunctionServerUds,
-            String storageFormat,
-            boolean addStorageFormatToPath)
-            throws Exception
-    {
-        ImmutableMap<String, String> icebergProperties = ImmutableMap.<String, String>builder()
-                .putAll(getNativeWorkerIcebergProperties())
-                .build();
-
-        // Make query runner with external workers for tests
-        return IcebergQueryRunner.builder()
-                .setExtraProperties(ImmutableMap.<String, String>builder()
-                        .put("http-server.http.port", "8080")
-                        .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift))
-                        .put("query.max-stage-count", "110")
-                        .putAll(getNativeWorkerSystemProperties())
-                        .build())
-                .setFormat(FileFormat.valueOf(storageFormat))
-                .setCreateTpchTables(false)
-                .setAddJmxPlugin(false)
-                .setNodeCount(OptionalInt.of(workerCount.orElse(4)))
-                .setExternalWorkerLauncher(getExternalWorkerLauncher("iceberg", prestoServerPath, cacheMaxSize, remoteFunctionServerUds, false, false, false, false))
-                .setAddStorageFormatToPath(addStorageFormatToPath)
-                .setDataDirectory(dataDirectory)
-                .setTpcdsProperties(getNativeWorkerTpcdsProperties())
-                .build().getQueryRunner();
-    }
-
-    public static QueryRunner createNativeQueryRunner(
-            String dataDirectory,
-            String prestoServerPath,
-            Optional<Integer> workerCount,
-            int cacheMaxSize,
-            boolean useThrift,
-            Optional<String> remoteFunctionServerUds,
-            String storageFormat,
-            boolean addStorageFormatToPath,
-            Boolean failOnNestedLoopJoin,
-            boolean isCoordinatorSidecarEnabled,
-            boolean singleNodeExecutionEnabled,
-            boolean enableRuntimeMetricsCollection,
-            boolean enableSsdCache,
-            Map<String, String> extraProperties)
-            throws Exception
-    {
-        // The property "hive.allow-drop-table" needs to be set to true because security is always "legacy" in NativeQueryRunner.
-        ImmutableMap<String, String> hiveProperties = ImmutableMap.<String, String>builder()
-                .putAll(getNativeWorkerHiveProperties(storageFormat))
-                .put("hive.allow-drop-table", "true")
-                .build();
-
-        ImmutableMap.Builder<String, String> coordinatorProperties = ImmutableMap.builder();
-        coordinatorProperties.put("native-execution-enabled", "true");
-        if (singleNodeExecutionEnabled) {
-            coordinatorProperties.put("single-node-execution-enabled", "true");
-        }
-
-        // Make query runner with external workers for tests
-        return HiveQueryRunner.createQueryRunner(
-                ImmutableList.of(),
-                ImmutableList.of(),
-                ImmutableMap.<String, String>builder()
-                        .put("http-server.http.port", "8081")
-                        .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift))
-                        .putAll(getNativeWorkerSystemProperties())
-                        .putAll(isCoordinatorSidecarEnabled ? getNativeSidecarProperties() : ImmutableMap.of())
-                        .putAll(extraProperties)
-                        .build(),
-                coordinatorProperties.build(),
-                "legacy",
-                hiveProperties,
-                workerCount,
-                Optional.of(Paths.get(addStorageFormatToPath ? dataDirectory + "/" + storageFormat : dataDirectory)),
-                getExternalWorkerLauncher("hive", prestoServerPath, cacheMaxSize, remoteFunctionServerUds, failOnNestedLoopJoin,
-                        isCoordinatorSidecarEnabled, enableRuntimeMetricsCollection, enableSsdCache),
-                getNativeWorkerTpcdsProperties());
-    }
-
-    public static QueryRunner createNativeCteQueryRunner(boolean useThrift, String storageFormat)
-            throws Exception
-    {
-        return createNativeCteQueryRunner(useThrift, storageFormat, true);
-    }
-
-    public static QueryRunner createNativeCteQueryRunner(boolean useThrift, String storageFormat, boolean addStorageFormatToPath)
-            throws Exception
-    {
-        int cacheMaxSize = 0;
-
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        String dataDirectory = nativeQueryRunnerParameters.dataDirectory.toString();
-        String prestoServerPath = nativeQueryRunnerParameters.serverBinary.toString();
-        Optional<Integer> workerCount = nativeQueryRunnerParameters.workerCount;
-
-        // The property "hive.allow-drop-table" needs to be set to true because security is always "legacy" in NativeQueryRunner.
-        ImmutableMap<String, String> hiveProperties = ImmutableMap.<String, String>builder()
-                .putAll(getNativeWorkerHiveProperties(storageFormat))
-                .put("hive.allow-drop-table", "true")
-                .put("hive.enable-parquet-dereference-pushdown", "true")
-                .put("hive.temporary-table-compression-codec", "NONE")
-                .put("hive.temporary-table-storage-format", storageFormat)
-                .build();
-
-        // Make query runner with external workers for tests
-        return HiveQueryRunner.createQueryRunner(
-                ImmutableList.of(),
-                ImmutableList.of(),
-                ImmutableMap.<String, String>builder()
-                        .put("http-server.http.port", "8081")
-                        .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift))
-                        .putAll(getNativeWorkerSystemProperties())
-                        .put("query.cte-partitioning-provider-catalog", "hive")
-                        .build(),
-                ImmutableMap.of(),
-                "legacy",
-                hiveProperties,
-                workerCount,
-                Optional.of(Paths.get(addStorageFormatToPath ? dataDirectory + "/" + storageFormat : dataDirectory)),
-                getExternalWorkerLauncher("hive", prestoServerPath, cacheMaxSize, Optional.empty(), false, false, false, false),
-                getNativeWorkerTpcdsProperties());
-    }
-
-    public static QueryRunner createNativeQueryRunner(String remoteFunctionServerUds)
-            throws Exception
-    {
-        return createNativeQueryRunner(false, DEFAULT_STORAGE_FORMAT, Optional.ofNullable(remoteFunctionServerUds), false, false, false, false, false);
-    }
-
-    public static QueryRunner createNativeQueryRunner(Map<String, String> extraProperties, String storageFormat)
-            throws Exception
-    {
-        int cacheMaxSize = 0;
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return createNativeQueryRunner(
-                nativeQueryRunnerParameters.dataDirectory.toString(),
-                nativeQueryRunnerParameters.serverBinary.toString(),
-                nativeQueryRunnerParameters.workerCount,
-                cacheMaxSize,
-                true,
-                Optional.empty(),
-                storageFormat,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                extraProperties);
-    }
-
-    public static QueryRunner createNativeQueryRunner(boolean useThrift)
-            throws Exception
-    {
-        return createNativeQueryRunner(useThrift, DEFAULT_STORAGE_FORMAT);
-    }
-
-    public static QueryRunner createNativeQueryRunner(boolean useThrift, boolean failOnNestedLoopJoin)
-            throws Exception
-    {
-        return createNativeQueryRunner(useThrift, DEFAULT_STORAGE_FORMAT, Optional.empty(), failOnNestedLoopJoin, false, false, false, false);
-    }
-
-    public static QueryRunner createNativeQueryRunner(boolean useThrift, String storageFormat)
-            throws Exception
-    {
-        return createNativeQueryRunner(useThrift, storageFormat, Optional.empty(), false, false, false, false, false);
-    }
-
-    public static QueryRunner createNativeQueryRunner(
-            boolean useThrift,
-            String storageFormat,
-            Optional<String> remoteFunctionServerUds,
-            Boolean failOnNestedLoopJoin,
-            boolean isCoordinatorSidecarEnabled,
-            boolean singleNodeExecutionEnabled,
-            boolean enableRuntimeMetricsCollection,
-            boolean enableSSDCache)
-            throws Exception
-    {
-        int cacheMaxSize = 0;
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return createNativeQueryRunner(
-                nativeQueryRunnerParameters.dataDirectory.toString(),
-                nativeQueryRunnerParameters.serverBinary.toString(),
-                nativeQueryRunnerParameters.workerCount,
-                cacheMaxSize,
-                useThrift,
-                remoteFunctionServerUds,
-                storageFormat,
-                true,
-                failOnNestedLoopJoin,
-                isCoordinatorSidecarEnabled,
-                singleNodeExecutionEnabled,
-                enableRuntimeMetricsCollection,
-                enableSSDCache,
-                Collections.emptyMap());
     }
 
     // Start the remote function server. Return the UDS path used to communicate with it.
@@ -556,62 +615,28 @@ public class PrestoNativeQueryRunnerUtils
         assertTrue(Files.exists(dataDirectory), format("Data directory at %s is missing. Add -DDATA_DIR=<path/to/data> to your JVM arguments to specify the path", dataDirectory));
         log.info("using DATA_DIR at %s", dataDirectory);
 
-        return new NativeQueryRunnerParameters(prestoServerPath, dataDirectory, workerCount);
-    }
+        Map<String, String> runnerParams = new HashMap<>();
+        getProperty("CATALOG_TYPE").ifPresent(v -> {
+            runnerParams.put("iceberg.catalog.type", v.toUpperCase());
+            log.info("using CATALOG_TYPE %s", v.toUpperCase());
+        });
 
-    public static Optional<BiFunction<Integer, URI, Process>> getExternalClpWorkerLauncher(
-            String catalogName,
-            String prestoServerPath)
-    {
-        return
-                Optional.of((workerIndex, discoveryUri) -> {
-                    try {
-                        Path dir = Paths.get("/tmp", PrestoNativeQueryRunnerUtils.class.getSimpleName());
-                        Files.createDirectories(dir);
-                        Path tempDirectoryPath = Files.createTempDirectory(dir, "worker");
-                        log.info("Temp directory for Worker #%d: %s", workerIndex, tempDirectoryPath.toString());
-
-                        // Write config file - use an ephemeral port for the worker.
-                        String configProperties = format("discovery.uri=%s%n" +
-                                "presto.version=testversion%n" +
-                                "system-memory-gb=4%n" +
-                                "http-server.http.port=0%n", discoveryUri);
-
-                        Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
-                        Files.write(tempDirectoryPath.resolve("node.properties"),
-                                format("node.id=%s%n" +
-                                        "node.internal-address=127.0.0.1%n" +
-                                        "node.environment=testing%n" +
-                                        "node.location=test-location", UUID.randomUUID()).getBytes());
-
-                        Path catalogDirectoryPath = tempDirectoryPath.resolve("catalog");
-                        Files.createDirectory(catalogDirectoryPath);
-                        Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
-                                "connector.name=clp".getBytes());
-
-                        // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
-                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
-                                .directory(tempDirectoryPath.toFile())
-                                .redirectErrorStream(true)
-                                .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                                .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                                .start();
-                    }
-                    catch (IOException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                });
+        return new NativeQueryRunnerParameters(prestoServerPath, dataDirectory, workerCount, runnerParams);
     }
 
     public static Optional<BiFunction<Integer, URI, Process>> getExternalWorkerLauncher(
             String catalogName,
+            String connectorName,
             String prestoServerPath,
             int cacheMaxSize,
             Optional<String> remoteFunctionServerUds,
+            Optional<String> pluginDirectory,
             Boolean failOnNestedLoopJoin,
             boolean isCoordinatorSidecarEnabled,
+            boolean isBuiltInWorkerFunctionsEnabled,
             boolean enableRuntimeMetricsCollection,
-            boolean enableSsdCache)
+            boolean enableSsdCache,
+            boolean implicitCastCharNToVarchar)
     {
         return
                 Optional.of((workerIndex, discoveryUri) -> {
@@ -624,6 +649,7 @@ public class PrestoNativeQueryRunnerUtils
                         // Write config file - use an ephemeral port for the worker.
                         String configProperties = format("discovery.uri=%s%n" +
                                 "presto.version=testversion%n" +
+                                "plan-consistency-check-enabled=true%n" +
                                 "system-memory-gb=4%n" +
                                 "http-server.http.port=0%n", discoveryUri);
 
@@ -631,6 +657,10 @@ public class PrestoNativeQueryRunnerUtils
                             configProperties = format("%s%n" +
                                     "native-sidecar=true%n" +
                                     "presto.default-namespace=native.default%n", configProperties);
+                        }
+                        else if (isBuiltInWorkerFunctionsEnabled) {
+                            configProperties = format("%s%n" +
+                                    "native-sidecar=true%n", configProperties);
                         }
 
                         if (enableRuntimeMetricsCollection) {
@@ -655,8 +685,16 @@ public class PrestoNativeQueryRunnerUtils
                                     "remote-function-server.signature.files.directory.path=%s%n", configProperties, REMOTE_FUNCTION_CATALOG_NAME, remoteFunctionServerUds.get(), jsonSignaturesPath);
                         }
 
+                        if (pluginDirectory.isPresent()) {
+                            configProperties = format("%s%n" + "plugin.dir=%s%n", configProperties, pluginDirectory.get());
+                        }
+
                         if (failOnNestedLoopJoin) {
                             configProperties = format("%s%n" + "velox-plan-validator-fail-on-nested-loop-join=true%n", configProperties);
+                        }
+
+                        if (implicitCastCharNToVarchar) {
+                            configProperties = format("%s%n" + "char-n-to-varchar-implicit-cast=true%n", configProperties);
                         }
 
                         Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
@@ -670,23 +708,27 @@ public class PrestoNativeQueryRunnerUtils
                         Files.createDirectory(catalogDirectoryPath);
                         if (cacheMaxSize > 0) {
                             Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
-                                    format("connector.name=hive%n" +
+                                    format("connector.name=%s%n" +
                                             "cache.enabled=true%n" +
-                                            "cache.max-cache-size=%s", cacheMaxSize).getBytes());
+                                            "cache.max-cache-size=%s", connectorName, cacheMaxSize).getBytes());
                         }
                         else {
                             Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
-                                    "connector.name=hive".getBytes());
+                                    format("connector.name=%s", connectorName).getBytes());
                         }
                         // Add catalog with caching always enabled.
                         Files.write(catalogDirectoryPath.resolve(format("%scached.properties", catalogName)),
-                                format("connector.name=hive%n" +
+                                format("connector.name=%s%n" +
                                         "cache.enabled=true%n" +
-                                        "cache.max-cache-size=32").getBytes());
+                                        "cache.max-cache-size=32", connectorName).getBytes());
 
                         // Add a tpch catalog.
                         Files.write(catalogDirectoryPath.resolve("tpchstandard.properties"),
                                 format("connector.name=tpch%n").getBytes());
+
+                        // Add a tpcds catalog.
+                        Files.write(catalogDirectoryPath.resolve("tpcds.properties"),
+                                format("connector.name=tpcds%n").getBytes());
 
                         // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
                         return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
@@ -702,17 +744,60 @@ public class PrestoNativeQueryRunnerUtils
                 });
     }
 
+    public static Optional<BiFunction<Integer, URI, Process>> getExternalClpWorkerLauncher(
+            String catalogName,
+            String prestoServerPath)
+    {
+        return Optional.of((workerIndex, discoveryUri) -> {
+            try {
+                Path dir = Paths.get("/tmp", PrestoNativeQueryRunnerUtils.class.getSimpleName());
+                Files.createDirectories(dir);
+                Path tempDirectoryPath = Files.createTempDirectory(dir, "worker");
+                log.info("Temp directory for Worker #%d: %s", workerIndex, tempDirectoryPath.toString());
+
+                String configProperties = format("discovery.uri=%s%n" +
+                        "presto.version=testversion%n" +
+                        "system-memory-gb=4%n" +
+                        "http-server.http.port=0%n", discoveryUri);
+
+                Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
+                Files.write(tempDirectoryPath.resolve("node.properties"),
+                        format("node.id=%s%n" +
+                                "node.internal-address=127.0.0.1%n" +
+                                "node.environment=testing%n" +
+                                "node.location=test-location", UUID.randomUUID()).getBytes());
+
+                Path catalogDirectoryPath = tempDirectoryPath.resolve("catalog");
+                Files.createDirectory(catalogDirectoryPath);
+                Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
+                        "connector.name=clp".getBytes());
+
+                return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
+                        .directory(tempDirectoryPath.toFile())
+                        .redirectErrorStream(true)
+                        .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
+                        .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
+                        .start();
+            }
+            catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+    }
+
     public static class NativeQueryRunnerParameters
     {
         public final Path serverBinary;
         public final Path dataDirectory;
         public final Optional<Integer> workerCount;
+        public final Map<String, String> runnerParameters;
 
-        public NativeQueryRunnerParameters(Path serverBinary, Path dataDirectory, Optional<Integer> workerCount)
+        public NativeQueryRunnerParameters(Path serverBinary, Path dataDirectory, Optional<Integer> workerCount, Map<String, String> runnerParameters)
         {
             this.serverBinary = requireNonNull(serverBinary, "serverBinary is null");
             this.dataDirectory = requireNonNull(dataDirectory, "dataDirectory is null");
             this.workerCount = requireNonNull(workerCount, "workerCount is null");
+            this.runnerParameters = Collections.unmodifiableMap(new HashMap<>(requireNonNull(runnerParameters, "runnerParameters is null")));
         }
     }
 

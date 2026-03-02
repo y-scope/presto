@@ -43,13 +43,21 @@ public class TestPrestoNativeAsyncDataCacheCleanupAPI
     @Override
     protected QueryRunner createQueryRunner() throws Exception
     {
-        return PrestoNativeQueryRunnerUtils.createQueryRunner(true, false, true, true);
+        return PrestoNativeQueryRunnerUtils.nativeHiveQueryRunnerBuilder()
+                .setCacheMaxSize(4096)
+                .setUseThrift(true)
+                .setAddStorageFormatToPath(true)
+                .setEnableRuntimeMetricsCollection(true)
+                .setEnableSsdCache(true)
+                .build();
     }
 
     @Override
     protected ExpectedQueryRunner createExpectedQueryRunner() throws Exception
     {
-        return PrestoNativeQueryRunnerUtils.createJavaQueryRunner();
+        return PrestoNativeQueryRunnerUtils.javaHiveQueryRunnerBuilder()
+                .setAddStorageFormatToPath(true)
+                .build();
     }
 
     @Override
@@ -143,7 +151,7 @@ public class TestPrestoNativeAsyncDataCacheCleanupAPI
         for (InternalNode worker : workerNodes) {
             Map<String, Long> metrics = fetchScalarLongMetrics(worker.getInternalUri().toString(), endpoint, "GET");
             memoryCacheHits += metrics.get("velox_memory_cache_num_hits");
-            memoryCacheEntries += metrics.get("velox_memory_cache_num_entries");
+            memoryCacheEntries += metrics.get("velox_memory_cache_num_tiny_entries") + metrics.get("velox_memory_cache_num_large_entries");
             ssdCacheReadEntries += metrics.get("velox_ssd_cache_read_entries");
             ssdCacheWriteEntries += metrics.get("velox_ssd_cache_written_entries");
             ssdCacheCachedEntries += metrics.get("velox_ssd_cache_cached_entries");

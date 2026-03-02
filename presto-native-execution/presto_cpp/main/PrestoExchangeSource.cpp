@@ -18,8 +18,8 @@
 #include <re2/re2.h>
 #include <sstream>
 
-#include "presto_cpp/main/QueryContextManager.h"
 #include "presto_cpp/main/common/Counters.h"
+#include "presto_cpp/presto_protocol/core/presto_protocol_core.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/testutil/TestValue.h"
 
@@ -144,7 +144,7 @@ folly::SemiFuture<PrestoExchangeSource::Response> PrestoExchangeSource::request(
   VELOX_CHECK(requestPending_);
   // This call cannot be made concurrently from multiple threads, but other
   // calls that mutate promise_ can be called concurrently.
-  auto promise = VeloxPromise<Response>("PrestoExchangeSource::request");
+  VeloxPromise<Response> promise{"PrestoExchangeSource::request"};
   auto future = promise.getSemiFuture();
   velox::common::testutil::TestValue::adjust(
       "facebook::presto::PrestoExchangeSource::request", this);
@@ -159,10 +159,10 @@ folly::SemiFuture<PrestoExchangeSource::Response> PrestoExchangeSource::request(
   }
 
   failedAttempts_ = 0;
-  dataRequestRetryState_ =
-      RetryState(std::chrono::duration_cast<std::chrono::milliseconds>(
-                     SystemConfig::instance()->exchangeMaxErrorDuration())
-                     .count());
+  dataRequestRetryState_ = RetryState(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          SystemConfig::instance()->exchangeMaxErrorDuration())
+          .count());
   doRequest(dataRequestRetryState_.nextDelayMs(), maxBytes, maxWait);
 
   return future;
@@ -197,6 +197,7 @@ void PrestoExchangeSource::doRequest(
           protocol::PRESTO_MAX_WAIT_HTTP_HEADER,
           protocol::Duration(maxWait.count(), protocol::TimeUnit::MICROSECONDS)
               .toString())
+      .header(proxygen::HTTP_HEADER_HOST, fmt::format("{}:{}", host_, port_))
       .send(httpClient_.get(), "", delayMs)
       .via(driverExecutor_)
       .thenTry(
@@ -245,7 +246,8 @@ void PrestoExchangeSource::handleDataResponse(
       } else if (response->hasError()) {
         processDataError(httpRequestPath, maxBytes, maxWait, response->error());
       } else {
-        processDataResponse(std::move(response));
+        const bool isGetDataSizeRequest = (maxBytes == 0);
+        processDataResponse(std::move(response), isGetDataSizeRequest);
       }
     } catch (const std::exception& e) {
       processDataError(httpRequestPath, maxBytes, maxWait, e.what());
@@ -254,11 +256,29 @@ void PrestoExchangeSource::handleDataResponse(
 }
 
 void PrestoExchangeSource::processDataResponse(
-    std::unique_ptr<http::HttpResponse> response) {
-  RECORD_HISTOGRAM_METRIC_VALUE(
-      kCounterExchangeRequestDuration, dataRequestRetryState_.durationMs());
-  RECORD_HISTOGRAM_METRIC_VALUE(
-      kCounterExchangeRequestNumTries, dataRequestRetryState_.numTries());
+    std::unique_ptr<http::HttpResponse> response,
+    bool isGetDataSizeRequest) {
+  if (isGetDataSizeRequest) {
+    int64_t waitTimeMs = 0;
+    auto waitTimeMsString = response->headers()->getHeaders().getSingleOrEmpty(
+        protocol::PRESTO_BUFFER_WAIT_TIME_MS_HEADER);
+    if (!waitTimeMsString.empty()) {
+      waitTimeMs = std::stoll(waitTimeMsString);
+      getDataSizeNs_.addValue(
+          (dataRequestRetryState_.durationMs() - waitTimeMs) * 1'000'000);
+      RECORD_HISTOGRAM_METRIC_VALUE(
+          kCounterExchangeGetDataSizeDuration,
+          dataRequestRetryState_.durationMs() - waitTimeMs);
+    }
+    RECORD_HISTOGRAM_METRIC_VALUE(
+        kCounterExchangeGetDataSizeNumTries, dataRequestRetryState_.numTries());
+  } else {
+    getDataNs_.addValue(dataRequestRetryState_.durationMs() * 1'000'000);
+    RECORD_HISTOGRAM_METRIC_VALUE(
+        kCounterExchangeRequestDuration, dataRequestRetryState_.durationMs());
+    RECORD_HISTOGRAM_METRIC_VALUE(
+        kCounterExchangeRequestNumTries, dataRequestRetryState_.numTries());
+  }
   if (closed_.load()) {
     // If PrestoExchangeSource is already closed, just free all buffers
     // allocated without doing any processing. This can happen when a super slow
@@ -267,9 +287,11 @@ void PrestoExchangeSource::processDataResponse(
     return;
   }
   auto* headers = response->headers();
-  VELOX_CHECK(
-      !headers->getIsChunked(),
-      "Chunked http transferring encoding is not supported.");
+  if (!SystemConfig::instance()->httpClientHttp2Enabled()) {
+    VELOX_CHECK(
+        !headers->getIsChunked(),
+        "Chunked http transferring encoding is not supported.");
+  }
   const uint64_t contentLength =
       atol(headers->getHeaders()
                .getSingleOrEmpty(proxygen::HTTP_HEADER_CONTENT_LENGTH)
@@ -310,7 +332,7 @@ void PrestoExchangeSource::processDataResponse(
         contentLength, 0, "next token is not set in non-empty data response");
   }
 
-  std::unique_ptr<exec::SerializedPage> page;
+  std::unique_ptr<exec::SerializedPageBase> page;
   const bool empty = response->empty();
   if (!empty) {
     std::vector<std::unique_ptr<folly::IOBuf>> iobufs;
@@ -319,20 +341,27 @@ void PrestoExchangeSource::processDataResponse(
     } else {
       iobufs.emplace_back(response->consumeBody(pool_.get()));
     }
-    int64_t totalBytes{0};
+    int64_t iobufBytes{0};
     std::unique_ptr<folly::IOBuf> singleChain;
     for (auto& buf : iobufs) {
-      totalBytes += buf->capacity();
+      iobufBytes += buf->capacity();
       if (!singleChain) {
         singleChain = std::move(buf);
       } else {
         singleChain->prev()->appendChain(std::move(buf));
       }
     }
-    PrestoExchangeSource::updateMemoryUsage(totalBytes);
+    PrestoExchangeSource::updateMemoryUsage(iobufBytes);
+
+    // Record IOBuf size counter when not a get-data-size request
+    if (!isGetDataSizeRequest) {
+      iobufBytes_.addValue(iobufBytes);
+      RECORD_HISTOGRAM_METRIC_VALUE(
+          kCounterExchangeRequestPageSize, iobufBytes);
+    }
 
     if (enableBufferCopy_) {
-      page = std::make_unique<exec::SerializedPage>(
+      page = std::make_unique<exec::PrestoSerializedPage>(
           std::move(singleChain), [pool = pool_](folly::IOBuf& iobuf) {
             int64_t freedBytes{0};
             // Free the backed memory from MemoryAllocator on page dtor
@@ -346,15 +375,15 @@ void PrestoExchangeSource::processDataResponse(
             PrestoExchangeSource::updateMemoryUsage(-freedBytes);
           });
     } else {
-      page = std::make_unique<exec::SerializedPage>(
-          std::move(singleChain), [totalBytes](folly::IOBuf& iobuf) {
-            PrestoExchangeSource::updateMemoryUsage(-totalBytes);
+      page = std::make_unique<exec::PrestoSerializedPage>(
+          std::move(singleChain), [iobufBytes](folly::IOBuf& iobuf) {
+            PrestoExchangeSource::updateMemoryUsage(-iobufBytes);
           });
     }
   }
 
   const int64_t pageSize = empty ? 0 : page->size();
-  VeloxPromise<Response> requestPromise;
+  VeloxPromise<Response> requestPromise{VeloxPromise<Response>::makeEmpty()};
   std::vector<ContinuePromise> queuePromises;
   {
     std::lock_guard<std::mutex> l(queue_->mutex());
@@ -362,7 +391,7 @@ void PrestoExchangeSource::processDataResponse(
       VLOG(1) << "Enqueuing page for " << basePath_ << "/" << sequence_ << ": "
               << pageSize << " bytes";
       ++numPages_;
-      totalBytes_ += pageSize;
+      pageSize_ += pageSize;
       queue_->enqueueLocked(std::move(page), queuePromises);
     }
     if (complete) {
@@ -473,10 +502,10 @@ void PrestoExchangeSource::abortResults() {
     return;
   }
 
-  abortRetryState_ =
-      RetryState(std::chrono::duration_cast<std::chrono::milliseconds>(
-                     SystemConfig::instance()->exchangeMaxErrorDuration())
-                     .count());
+  abortRetryState_ = RetryState(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          SystemConfig::instance()->exchangeMaxErrorDuration())
+          .count());
   VLOG(1) << "Sending abort results " << basePath_;
   doAbortResults(abortRetryState_.nextDelayMs());
 }
@@ -517,7 +546,7 @@ void PrestoExchangeSource::handleAbortResponse(
 }
 
 bool PrestoExchangeSource::checkSetRequestPromise() {
-  VeloxPromise<Response> promise;
+  VeloxPromise<Response> promise{VeloxPromise<Response>::makeEmpty()};
   {
     std::lock_guard<std::mutex> l(queue_->mutex());
     promise = std::move(promise_);

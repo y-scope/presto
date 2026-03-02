@@ -21,11 +21,13 @@ import com.facebook.presto.spi.plan.PartitioningScheme;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeId;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.planner.SystemPartitioningHandle;
+import com.facebook.presto.sql.planner.SystemPartitioningHandle.SystemPartitionFunction;
+import com.facebook.presto.sql.planner.SystemPartitioningHandle.SystemPartitioning;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
-
-import javax.annotation.concurrent.Immutable;
+import com.google.errorprone.annotations.Immutable;
 
 import java.util.List;
 import java.util.Optional;
@@ -146,7 +148,6 @@ public class ExchangeNode
 
         orderingScheme.ifPresent(ordering -> {
             PartitioningHandle partitioningHandle = partitioningScheme.getPartitioning().getHandle();
-            checkArgument(!scope.isRemote() || partitioningHandle.equals(SINGLE_DISTRIBUTION), "remote merging exchange requires single distribution");
             checkArgument(!scope.isLocal() || partitioningHandle.equals(FIXED_PASSTHROUGH_DISTRIBUTION), "local merging exchange requires passthrough distribution");
             checkArgument(partitioningScheme.getOutputLayout().containsAll(ordering.getOrderByVariables()), "Partitioning scheme does not supply all required ordering symbols");
         });
@@ -261,6 +262,16 @@ public class ExchangeNode
                 new PartitioningScheme(Partitioning.create(FIXED_ARBITRARY_DISTRIBUTION, ImmutableList.of()), child.getOutputVariables()));
     }
 
+    public static ExchangeNode roundRobinExchange(PlanNodeId id, Scope scope, PlanNode child, int partitionCount)
+    {
+        checkArgument(partitionCount > 0, "partitionCount must be positive");
+        return partitionedExchange(
+                id,
+                scope,
+                child,
+                new PartitioningScheme(Partitioning.create(SystemPartitioningHandle.createSystemPartitioning(SystemPartitioning.FIXED, SystemPartitionFunction.ROUND_ROBIN, partitionCount), ImmutableList.of()), child.getOutputVariables()));
+    }
+
     public static ExchangeNode mergingExchange(PlanNodeId id, Scope scope, PlanNode child, OrderingScheme orderingScheme)
     {
         PartitioningHandle partitioningHandle = scope.isLocal() ? FIXED_PASSTHROUGH_DISTRIBUTION : SINGLE_DISTRIBUTION;
@@ -274,6 +285,24 @@ public class ExchangeNode
                 ImmutableList.of(child.getOutputVariables()),
                 true,
                 Optional.of(orderingScheme));
+    }
+
+    /**
+     * Creates an exchange node that performs sorting during the shuffle operation.
+     * This is used for merge joins where we want to push down sorting to the exchange layer.
+     */
+    public static ExchangeNode sortedPartitionedExchange(PlanNodeId id, Scope scope, PlanNode child, Partitioning partitioning, Optional<VariableReferenceExpression> hashColumn, OrderingScheme sortOrder)
+    {
+        return new ExchangeNode(
+                child.getSourceLocation(),
+                id,
+                REPARTITION,
+                scope,
+                new PartitioningScheme(partitioning, child.getOutputVariables(), hashColumn, false, false, COLUMNAR, Optional.empty()),
+                ImmutableList.of(child),
+                ImmutableList.of(child.getOutputVariables()),
+                true,  // Ensure source ordering since we're sorting
+                Optional.of(sortOrder));
     }
 
     @JsonProperty

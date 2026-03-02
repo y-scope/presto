@@ -13,12 +13,14 @@
  */
 package com.facebook.presto.sql.expressions;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.FullConnectorSession;
 import com.facebook.presto.Session;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.nodeManager.PluginNodeManager;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.NodeManager;
+import com.facebook.presto.spi.RowExpressionSerde;
 import com.facebook.presto.spi.relation.ExpressionOptimizer;
 import com.facebook.presto.spi.relation.ExpressionOptimizerProvider;
 import com.facebook.presto.spi.sql.planner.ExpressionOptimizerContext;
@@ -26,8 +28,7 @@ import com.facebook.presto.spi.sql.planner.ExpressionOptimizerFactory;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.RowExpressionOptimizer;
 import com.google.common.collect.ImmutableList;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,12 +48,14 @@ import static java.util.Objects.requireNonNull;
 public class ExpressionOptimizerManager
         implements ExpressionOptimizerProvider
 {
+    private static final Logger log = Logger.get(ExpressionOptimizerManager.class);
     public static final String DEFAULT_EXPRESSION_OPTIMIZER_NAME = "default";
     private static final File EXPRESSION_MANAGER_CONFIGURATION_DIRECTORY = new File("etc/expression-manager/");
     private static final String EXPRESSION_MANAGER_FACTORY_NAME = "expression-manager-factory.name";
 
     private final NodeManager nodeManager;
     private final FunctionAndTypeManager functionAndTypeManager;
+    private final RowExpressionSerde rowExpressionSerde;
     private final FunctionResolution functionResolution;
     private final File configurationDirectory;
 
@@ -60,16 +63,17 @@ public class ExpressionOptimizerManager
     private final Map<String, ExpressionOptimizer> expressionOptimizers = new ConcurrentHashMap<>();
 
     @Inject
-    public ExpressionOptimizerManager(PluginNodeManager nodeManager, FunctionAndTypeManager functionAndTypeManager)
+    public ExpressionOptimizerManager(PluginNodeManager nodeManager, FunctionAndTypeManager functionAndTypeManager, RowExpressionSerde rowExpressionSerde)
     {
-        this(nodeManager, functionAndTypeManager, EXPRESSION_MANAGER_CONFIGURATION_DIRECTORY);
+        this(nodeManager, functionAndTypeManager, rowExpressionSerde, EXPRESSION_MANAGER_CONFIGURATION_DIRECTORY);
     }
 
-    public ExpressionOptimizerManager(PluginNodeManager nodeManager, FunctionAndTypeManager functionAndTypeManager, File configurationDirectory)
+    public ExpressionOptimizerManager(PluginNodeManager nodeManager, FunctionAndTypeManager functionAndTypeManager, RowExpressionSerde rowExpressionSerde, File configurationDirectory)
     {
         requireNonNull(nodeManager, "nodeManager is null");
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
         this.functionAndTypeManager = requireNonNull(functionAndTypeManager, "functionAndTypeManager is null");
+        this.rowExpressionSerde = requireNonNull(rowExpressionSerde, "rowExpressionSerde is null");
         this.functionResolution = new FunctionResolution(functionAndTypeManager.getFunctionAndTypeResolver());
         this.configurationDirectory = requireNonNull(configurationDirectory, "configurationDirectory is null");
         expressionOptimizers.put(DEFAULT_EXPRESSION_OPTIMIZER_NAME, new RowExpressionOptimizer(functionAndTypeManager));
@@ -89,23 +93,32 @@ public class ExpressionOptimizerManager
         }
     }
 
-    private void loadExpressionOptimizerFactory(File configurationFile)
+    public void loadExpressionOptimizerFactory(File configurationFile)
             throws IOException
     {
-        String name = getNameWithoutExtension(configurationFile.getName());
-        checkArgument(!isNullOrEmpty(name), "File name is empty, full path: %s", configurationFile.getAbsolutePath());
-        checkArgument(!name.equals(DEFAULT_EXPRESSION_OPTIMIZER_NAME), "Cannot name an expression optimizer instance %s", DEFAULT_EXPRESSION_OPTIMIZER_NAME);
+        String optimizerName = getNameWithoutExtension(configurationFile.getName());
+        checkArgument(!isNullOrEmpty(optimizerName), "File name is empty, full path: %s", configurationFile.getAbsolutePath());
+        checkArgument(!optimizerName.equals(DEFAULT_EXPRESSION_OPTIMIZER_NAME), "Cannot name an expression optimizer instance %s", DEFAULT_EXPRESSION_OPTIMIZER_NAME);
 
         Map<String, String> properties = new HashMap<>(loadProperties(configurationFile));
         String factoryName = properties.remove(EXPRESSION_MANAGER_FACTORY_NAME);
         checkArgument(!isNullOrEmpty(factoryName), "%s does not contain %s", configurationFile, EXPRESSION_MANAGER_FACTORY_NAME);
+
+        loadExpressionOptimizerFactory(factoryName, optimizerName, properties);
+    }
+
+    public void loadExpressionOptimizerFactory(String factoryName, String optimizerName, Map<String, String> properties)
+    {
+        requireNonNull(factoryName, "factoryName is null");
         checkArgument(expressionOptimizerFactories.containsKey(factoryName),
                 "ExpressionOptimizerFactory %s is not registered, registered factories: ", factoryName, expressionOptimizerFactories.keySet());
 
+        log.info("-- Loading expression optimizer [%s] --", optimizerName);
         ExpressionOptimizer optimizer = expressionOptimizerFactories.get(factoryName).createOptimizer(
                 properties,
-                new ExpressionOptimizerContext(nodeManager, functionAndTypeManager, functionResolution));
-        expressionOptimizers.put(name, optimizer);
+                new ExpressionOptimizerContext(nodeManager, rowExpressionSerde, functionAndTypeManager, functionResolution));
+        expressionOptimizers.put(optimizerName, optimizer);
+        log.info("-- Added expression optimizer [%s] --", optimizerName);
     }
 
     public void addExpressionOptimizerFactory(ExpressionOptimizerFactory expressionOptimizerFactory)
@@ -123,8 +136,14 @@ public class ExpressionOptimizerManager
         checkArgument(connectorSession instanceof FullConnectorSession, "connectorSession is not an instance of FullConnectorSession");
         Session session = ((FullConnectorSession) connectorSession).getSession();
         String expressionOptimizerName = getExpressionOptimizerName(session);
-        checkArgument(expressionOptimizers.containsKey(expressionOptimizerName), "ExpressionOptimizer '%s' is not registered", expressionOptimizerName);
-        return expressionOptimizers.get(expressionOptimizerName);
+        return getExpressionOptimizer(expressionOptimizerName);
+    }
+
+    public ExpressionOptimizer getExpressionOptimizer(String optimizerName)
+    {
+        requireNonNull(optimizerName, "optimizerName is null");
+        checkArgument(expressionOptimizers.containsKey(optimizerName), "ExpressionOptimizer '%s' is not registered", optimizerName);
+        return expressionOptimizers.get(optimizerName);
     }
 
     private static List<File> listFiles(File directory)

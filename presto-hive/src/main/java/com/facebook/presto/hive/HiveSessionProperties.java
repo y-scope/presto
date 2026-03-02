@@ -13,16 +13,15 @@
  */
 package com.facebook.presto.hive;
 
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.cache.CacheConfig;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.session.PropertyMetadata;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
+import jakarta.inject.Inject;
 import org.apache.parquet.column.ParquetProperties;
-
-import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Optional;
@@ -60,7 +59,7 @@ public final class HiveSessionProperties
     private static final String ORC_OPTIMIZED_WRITER_COMPRESSION_LEVEL = "orc_optimized_writer_compression_level";
     private static final String PAGEFILE_WRITER_MAX_STRIPE_SIZE = "pagefile_writer_max_stripe_size";
     public static final String HIVE_STORAGE_FORMAT = "hive_storage_format";
-    private static final String COMPRESSION_CODEC = "compression_codec";
+    static final String COMPRESSION_CODEC = "compression_codec";
     private static final String ORC_COMPRESSION_CODEC = "orc_compression_codec";
     public static final String RESPECT_TABLE_FORMAT = "respect_table_format";
     private static final String CREATE_EMPTY_BUCKET_FILES = "create_empty_bucket_files";
@@ -70,6 +69,7 @@ public final class HiveSessionProperties
     private static final String PARQUET_WRITER_VERSION = "parquet_writer_version";
     private static final String MAX_SPLIT_SIZE = "max_split_size";
     private static final String MAX_INITIAL_SPLIT_SIZE = "max_initial_split_size";
+    private static final String SYMLINK_OPTIMIZED_READER_ENABLED = "symlink_optimized_reader_enabled";
     public static final String RCFILE_OPTIMIZED_WRITER_ENABLED = "rcfile_optimized_writer_enabled";
     private static final String RCFILE_OPTIMIZED_WRITER_VALIDATE = "rcfile_optimized_writer_validate";
     private static final String SORTED_WRITING_ENABLED = "sorted_writing_enabled";
@@ -134,6 +134,8 @@ public final class HiveSessionProperties
     public static final String DYNAMIC_SPLIT_SIZES_ENABLED = "dynamic_split_sizes_enabled";
     public static final String SKIP_EMPTY_FILES = "skip_empty_files";
     public static final String LEGACY_TIMESTAMP_BUCKETING = "legacy_timestamp_bucketing";
+    public static final String OPTIMIZE_PARSING_OF_PARTITION_VALUES = "optimize_parsing_of_partition_values";
+    public static final String OPTIMIZE_PARSING_OF_PARTITION_VALUES_THRESHOLD = "optimize_parsing_of_partition_values_threshold";
 
     public static final String NATIVE_STATS_BASED_FILTER_REORDER_DISABLED = "native_stats_based_filter_reorder_disabled";
 
@@ -625,6 +627,11 @@ public final class HiveSessionProperties
                         "Use quick stats to resolve stats",
                         hiveClientConfig.isQuickStatsEnabled(),
                         false),
+                booleanProperty(
+                        SYMLINK_OPTIMIZED_READER_ENABLED,
+                        "Experimental: Enable optimized SymlinkTextInputFormat reader",
+                        hiveClientConfig.isSymlinkOptimizedReaderEnabled(),
+                        false),
                 new PropertyMetadata<>(
                         QUICK_STATS_INLINE_BUILD_TIMEOUT,
                         "Duration that the first query that initiated a quick stats call should wait before failing and returning EMPTY stats. " +
@@ -655,6 +662,15 @@ public final class HiveSessionProperties
                         LEGACY_TIMESTAMP_BUCKETING,
                         "Use legacy timestamp bucketing algorithm (which is not Hive compatible) for table bucketed by timestamp type.",
                         hiveClientConfig.isLegacyTimestampBucketing(),
+                        false),
+                booleanProperty(
+                        OPTIMIZE_PARSING_OF_PARTITION_VALUES,
+                        "Optimize partition values parsing when number of candidates are large",
+                        hiveClientConfig.isOptimizeParsingOfPartitionValues(),
+                        false),
+                integerProperty(OPTIMIZE_PARSING_OF_PARTITION_VALUES_THRESHOLD,
+                        "When OPTIMIZE_PARSING_OF_PARTITION_VALUES is set to true, enable this optimizations when number of partitions exceed the threshold here",
+                        hiveClientConfig.getOptimizeParsingOfPartitionValuesThreshold(),
                         false),
                 booleanProperty(
                         NATIVE_STATS_BASED_FILTER_REORDER_DISABLED,
@@ -1147,5 +1163,20 @@ public final class HiveSessionProperties
     public static boolean isLegacyTimestampBucketing(ConnectorSession session)
     {
         return session.getProperty(LEGACY_TIMESTAMP_BUCKETING, Boolean.class);
+    }
+
+    public static boolean isOptimizeParsingOfPartitionValues(ConnectorSession session)
+    {
+        return session.getProperty(OPTIMIZE_PARSING_OF_PARTITION_VALUES, Boolean.class);
+    }
+
+    public static int getOptimizeParsingOfPartitionValuesThreshold(ConnectorSession session)
+    {
+        return session.getProperty(OPTIMIZE_PARSING_OF_PARTITION_VALUES_THRESHOLD, Integer.class);
+    }
+
+    public static boolean isSymlinkOptimizedReaderEnabled(ConnectorSession session)
+    {
+        return session.getProperty(SYMLINK_OPTIMIZED_READER_ENABLED, Boolean.class);
     }
 }

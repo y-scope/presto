@@ -14,8 +14,11 @@
 package com.facebook.presto.router;
 
 import com.facebook.airlift.configuration.AbstractConfigurationAwareModule;
+import com.facebook.airlift.units.Duration;
+import com.facebook.presto.ClientRequestFilterManager;
 import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.router.cluster.ClusterManager;
+import com.facebook.presto.router.cluster.ClusterManager.ClusterStatusTracker;
 import com.facebook.presto.router.cluster.ClusterStatusResource;
 import com.facebook.presto.router.cluster.ForClusterInfoTracker;
 import com.facebook.presto.router.cluster.ForClusterManager;
@@ -32,7 +35,6 @@ import com.facebook.presto.server.ServerConfig;
 import com.facebook.presto.server.WebUiResource;
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
-import io.airlift.units.Duration;
 
 import java.lang.annotation.Annotation;
 import java.util.Optional;
@@ -56,8 +58,6 @@ public class RouterModule
 
     private static final String QUERY_TRACKER = "query-tracker";
     private static final String QUERY_PREDICTOR = "query-predictor";
-    private static final String UI_PATH = "/ui";
-    private static final String ROUTER_UI = "router_ui";
     private static final String INDEX_HTML = "index.html";
     private final Optional<CustomSchedulerManager> customSchedulerManager;
 
@@ -71,9 +71,13 @@ public class RouterModule
     {
         ServerConfig serverConfig = buildConfigObject(ServerConfig.class);
 
+        binder.bind(ClientRequestFilterManager.class).in(Scopes.SINGLETON);
         binder.bind(RouterPluginManager.class).in(Scopes.SINGLETON);
-        webUIBinder(binder, UI_PATH, ROUTER_UI).withWelcomeFile(INDEX_HTML);
         configBinder(binder).bindConfig(RouterConfig.class);
+
+        webUIBinder(binder, "/ui", "webapp-router").withWelcomeFile(INDEX_HTML);
+        webUIBinder(binder, "/ui/vendor", "webapp/vendor");
+        webUIBinder(binder, "/ui/assets", "webapp/assets");
 
         if (customSchedulerManager.isPresent()) {
             binder.bind(CustomSchedulerManager.class).toInstance(customSchedulerManager.get());

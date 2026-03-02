@@ -26,12 +26,15 @@ import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MaterializedViewScanNode;
 import com.facebook.presto.spi.plan.MergeJoinNode;
+import com.facebook.presto.spi.plan.MetadataDeleteNode;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.ProjectNode;
@@ -46,6 +49,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.RowExpression;
@@ -54,23 +58,26 @@ import com.facebook.presto.sql.planner.VariablesExtractor;
 import com.facebook.presto.sql.planner.optimizations.WindowNodeUtil;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.InternalPlanVisitor;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
-import com.facebook.presto.sql.planner.plan.MetadataDeleteNode;
+import com.facebook.presto.sql.planner.plan.MergeProcessorNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.OffsetNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -83,6 +90,7 @@ import java.util.Set;
 import static com.facebook.presto.spi.plan.JoinNode.checkLeftOutputVariablesBeforeRight;
 import static com.facebook.presto.sql.planner.optimizations.AggregationNodeUtils.extractAggregationUniqueVariables;
 import static com.facebook.presto.sql.planner.optimizations.IndexJoinOptimizer.IndexKeyTracer;
+import static com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
@@ -114,6 +122,123 @@ public final class ValidateDependenciesChecker
         public Void visitPlan(PlanNode node, Set<VariableReferenceExpression> boundVariables)
         {
             throw new UnsupportedOperationException("not yet implemented: " + node.getClass().getName());
+        }
+
+        @Override
+        public Void visitTableFunction(TableFunctionNode node, Set<VariableReferenceExpression> boundSymbols)
+        {
+            for (int i = 0; i < node.getSources().size(); i++) {
+                PlanNode source = node.getSources().get(i);
+                source.accept(this, boundSymbols);
+                Set<VariableReferenceExpression> inputs = createInputs(source, boundSymbols);
+                TableFunctionNode.TableArgumentProperties argumentProperties = node.getTableArgumentProperties().get(i);
+
+                checkDependencies(
+                        inputs,
+                        argumentProperties.getRequiredColumns(),
+                        "Invalid node. Required input symbols from source %s (%s) not in source plan output (%s)",
+                        argumentProperties.getArgumentName(),
+                        argumentProperties.getRequiredColumns(),
+                        source.getOutputVariables());
+                argumentProperties.getSpecification().ifPresent(specification -> {
+                    checkDependencies(
+                            inputs,
+                            specification.getPartitionBy(),
+                            "Invalid node. Partition by symbols for source %s (%s) not in source plan output (%s)",
+                            argumentProperties.getArgumentName(),
+                            specification.getPartitionBy(),
+                            source.getOutputVariables());
+                    specification.getOrderingScheme().ifPresent(orderingScheme -> {
+                        checkDependencies(
+                                inputs,
+                                orderingScheme.getOrderByVariables(),
+                                "Invalid node. Order by symbols for source %s (%s) not in source plan output (%s)",
+                                argumentProperties.getArgumentName(),
+                                orderingScheme.getOrderBy(),
+                                source.getOutputVariables());
+                    });
+                });
+                Set<VariableReferenceExpression> passThroughVariable = argumentProperties.getPassThroughSpecification().getColumns().stream()
+                        .map(PassThroughColumn::getOutputVariables)
+                        .collect(toImmutableSet());
+                checkDependencies(
+                        inputs,
+                        passThroughVariable,
+                        "Invalid node. Pass-through symbols for source %s (%s) not in source plan output (%s)",
+                        argumentProperties.getArgumentName(),
+                        passThroughVariable,
+                        source.getOutputVariables());
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitTableFunctionProcessor(TableFunctionProcessorNode node, Set<VariableReferenceExpression> boundVariables)
+        {
+            if (!node.getSource().isPresent()) {
+                return null;
+            }
+
+            PlanNode source = node.getSource().get();
+            source.accept(this, boundVariables);
+
+            Set<VariableReferenceExpression> inputs = createInputs(source, boundVariables);
+
+            Set<VariableReferenceExpression> passThroughSymbols = node.getPassThroughSpecifications().stream()
+                    .map(PassThroughSpecification::getColumns)
+                    .flatMap(Collection::stream)
+                    .map(PassThroughColumn::getOutputVariables)
+                    .collect(toImmutableSet());
+            checkDependencies(
+                    inputs,
+                    passThroughSymbols,
+                    "Invalid node. Pass-through symbols (%s) not in source plan output (%s)",
+                    passThroughSymbols,
+                    source.getOutputVariables());
+
+            Set<VariableReferenceExpression> requiredSymbols = node.getRequiredVariables().stream()
+                    .flatMap(Collection::stream)
+                    .collect(toImmutableSet());
+            checkDependencies(
+                    inputs,
+                    requiredSymbols,
+                    "Invalid node. Required symbols (%s) not in source plan output (%s)",
+                    requiredSymbols,
+                    source.getOutputVariables());
+
+            node.getMarkerVariables().ifPresent(mapping -> {
+                checkDependencies(
+                        inputs,
+                        mapping.keySet(),
+                        "Invalid node. Source symbols (%s) not in source plan output (%s)",
+                        mapping.keySet(),
+                        source.getOutputVariables());
+                checkDependencies(
+                        inputs,
+                        mapping.values(),
+                        "Invalid node. Source marker symbols (%s) not in source plan output (%s)",
+                        mapping.values(),
+                        source.getOutputVariables());
+            });
+
+            node.getSpecification().ifPresent(specification -> {
+                checkDependencies(
+                        inputs,
+                        specification.getPartitionBy(),
+                        "Invalid node. Partition by symbols (%s) not in source plan output (%s)",
+                        specification.getPartitionBy(),
+                        source.getOutputVariables());
+                specification.getOrderingScheme().ifPresent(orderingScheme -> {
+                    checkDependencies(
+                            inputs,
+                            orderingScheme.getOrderByVariables(),
+                            "Invalid node. Order by symbols (%s) not in source plan output (%s)",
+                            orderingScheme.getOrderBy(),
+                            source.getOutputVariables());
+                });
+            });
+
+            return null;
         }
 
         @Override
@@ -361,6 +486,47 @@ public final class ValidateDependenciesChecker
         }
 
         @Override
+        public Void visitMaterializedViewScan(MaterializedViewScanNode node, Set<VariableReferenceExpression> boundVariables)
+        {
+            PlanNode dataTablePlan = node.getSources().get(0);
+            PlanNode viewQueryPlan = node.getSources().get(1);
+
+            dataTablePlan.accept(this, boundVariables);
+            viewQueryPlan.accept(this, boundVariables);
+
+            Set<VariableReferenceExpression> dataTableOutputs = ImmutableSet.copyOf(dataTablePlan.getOutputVariables());
+            Set<VariableReferenceExpression> viewQueryOutputs = ImmutableSet.copyOf(viewQueryPlan.getOutputVariables());
+
+            for (VariableReferenceExpression outputVariable : node.getOutputVariables()) {
+                VariableReferenceExpression dataTableVariable = node.getDataTableMappings().get(outputVariable);
+                checkArgument(
+                        dataTableVariable != null,
+                        "Output variable %s has no mapping in dataTableMappings",
+                        outputVariable);
+                checkArgument(
+                        dataTableOutputs.contains(dataTableVariable),
+                        "Data table mapping variable %s for output %s not in data table plan output (%s)",
+                        dataTableVariable,
+                        outputVariable,
+                        dataTableOutputs);
+
+                VariableReferenceExpression viewQueryVariable = node.getViewQueryMappings().get(outputVariable);
+                checkArgument(
+                        viewQueryVariable != null,
+                        "Output variable %s has no mapping in viewQueryMappings",
+                        outputVariable);
+                checkArgument(
+                        viewQueryOutputs.contains(viewQueryVariable),
+                        "View query mapping variable %s for output %s not in view query plan output (%s)",
+                        viewQueryVariable,
+                        outputVariable,
+                        viewQueryOutputs);
+            }
+
+            return null;
+        }
+
+        @Override
         public Void visitJoin(JoinNode node, Set<VariableReferenceExpression> boundVariables)
         {
             node.getLeft().accept(this, boundVariables);
@@ -472,9 +638,7 @@ public final class ValidateDependenciesChecker
                 checkArgument(indexSourceInputs.contains(clause.getIndex()), "Index variable from index join clause (%s) not in index source (%s)", clause.getIndex(), node.getIndexSource().getOutputVariables());
             }
 
-            Set<VariableReferenceExpression> lookupVariables = node.getCriteria().stream()
-                    .map(IndexJoinNode.EquiJoinClause::getIndex)
-                    .collect(toImmutableSet());
+            Set<VariableReferenceExpression> lookupVariables = ImmutableSet.copyOf(node.getLookupVariables());
             Map<VariableReferenceExpression, VariableReferenceExpression> trace = IndexKeyTracer.trace(node.getIndexSource(), lookupVariables);
             checkArgument(!trace.isEmpty() && lookupVariables.containsAll(trace.keySet()),
                     "Index lookup symbols are not traceable to index source: %s",
@@ -591,6 +755,15 @@ public final class ValidateDependenciesChecker
         }
 
         @Override
+        public Void visitCallDistributedProcedure(CallDistributedProcedureNode node, Set<VariableReferenceExpression> boundVariables)
+        {
+            PlanNode source = node.getSource();
+            source.accept(this, boundVariables); // visit child
+
+            return null;
+        }
+
+        @Override
         public Void visitTableWriter(TableWriterNode node, Set<VariableReferenceExpression> boundVariables)
         {
             PlanNode source = node.getSource();
@@ -609,12 +782,38 @@ public final class ValidateDependenciesChecker
         }
 
         @Override
+        public Void visitMergeWriter(MergeWriterNode node, Set<VariableReferenceExpression> boundSymbols)
+        {
+            PlanNode source = node.getSource();
+            source.accept(this, boundSymbols); // visit child
+            return null;
+        }
+
+        @Override
+        public Void visitMergeProcessor(MergeProcessorNode node, Set<VariableReferenceExpression> boundSymbols)
+        {
+            PlanNode source = node.getSource();
+            source.accept(this, boundSymbols); // visit child
+
+            checkArgument(source.getOutputVariables().contains(node.getTargetTableRowIdColumnVariable()),
+                    "Invalid node. rowId symbol (%s) is not in source plan output (%s)",
+                    node.getTargetTableRowIdColumnVariable(), node.getSource().getOutputVariables());
+            checkArgument(source.getOutputVariables().contains(node.getMergeRowVariable()),
+                    "Invalid node. Merge row symbol (%s) is not in source plan output (%s)",
+                    node.getMergeRowVariable(), node.getSource().getOutputVariables());
+
+            return null;
+        }
+
+        @Override
         public Void visitDelete(DeleteNode node, Set<VariableReferenceExpression> boundVariables)
         {
             PlanNode source = node.getSource();
             source.accept(this, boundVariables); // visit child
 
-            checkArgument(source.getOutputVariables().contains(node.getRowId()), "Invalid node. Row ID symbol (%s) is not in source plan output (%s)", node.getRowId(), node.getSource().getOutputVariables());
+            node.getRowId().ifPresent(rowid ->
+                    checkArgument(source.getOutputVariables().contains(rowid),
+                            "Invalid node. Row ID symbol (%s) is not in source plan output (%s)", rowid, node.getSource().getOutputVariables()));
 
             return null;
         }
@@ -624,7 +823,8 @@ public final class ValidateDependenciesChecker
         {
             PlanNode source = node.getSource();
             source.accept(this, boundVariables); // visit child
-            checkArgument(source.getOutputVariables().contains(node.getRowId()), "Invalid node. Row ID symbol (%s) is not in source plan output (%s)", node.getRowId(), node.getSource().getOutputVariables());
+            node.getRowId().ifPresent(r ->
+                    checkArgument(source.getOutputVariables().contains(r), "Invalid node. Row ID symbol (%s) is not in source plan output (%s)", node.getRowId(), node.getSource().getOutputVariables()));
             checkArgument(source.getOutputVariables().containsAll(node.getColumnValueAndRowIdSymbols()), "Invalid node. Some UPDATE SET expression symbols (%s) are not contained in the outputSymbols (%s)", node.getColumnValueAndRowIdSymbols(), source.getOutputVariables());
 
             return null;

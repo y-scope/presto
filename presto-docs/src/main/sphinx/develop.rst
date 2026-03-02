@@ -13,6 +13,7 @@ This guide is intended for Presto contributors and plugin developers.
     develop/delete-and-update
     develop/types
     develop/functions
+    develop/procedures
     develop/system-access-control
     develop/password-authenticator
     develop/event-listener
@@ -22,3 +23,4 @@ This guide is intended for Presto contributors and plugin developers.
     develop/presto-console
     develop/presto-authenticator
     develop/client-request-filter
+    develop/release-process

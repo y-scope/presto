@@ -14,8 +14,10 @@
 package com.facebook.presto.sql.analyzer;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.security.AccessControl;
 import com.facebook.presto.sql.parser.SqlParser;
@@ -36,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 
 import static com.facebook.presto.SystemSessionProperties.isCheckAccessControlOnUtilizedColumnsOnly;
 import static com.facebook.presto.SystemSessionProperties.isCheckAccessControlWithSubfields;
+import static com.facebook.presto.SystemSessionProperties.isLegacyMaterializedViews;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractAggregateFunctions;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractExpressions;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractExternalFunctions;
@@ -43,7 +46,6 @@ import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractWindow
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.CANNOT_HAVE_AGGREGATIONS_WINDOWS_OR_GROUPING;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.analyzer.UtilizedColumnsAnalyzer.analyzeForUtilizedColumns;
-import static com.facebook.presto.util.AnalyzerUtil.checkAccessPermissions;
 import static java.util.Objects.requireNonNull;
 
 public class Analyzer
@@ -58,6 +60,7 @@ public class Analyzer
     private final WarningCollector warningCollector;
     private final MetadataExtractor metadataExtractor;
     private final String query;
+    private final ViewDefinitionReferences viewDefinitionReferences;
 
     public Analyzer(
             Session session,
@@ -68,9 +71,10 @@ public class Analyzer
             List<Expression> parameters,
             Map<NodeRef<Parameter>, Expression> parameterLookup,
             WarningCollector warningCollector,
-            String query)
+            String query,
+            ViewDefinitionReferences viewDefinitionReferences)
     {
-        this(session, metadata, sqlParser, accessControl, queryExplainer, parameters, parameterLookup, warningCollector, Optional.empty(), query);
+        this(session, metadata, sqlParser, accessControl, queryExplainer, parameters, parameterLookup, warningCollector, Optional.empty(), query, viewDefinitionReferences);
     }
 
     public Analyzer(
@@ -83,7 +87,8 @@ public class Analyzer
             Map<NodeRef<Parameter>, Expression> parameterLookup,
             WarningCollector warningCollector,
             Optional<ExecutorService> metadataExtractorExecutor,
-            String query)
+            String query,
+            ViewDefinitionReferences viewDefinitionReferences)
     {
         this.session = requireNonNull(session, "session is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -96,32 +101,34 @@ public class Analyzer
         requireNonNull(metadataExtractorExecutor, "metadataExtractorExecutor is null");
         this.metadataExtractor = new MetadataExtractor(session, metadata, metadataExtractorExecutor, sqlParser, warningCollector);
         this.query = requireNonNull(query, "query is null");
-    }
-
-    public Analysis analyze(Statement statement)
-    {
-        return analyze(statement, false);
-    }
-
-    // TODO: Remove this method once all calls are moved to analyzer interface, as this call is overloaded with analyze and columnCheckPermissions
-    public Analysis analyze(Statement statement, boolean isDescribe)
-    {
-        Analysis analysis = analyzeSemantic(statement, isDescribe);
-        checkAccessPermissions(analysis.getAccessControlReferences(), query);
-        return analysis;
+        this.viewDefinitionReferences = requireNonNull(viewDefinitionReferences, "viewDefinitionReferences is null");
     }
 
     public Analysis analyzeSemantic(Statement statement, boolean isDescribe)
     {
-        Statement rewrittenStatement = StatementRewrite.rewrite(session, metadata, sqlParser, queryExplainer, statement, parameters, parameterLookup, accessControl, warningCollector, query);
-        Analysis analysis = new Analysis(rewrittenStatement, parameterLookup, isDescribe);
+        return analyzeSemantic(statement, Optional.empty(), isDescribe);
+    }
+
+    public Analysis analyzeSemantic(
+            Statement statement,
+            Optional<QualifiedObjectName> procedureName,
+            boolean isDescribe)
+    {
+        Statement rewrittenStatement = StatementRewrite.rewrite(session, metadata, sqlParser, queryExplainer, statement, parameters, parameterLookup, accessControl, warningCollector, query, viewDefinitionReferences);
+        Analysis analysis = new Analysis(rewrittenStatement, parameterLookup, isDescribe, viewDefinitionReferences);
 
         metadataExtractor.populateMetadataHandle(session, rewrittenStatement, analysis.getMetadataHandle());
+        analysis.setProcedureName(procedureName);
         StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session, warningCollector);
         analyzer.analyze(rewrittenStatement, Optional.empty());
         analyzeForUtilizedColumns(analysis, analysis.getStatement(), warningCollector);
-        analysis.populateTableColumnAndSubfieldReferencesForAccessControl(isCheckAccessControlOnUtilizedColumnsOnly(session), isCheckAccessControlWithSubfields(session));
+        analysis.populateTableColumnAndSubfieldReferencesForAccessControl(isCheckAccessControlOnUtilizedColumnsOnly(session), isCheckAccessControlWithSubfields(session), isLegacyMaterializedViews(session));
         return analysis;
+    }
+
+    public ViewDefinitionReferences getViewDefinitionReferences()
+    {
+        return viewDefinitionReferences;
     }
 
     static void verifyNoAggregateWindowOrGroupingFunctions(

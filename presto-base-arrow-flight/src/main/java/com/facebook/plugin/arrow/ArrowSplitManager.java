@@ -19,9 +19,8 @@ import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import jakarta.inject.Inject;
 import org.apache.arrow.flight.FlightInfo;
-
-import javax.inject.Inject;
 
 import java.util.List;
 
@@ -44,7 +43,7 @@ public class ArrowSplitManager
     {
         ArrowTableLayoutHandle tableLayoutHandle = (ArrowTableLayoutHandle) layout;
         ArrowTableHandle tableHandle = tableLayoutHandle.getTable();
-        FlightInfo flightInfo = clientHandler.getFlightInfoForTableScan(tableLayoutHandle, session);
+        FlightInfo flightInfo = clientHandler.getFlightInfoForTableScan(session, tableLayoutHandle);
         List<ArrowSplit> splits = flightInfo.getEndpoints()
                 .stream()
                 .map(info -> new ArrowSplit(

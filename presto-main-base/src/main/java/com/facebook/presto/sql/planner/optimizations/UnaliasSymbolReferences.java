@@ -29,11 +29,13 @@ import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MetadataDeleteNode;
 import com.facebook.presto.spi.plan.Ordering;
 import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.OutputNode;
@@ -50,6 +52,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.CallExpression;
@@ -59,12 +62,14 @@ import com.facebook.presto.sql.planner.RowExpressionVariableInliner;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
+import com.facebook.presto.sql.planner.plan.MergeProcessorNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.OffsetNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
@@ -72,15 +77,17 @@ import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.facebook.presto.sql.relational.RowExpressionDeterminismEvaluator;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
@@ -154,6 +161,11 @@ public class UnaliasSymbolReferences
             this.functionAndTypeManager = functionAndTypeManager;
             this.determinismEvaluator = new RowExpressionDeterminismEvaluator(functionAndTypeManager);
             this.warningCollector = warningCollector;
+        }
+
+        public Map<String, String> getMapping()
+        {
+            return mapping;
         }
 
         @Override
@@ -461,6 +473,22 @@ public class UnaliasSymbolReferences
         }
 
         @Override
+        public PlanNode visitMergeWriter(MergeWriterNode node, RewriteContext<Void> context)
+        {
+            PlanNode source = context.rewrite(node.getSource());
+            SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+            return mapper.map(node, source);
+        }
+
+        @Override
+        public PlanNode visitMergeProcessor(MergeProcessorNode node, RewriteContext<Void> context)
+        {
+            PlanNode source = context.rewrite(node.getSource());
+            SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+            return mapper.map(node, source);
+        }
+
+        @Override
         public PlanNode visitStatisticsWriterNode(StatisticsWriterNode node, RewriteContext<Void> context)
         {
             PlanNode source = context.rewrite(node.getSource());
@@ -474,6 +502,81 @@ public class UnaliasSymbolReferences
             PlanNode source = context.rewrite(node.getSource());
             SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
             return mapper.map(node, source);
+        }
+
+        @Override
+        public PlanNode visitTableFunction(TableFunctionNode node, RewriteContext<Void> context)
+        {
+            SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+
+            List<VariableReferenceExpression> newProperOutputs = node.getOutputVariables().stream()
+                    .map(mapper::map)
+                    .collect(toImmutableList());
+
+            ImmutableList.Builder<PlanNode> newSources = ImmutableList.builder();
+            ImmutableList.Builder<TableFunctionNode.TableArgumentProperties> newTableArgumentProperties = ImmutableList.builder();
+
+            for (int i = 0; i < node.getSources().size(); i++) {
+                PlanNode newSource = context.rewrite(node.getSources().get(i));
+                newSources.add(newSource);
+
+                // Use the mapping state from after processing the source for the input properties
+                SymbolMapper inputMapper = new SymbolMapper(mapping, types, warningCollector);
+
+                TableFunctionNode.TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
+
+                Optional<DataOrganizationSpecification> newSpecification = properties.getSpecification().map(inputMapper::mapAndDistinct);
+                TableFunctionNode.PassThroughSpecification newPassThroughSpecification = new TableFunctionNode.PassThroughSpecification(
+                        properties.getPassThroughSpecification().isDeclaredAsPassThrough(),
+                        properties.getPassThroughSpecification().getColumns().stream()
+                                .map(column -> new TableFunctionNode.PassThroughColumn(
+                                        inputMapper.map(column.getOutputVariables()),
+                                        column.isPartitioningColumn()))
+                                .collect(toImmutableList()));
+                newTableArgumentProperties.add(new TableFunctionNode.TableArgumentProperties(
+                        properties.getArgumentName(),
+                        properties.isRowSemantics(),
+                        properties.isPruneWhenEmpty(),
+                        newPassThroughSpecification,
+                        inputMapper.map(properties.getRequiredColumns()),
+                        newSpecification));
+            }
+
+            return new TableFunctionNode(
+                    node.getId(),
+                    node.getName(),
+                    node.getArguments(),
+                    newProperOutputs,
+                    newSources.build(),
+                    newTableArgumentProperties.build(),
+                    node.getCopartitioningLists(),
+                    node.getHandle());
+        }
+
+        @Override
+        public PlanNode visitTableFunctionProcessor(TableFunctionProcessorNode node, RewriteContext<Void> context)
+        {
+            if (!node.getSource().isPresent()) {
+                SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+                return new TableFunctionProcessorNode(
+                        node.getId(),
+                        node.getName(),
+                        mapper.map(node.getProperOutputs()),
+                        Optional.empty(),
+                        node.isPruneWhenEmpty(),
+                        ImmutableList.of(),
+                        ImmutableList.of(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableSet.of(),
+                        0,
+                        node.getHashSymbol().map(mapper::map),
+                        node.getHandle());
+            }
+            PlanNode rewrittenSource = context.rewrite(node.getSource().get());
+            SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+
+            return mapper.map(node, rewrittenSource);
         }
 
         @Override
@@ -636,7 +739,20 @@ public class UnaliasSymbolReferences
             PlanNode left = context.rewrite(node.getLeft());
             PlanNode right = context.rewrite(node.getRight());
 
-            return new SpatialJoinNode(node.getSourceLocation(), node.getId(), node.getType(), left, right, canonicalizeAndDistinct(node.getOutputVariables()), canonicalize(node.getFilter()), canonicalize(node.getLeftPartitionVariable()), canonicalize(node.getRightPartitionVariable()), node.getKdbTree());
+            return new SpatialJoinNode(
+                    node.getSourceLocation(),
+                    node.getId(),
+                    node.getType(),
+                    left,
+                    right,
+                    canonicalizeAndDistinct(node.getOutputVariables()),
+                    canonicalize(node.getProbeGeometryVariable()),
+                    canonicalize(node.getBuildGeometryVariable()),
+                    canonicalize(node.getRadiusVariable()),
+                    canonicalize(node.getFilter()),
+                    canonicalize(node.getLeftPartitionVariable()),
+                    canonicalize(node.getRightPartitionVariable()),
+                    node.getKdbTree());
         }
 
         @Override
@@ -660,7 +776,8 @@ public class UnaliasSymbolReferences
                     canonicalizeIndexJoinCriteria(node.getCriteria()),
                     node.getFilter().map(this::canonicalize),
                     canonicalize(node.getProbeHashVariable()),
-                    canonicalize(node.getIndexHashVariable()));
+                    canonicalize(node.getIndexHashVariable()),
+                    node.getLookupVariables());
         }
 
         @Override
@@ -691,6 +808,14 @@ public class UnaliasSymbolReferences
         }
 
         @Override
+        public PlanNode visitCallDistributedProcedure(CallDistributedProcedureNode node, RewriteContext<Void> context)
+        {
+            PlanNode source = context.rewrite(node.getSource());
+            SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
+            return mapper.map(node, source);
+        }
+
+        @Override
         public PlanNode visitTableWriter(TableWriterNode node, RewriteContext<Void> context)
         {
             PlanNode source = context.rewrite(node.getSource());
@@ -704,6 +829,13 @@ public class UnaliasSymbolReferences
             PlanNode source = context.rewrite(node.getSource());
             SymbolMapper mapper = new SymbolMapper(mapping, types, warningCollector);
             return mapper.map(node, source);
+        }
+
+        @Override
+        public PlanNode visitMetadataDelete(MetadataDeleteNode node, RewriteContext<Void> context)
+        {
+            // MetadataDeleteNode has no symbols to unalias, so return unchanged
+            return node;
         }
 
         @Override

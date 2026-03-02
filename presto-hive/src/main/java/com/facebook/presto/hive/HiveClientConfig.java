@@ -17,26 +17,28 @@ import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
 import com.facebook.airlift.configuration.DefunctConfig;
 import com.facebook.airlift.configuration.LegacyConfig;
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
+import com.facebook.airlift.units.MaxDataSize;
+import com.facebook.airlift.units.MinDataSize;
+import com.facebook.airlift.units.MinDuration;
 import com.facebook.drift.transport.netty.codec.Protocol;
 import com.facebook.presto.hive.s3.S3FileSystemType;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
-import io.airlift.units.MaxDataSize;
-import io.airlift.units.MinDataSize;
-import io.airlift.units.MinDuration;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import org.joda.time.DateTimeZone;
-
-import javax.validation.constraints.DecimalMax;
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
 
 import java.util.List;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
+import static com.facebook.airlift.units.DataSize.Unit.BYTE;
+import static com.facebook.airlift.units.DataSize.Unit.KILOBYTE;
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
 import static com.facebook.presto.hive.BucketFunctionType.HIVE_COMPATIBLE;
 import static com.facebook.presto.hive.BucketFunctionType.PRESTO_NATIVE;
 import static com.facebook.presto.hive.HiveClientConfig.InsertExistingPartitionsBehavior.APPEND;
@@ -45,9 +47,6 @@ import static com.facebook.presto.hive.HiveClientConfig.InsertExistingPartitions
 import static com.facebook.presto.hive.HiveSessionProperties.INSERT_EXISTING_PARTITIONS_BEHAVIOR;
 import static com.facebook.presto.hive.HiveStorageFormat.ORC;
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.units.DataSize.Unit.BYTE;
-import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 
@@ -108,7 +107,6 @@ public class HiveClientConfig
 
     private DataSize textMaxLineLength = new DataSize(100, MEGABYTE);
     private boolean assumeCanonicalPartitionKeys;
-    private boolean useOrcColumnNames;
     private double orcDefaultBloomFilterFpp = 0.05;
     private boolean rcfileOptimizedWriterEnabled = true;
     private boolean rcfileWriterValidate;
@@ -169,8 +167,6 @@ public class HiveClientConfig
     private DataSize pageFileStripeMaxSize = new DataSize(24, MEGABYTE);
     private boolean parquetDereferencePushdownEnabled;
 
-    private int maxMetadataUpdaterThreads = 100;
-
     private boolean isPartialAggregationPushdownEnabled;
     private boolean isPartialAggregationPushdownForVariableLengthDatatypesEnabled;
 
@@ -202,7 +198,7 @@ public class HiveClientConfig
     private Protocol thriftProtocol = Protocol.BINARY;
     private DataSize thriftBufferSize = new DataSize(128, BYTE);
 
-    private boolean copyOnFirstWriteConfigurationEnabled = true;
+    private boolean copyOnFirstWriteConfigurationEnabled;
 
     private boolean partitionFilteringFromMetastoreEnabled = true;
 
@@ -222,6 +218,9 @@ public class HiveClientConfig
     private int parquetQuickStatsMaxConcurrentCalls = 500;
     private int quickStatsMaxConcurrentCalls = 100;
     private boolean legacyTimestampBucketing;
+    private boolean optimizeParsingOfPartitionValues;
+    private int optimizeParsingOfPartitionValuesThreshold = 500;
+    private boolean symlinkOptimizedReaderEnabled = true;
 
     @Min(0)
     public int getMaxInitialSplits()
@@ -680,6 +679,7 @@ public class HiveClientConfig
         this.maxPartitionsPerWriter = maxPartitionsPerWriter;
         return this;
     }
+
     public int getWriteValidationThreads()
     {
         return writeValidationThreads;
@@ -716,19 +716,6 @@ public class HiveClientConfig
     public HiveClientConfig setS3FileSystemType(S3FileSystemType s3FileSystemType)
     {
         this.s3FileSystemType = s3FileSystemType;
-        return this;
-    }
-
-    public boolean isUseOrcColumnNames()
-    {
-        return useOrcColumnNames;
-    }
-
-    @Config("hive.orc.use-column-names")
-    @ConfigDescription("Access ORC columns using names from the file first, and fallback to Hive schema column names if not found to ensure backward compatibility with old data")
-    public HiveClientConfig setUseOrcColumnNames(boolean useOrcColumnNames)
-    {
-        this.useOrcColumnNames = useOrcColumnNames;
         return this;
     }
 
@@ -1369,19 +1356,6 @@ public class HiveClientConfig
         return this.parquetDereferencePushdownEnabled;
     }
 
-    @Min(1)
-    public int getMaxMetadataUpdaterThreads()
-    {
-        return maxMetadataUpdaterThreads;
-    }
-
-    @Config("hive.max-metadata-updater-threads")
-    public HiveClientConfig setMaxMetadataUpdaterThreads(int maxMetadataUpdaterThreads)
-    {
-        this.maxMetadataUpdaterThreads = maxMetadataUpdaterThreads;
-        return this;
-    }
-
     @Config("hive.partial_aggregation_pushdown_enabled")
     @ConfigDescription("enable partial aggregation pushdown")
     public HiveClientConfig setPartialAggregationPushdownEnabled(boolean partialAggregationPushdownEnabled)
@@ -1829,6 +1803,46 @@ public class HiveClientConfig
     public HiveClientConfig setLegacyTimestampBucketing(boolean legacyTimestampBucketing)
     {
         this.legacyTimestampBucketing = legacyTimestampBucketing;
+        return this;
+    }
+
+    @Config("hive.optimize-parsing-of-partition-values-enabled")
+    @ConfigDescription("Enables optimization of parsing partition values when number of candidate partitions is large")
+    public HiveClientConfig setOptimizeParsingOfPartitionValues(boolean optimizeParsingOfPartitionValues)
+    {
+        this.optimizeParsingOfPartitionValues = optimizeParsingOfPartitionValues;
+        return this;
+    }
+
+    public boolean isOptimizeParsingOfPartitionValues()
+    {
+        return optimizeParsingOfPartitionValues;
+    }
+
+    @Config("hive.optimize-parsing-of-partition-values-threshold")
+    @ConfigDescription("Enables optimization of parsing partition values when number of candidate partitions exceed the threshold set here")
+    public HiveClientConfig setOptimizeParsingOfPartitionValuesThreshold(int optimizeParsingOfPartitionValuesThreshold)
+    {
+        this.optimizeParsingOfPartitionValuesThreshold = optimizeParsingOfPartitionValuesThreshold;
+        return this;
+    }
+
+    @Min(1)
+    public int getOptimizeParsingOfPartitionValuesThreshold()
+    {
+        return optimizeParsingOfPartitionValuesThreshold;
+    }
+
+    public boolean isSymlinkOptimizedReaderEnabled()
+    {
+        return symlinkOptimizedReaderEnabled;
+    }
+
+    @Config("hive.experimental.symlink.optimized-reader.enabled")
+    @ConfigDescription("Experimental: Enable optimized SymlinkTextInputFormat reader")
+    public HiveClientConfig setSymlinkOptimizedReaderEnabled(boolean symlinkOptimizedReaderEnabled)
+    {
+        this.symlinkOptimizedReaderEnabled = symlinkOptimizedReaderEnabled;
         return this;
     }
 }

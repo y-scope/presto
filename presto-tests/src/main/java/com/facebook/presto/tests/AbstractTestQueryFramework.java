@@ -13,8 +13,9 @@
  */
 package com.facebook.presto.tests;
 
-import com.facebook.airlift.node.NodeInfo;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
+import com.facebook.presto.common.transaction.TransactionId;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.CostCalculatorUsingExchanges;
@@ -27,10 +28,14 @@ import com.facebook.presto.metadata.InMemoryNodeManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.nodeManager.PluginNodeManager;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
+import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.security.AccessDeniedException;
+import com.facebook.presto.spi.security.AllowAllAccessControl;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.QueryExplainer;
 import com.facebook.presto.sql.expressions.ExpressionOptimizerManager;
+import com.facebook.presto.sql.expressions.JsonCodecRowExpressionSerde;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.PartitioningProviderManager;
 import com.facebook.presto.sql.planner.Plan;
@@ -49,7 +54,6 @@ import com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilege;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import io.airlift.units.Duration;
 import org.intellij.lang.annotations.Language;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
@@ -62,6 +66,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
 
+import static com.facebook.airlift.json.JsonCodec.jsonCodec;
 import static com.facebook.airlift.testing.Closeables.closeAllRuntimeException;
 import static com.facebook.presto.sql.SqlFormatter.formatSql;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
@@ -79,7 +84,6 @@ import static org.testng.Assert.fail;
 
 public abstract class AbstractTestQueryFramework
 {
-    private static final NodeInfo NODE_INFO = new NodeInfo("test");
     private QueryRunner queryRunner;
     private ExpectedQueryRunner expectedQueryRunner;
     private SqlParser sqlParser;
@@ -266,6 +270,16 @@ public abstract class AbstractTestQueryFramework
         assertUpdate(getSession(), sql);
     }
 
+    protected Session assertStartTransaction(Session session, @Language("SQL") String sql)
+    {
+        return QueryAssertions.assertStartTransaction(queryRunner, session, sql);
+    }
+
+    protected Session assertEndTransaction(Session session, @Language("SQL") String sql)
+    {
+        return QueryAssertions.assertEndTransaction(queryRunner, session, sql);
+    }
+
     protected void assertUpdate(Session session, @Language("SQL") String sql)
     {
         QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.empty(), Optional.empty());
@@ -311,6 +325,11 @@ public abstract class AbstractTestQueryFramework
         QueryAssertions.assertQueryFails(queryRunner, getSession(), sql, expectedMessageRegExp);
     }
 
+    protected void assertQueryFailsExact(@Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
+    {
+        QueryAssertions.assertQueryFails(queryRunner, getSession(), sql, expectedMessageRegExp, false, true);
+    }
+
     protected void assertQueryFails(QueryRunner queryRunner, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
     {
         QueryAssertions.assertQueryFails(queryRunner, getSession(), sql, expectedMessageRegExp);
@@ -318,7 +337,7 @@ public abstract class AbstractTestQueryFramework
 
     protected void assertQueryFails(@Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp, boolean usePatternMatcher)
     {
-        QueryAssertions.assertQueryFails(queryRunner, getSession(), sql, expectedMessageRegExp, usePatternMatcher);
+        QueryAssertions.assertQueryFails(queryRunner, getSession(), sql, expectedMessageRegExp, usePatternMatcher, false);
     }
 
     protected void assertQueryFails(Session session, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
@@ -343,7 +362,7 @@ public abstract class AbstractTestQueryFramework
 
     protected void assertQueryFails(Session session, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp, boolean usePatternMatcher)
     {
-        QueryAssertions.assertQueryFails(queryRunner, session, sql, expectedMessageRegExp, usePatternMatcher);
+        QueryAssertions.assertQueryFails(queryRunner, session, sql, expectedMessageRegExp, usePatternMatcher, false);
     }
 
     protected void assertQueryReturnsEmptyResult(@Language("SQL") String sql)
@@ -481,7 +500,7 @@ public abstract class AbstractTestQueryFramework
         return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(queryRunner.getDefaultSession(), session -> {
-                    return explainer.getPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), false, WarningCollector.NOOP, query);
+                    return explainer.getPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), false, WarningCollector.NOOP, query, new ViewDefinitionReferences());
                 });
     }
 
@@ -491,7 +510,7 @@ public abstract class AbstractTestQueryFramework
         return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(queryRunner.getDefaultSession(), session -> {
-                    return explainer.getGraphvizPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP, query);
+                    return explainer.getGraphvizPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP, query, new ViewDefinitionReferences());
                 });
     }
 
@@ -501,7 +520,7 @@ public abstract class AbstractTestQueryFramework
         return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(queryRunner.getDefaultSession(), session -> {
-                    return explainer.getJsonPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP, query);
+                    return explainer.getJsonPlan(session, sqlParser.createStatement(explainCommandText.replaceAll(".", " ") + query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP, query, new ViewDefinitionReferences());
                 });
     }
 
@@ -521,7 +540,7 @@ public abstract class AbstractTestQueryFramework
         transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(session, transactionSession -> {
-                    Plan actualPlan = explainer.getLogicalPlan(transactionSession, sqlParser.createStatement(query, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, query);
+                    Plan actualPlan = explainer.getLogicalPlan(transactionSession, sqlParser.createStatement(query, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, query, new ViewDefinitionReferences());
                     PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), queryRunner.getStatsCalculator(), actualPlan, pattern);
                     planValidator.accept(actualPlan);
                     return null;
@@ -535,7 +554,7 @@ public abstract class AbstractTestQueryFramework
             return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                     .singleStatement()
                     .execute(session, transactionSession -> {
-                        return explainer.getLogicalPlan(transactionSession, sqlParser.createStatement(sql, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, sql);
+                        return explainer.getLogicalPlan(transactionSession, sqlParser.createStatement(sql, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, sql, new ViewDefinitionReferences());
                     });
         }
         catch (RuntimeException e) {
@@ -555,7 +574,7 @@ public abstract class AbstractTestQueryFramework
             return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                     .singleStatement()
                     .execute(session, transactionSession -> {
-                        return explainer.getDistributedPlan(transactionSession, sqlParser.createStatement(sql, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, sql);
+                        return explainer.getDistributedPlan(transactionSession, sqlParser.createStatement(sql, createParsingOptions(transactionSession)), emptyList(), WarningCollector.NOOP, sql, new ViewDefinitionReferences());
                     });
         }
         catch (RuntimeException e) {
@@ -563,7 +582,7 @@ public abstract class AbstractTestQueryFramework
         }
     }
 
-    private QueryExplainer getQueryExplainer()
+    protected QueryExplainer getQueryExplainer()
     {
         Metadata metadata = queryRunner.getMetadata();
         FeaturesConfig featuresConfig = createFeaturesConfig();
@@ -587,8 +606,10 @@ public abstract class AbstractTestQueryFramework
                 featuresConfig,
                 new ExpressionOptimizerManager(
                         new PluginNodeManager(new InMemoryNodeManager()),
-                        queryRunner.getMetadata().getFunctionAndTypeManager()),
-                new TaskManagerConfig())
+                        queryRunner.getMetadata().getFunctionAndTypeManager(),
+                        new JsonCodecRowExpressionSerde(jsonCodec(RowExpression.class))),
+                new TaskManagerConfig(),
+                queryRunner.getAccessControl())
                 .getPlanningTimeOptimizers();
         return new QueryExplainer(
                 optimizers,
@@ -628,6 +649,12 @@ public abstract class AbstractTestQueryFramework
         return expectedQueryRunner;
     }
 
+    protected SqlParser getSqlParser()
+    {
+        checkState(sqlParser != null, "sqlParser not set");
+        return sqlParser;
+    }
+
     public interface QueryRunnerSupplier
     {
         QueryRunner get()
@@ -643,5 +670,18 @@ public abstract class AbstractTestQueryFramework
     public static void dropTableIfExists(QueryRunner queryRunner, String catalogName, String schemaName, String tableName)
     {
         queryRunner.execute(format("DROP TABLE IF EXISTS %s.%s.%s", catalogName, schemaName, tableName));
+    }
+
+    protected String normalizeIdentifier(String name, String catalogName)
+    {
+        Metadata metadata = getQueryRunner().getMetadata();
+        TransactionId txid = getQueryRunner().getTransactionManager().beginTransaction(false);
+        Session session = getSession().beginTransactionId(txid, getQueryRunner().getTransactionManager(), new AllowAllAccessControl());
+        try {
+            return metadata.normalizeIdentifier(session, catalogName, name);
+        }
+        finally {
+            getQueryRunner().getTransactionManager().asyncAbort(txid);
+        }
     }
 }

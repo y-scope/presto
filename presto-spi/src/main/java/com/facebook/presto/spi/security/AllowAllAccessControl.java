@@ -17,11 +17,13 @@ import com.facebook.presto.common.CatalogSchemaName;
 import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.Subfield;
 import com.facebook.presto.common.transaction.TransactionId;
+import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.MaterializedViewDefinition;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.analyzer.ViewDefinition;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -35,7 +37,7 @@ public class AllowAllAccessControl
     }
 
     @Override
-    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
+    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<String, String> preparedStatements, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
     {
     }
 
@@ -77,6 +79,11 @@ public class AllowAllAccessControl
     }
 
     @Override
+    public void checkCanShowCreateTable(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
+    {
+    }
+
+    @Override
     public void checkCanCreateTable(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
     {
     }
@@ -105,6 +112,17 @@ public class AllowAllAccessControl
     public Set<SchemaTableName> filterTables(TransactionId transactionId, Identity identity, AccessControlContext context, String catalogName, Set<SchemaTableName> tableNames)
     {
         return tableNames;
+    }
+
+    @Override
+    public void checkCanShowColumnsMetadata(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
+    {
+    }
+
+    @Override
+    public List<ColumnMetadata> filterColumns(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName, List<ColumnMetadata> columns)
+    {
+        return columns;
     }
 
     @Override
@@ -188,6 +206,11 @@ public class AllowAllAccessControl
     }
 
     @Override
+    public void checkCanCallProcedure(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName procedureName)
+    {
+    }
+
+    @Override
     public void checkCanCreateRole(TransactionId transactionId, Identity identity, AccessControlContext context, String role, Optional<PrestoPrincipal> grantor, String catalogName)
     {
     }
@@ -224,6 +247,16 @@ public class AllowAllAccessControl
 
     @Override
     public void checkCanShowRoleGrants(TransactionId transactionId, Identity identity, AccessControlContext context, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanDropBranch(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
+    {
+    }
+
+    @Override
+    public void checkCanDropTag(TransactionId transactionId, Identity identity, AccessControlContext context, QualifiedObjectName tableName)
     {
     }
 

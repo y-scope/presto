@@ -93,6 +93,10 @@ Property Name                                            Description            
 
 ``iceberg.hive.table-refresh.backoff-scale-factor``      The multiple used to scale subsequent wait time between       4.0
                                                          retries.
+
+``iceberg.engine.hive.lock-enabled``                     Whether to use locks to ensure atomicity of commits.          true
+                                                         This will turn off locks but is overridden at a table level
+                                                         with the table configuration ``engine.hive.lock-enabled``.
 ======================================================== ============================================================= ============
 
 Nessie catalog
@@ -341,9 +345,13 @@ Property Name                                           Description             
 ``iceberg.file-format``                                 The storage file format for Iceberg tables. The available     ``PARQUET``                        Yes                 No, write is not supported yet
                                                         values are ``PARQUET`` and ``ORC``.
 
-``iceberg.compression-codec``                           The compression codec to use when writing files. The          ``GZIP``                           Yes                 No, write is not supported yet
+``iceberg.compression-codec``                           The compression codec to use when writing files. The          ``ZSTD``                           Yes                 No, write is not supported yet
                                                         available values are ``NONE``, ``SNAPPY``, ``GZIP``,
                                                         ``LZ4``, and ``ZSTD``.
+                                                        
+                                                        Note: ``LZ4`` is only available when
+                                                        ``iceberg.file-format=ORC``.
+
 
 ``iceberg.max-partitions-per-writer``                   The maximum number of partitions handled per writer.          ``100``                            Yes                 No, write is not supported yet
 
@@ -358,6 +366,23 @@ Property Name                                           Description             
 
 ``iceberg.delete-as-join-rewrite-enabled``              When enabled, equality delete row filtering is applied        ``true``                           Yes                 No, Equality delete read is not supported
                                                         as a join with the data of the equality delete files.
+                                                        Deprecated: This property is deprecated and will be removed
+                                                        in a future release. Use the
+                                                        ``iceberg.delete-as-join-rewrite-max-delete-columns``
+                                                        configuration property instead.
+
+``iceberg.delete-as-join-rewrite-max-delete-columns``   When set to a number greater than 0, this property enables    ``400``                            Yes                 No, Equality delete read is not supported
+                                                        equality delete row filtering as a join with the data of the
+                                                        equality delete files. The value of this property is the
+                                                        maximum number of columns that can be used in the equality
+                                                        delete files. If the number of columns in the equality delete
+                                                        files exceeds this value, then the optimization is not
+                                                        applied and the equality delete files are applied directly to
+                                                        each row in the data files.
+
+                                                        This property is only applicable when
+                                                        ``iceberg.delete-as-join-rewrite-enabled`` is set to
+                                                        ``true``.
 
 ``iceberg.enable-parquet-dereference-pushdown``         Enable parquet dereference pushdown.                          ``true``                           Yes                 No
 
@@ -449,9 +474,13 @@ Property Name                                              Description          
 ``write.metadata.metrics.max-inferred-column-defaults``    Optionally specifies the maximum number of columns for which      ``100``               Yes                 No, write is not supported yet
                                                            metrics are collected.
 
-``write.update.mode``                                      Optionally specifies the write delete mode of the Iceberg         ``merge-on-read``     Yes                 No, write is not supported yet
+``write.update.mode``                                      Optionally specifies the write update mode of the Iceberg         ``merge-on-read``     Yes                 No, write is not supported yet
                                                            specification to use for new tables, either ``copy-on-write``
                                                            or ``merge-on-read``.
+
+``engine.hive.lock-enabled``                               Whether to use Hive metastore locks when committing to                                   Yes                 No
+                                                           a Hive metastore
+
 ========================================================   ===============================================================   ===================== =================== =============================================
 
 The table definition below specifies format ``ORC``, partitioning by columns ``c1`` and ``c2``,
@@ -499,6 +528,12 @@ Property Name                                         Description               
 ===================================================== ======================================================================= =================== =============================================
 ``iceberg.delete_as_join_rewrite_enabled``            Overrides the behavior of the connector property                        Yes                 No, Equality delete read is not supported
                                                       ``iceberg.delete-as-join-rewrite-enabled`` in the current session.
+
+                                                      Deprecated: This property is deprecated and will be removed.  Use
+                                                      ``iceberg.delete_as_join_rewrite_max_delete_columns`` instead.
+``iceberg.delete_as_join_rewrite_max_delete_columns`` Overrides the behavior of the connector property                        Yes                 No, Equality delete read is not supported
+                                                      ``iceberg.delete-as-join-rewrite-max-delete-columns`` in the
+                                                      current session.
 ``iceberg.hive_statistics_merge_strategy``            Overrides the behavior of the connector property                        Yes                 Yes
                                                       ``iceberg.hive-statistics-merge-strategy`` in the current session.
 ``iceberg.rows_for_metadata_optimization_threshold``  Overrides the behavior of the connector property                        Yes                 Yes
@@ -514,9 +549,14 @@ Property Name                                         Description               
                                                       assign a split to. Splits which read data from the same file within
                                                       the same chunk will hash to the same node. A smaller chunk size will
                                                       result in a higher probability splits being distributed evenly across
-                                                      the cluster, but reduce locality.
+                                                      the cluster, but reduce locality. 
+                                                      See :ref:`develop/connectors:Node Selection Strategy`.
 ``iceberg.parquet_dereference_pushdown_enabled``      Overrides the behavior of the connector property                        Yes                 No
                                                       ``iceberg.enable-parquet-dereference-pushdown`` in the current session.
+``materialized_view_storage_table_name_prefix``       Prefix for automatically generated materialized view storage table      Yes                 No
+                                                      names. Default: ``__mv_storage__``
+``materialized_view_missing_base_table_behavior``     Behavior when a base table referenced by a materialized view is         Yes                 No
+                                                      missing. Valid values: ``FAIL``, ``IGNORE``. Default: ``FAIL``
 ===================================================== ======================================================================= =================== =============================================
 
 Caching Support
@@ -639,7 +679,21 @@ File and stripe footer cache is not applicable for Presto C++.
 Metastore Cache
 ^^^^^^^^^^^^^^^
 
-Iceberg Connector does not support Metastore Caching.
+Iceberg Connector supports Metastore Caching with some exceptions. Iceberg Connector does not allow enabling TABLE cache.
+Metastore Caching is only supported when ``iceberg.catalog.type`` is ``HIVE``.
+
+The Iceberg connector supports the same configuration properties for
+`Hive Metastore Caching <https://prestodb.io/docs/current/connector/hive.html#metastore-configuration-properties>`_
+as a Hive connector.
+
+The following configuration properties are the minimum set of configurations required to be added in the Iceberg catalog file ``catalog/iceberg.properties``:
+
+.. code-block:: none
+
+    # Hive Metastore Cache
+    hive.metastore.cache.disabled-caches=TABLE
+    hive.metastore.cache.ttl.default=10m
+    hive.metastore.cache.refresh-interval.default=5m
 
 Extra Hidden Metadata Columns
 -----------------------------
@@ -675,6 +729,42 @@ The Iceberg data sequence number in which this row was added.
      ----------------------------------+------------
                   2                    | 3
 
+``$deleted`` column
+^^^^^^^^^^^^^^^^^^^
+Whether this row is a deleted row. When this column is used, deleted rows
+from delete files will be marked as ``true`` instead of being filtered out of the results.
+
+.. code-block:: sql
+
+    DELETE FROM "ctas_nation" WHERE regionkey = 0;
+
+    SELECT "$deleted", regionkey FROM "ctas_nation";
+
+.. code-block:: text
+
+     $deleted | regionkey
+    ----------+-----------
+     true     |         0
+     false    |         1
+
+``$delete_file_path`` column
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The path of the delete file corresponding to a deleted row, or NULL if the row was not deleted.
+When this column is used, deleted rows will not be filtered out of the results.
+
+.. code-block:: sql
+
+    DELETE FROM "ctas_nation" WHERE regionkey = 0;
+
+    SELECT "$delete_file_path", regionkey FROM "ctas_nation";
+
+.. code-block:: text
+
+                                     $delete_file_path                                 | regionkey
+    -----------------------------------------------------------------------------------+-----------
+     file:/path/to/table/data/delete_file_d8510b3e-510a-4fc2-b2b2-e59ead7fd386.parquet |         0
+     NULL                                                                              |         1
+
 Presto C++ Support
 ^^^^^^^^^^^^^^^^^^
 
@@ -696,9 +786,9 @@ General properties of the given table.
 
 .. code-block:: text
 
-             key           |  value
-     ----------------------+---------
-      write.format.default | PARQUET
+             key           |  value   |  is_supported_by_presto
+     ----------------------+----------+------------------------
+      write.format.default | PARQUET  |  true
 
 ``$history`` Table
 ^^^^^^^^^^^^^^^^^^
@@ -860,6 +950,22 @@ Details about Iceberg references including branches and tags. For more informati
       testBranch | BRANCH | 3374797416068698476 | NULL                    | NULL                  | NULL
       testTag    | TAG    | 4686954189838128572 | 10                      | NULL                  | NULL
 
+``$metadata_log_entries`` Table
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Provides metadata log entries for the table.
+
+.. code-block:: sql
+
+    SELECT * FROM "region$metadata_log_entries";
+
+.. code-block:: text
+
+            timestamp                          |                                                                 file                                                                  | latest_snapshot_id  | latest_schema_id | latest_sequence_number
+    -------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------+---------------------+------------------+------------------------
+     2024-12-28 23:41:30.451 Asia/Kolkata      | hdfs://localhost:9000/user/hive/warehouse/iceberg_schema.db/region1/metadata/00000-395385ba-3b69-47a7-9c5b-61d056de55c6.metadata.json | 5983271822201743253 |                0 |                      1
+     2024-12-28 23:42:42.207 Asia/Kolkata      | hdfs://localhost:9000/user/hive/warehouse/iceberg_schema.db/region1/metadata/00001-61151efc-0e01-4a47-a5e6-7b72749cc4a8.metadata.json | 5841566266546816471 |                0 |                      2
+     2024-12-28 23:42:47.591 Asia/Kolkata      | hdfs://localhost:9000/user/hive/warehouse/iceberg_schema.db/region1/metadata/00002-d4a9c326-5053-4a26-9082-d9fbf1d6cd14.metadata.json | 6894018661156805064 |                0 |                      3
+
 Presto C++ Support
 ^^^^^^^^^^^^^^^^^^
 
@@ -876,7 +982,7 @@ Register Table
 Iceberg tables for which table data and metadata already exist in the
 file system can be registered with the catalog. Use the ``register_table``
 procedure on the catalog's ``system`` schema to register a table which
-already exists but does not known by the catalog.
+already exists but is not known by the catalog.
 
 The following arguments are available:
 
@@ -1161,6 +1267,93 @@ Examples:
 
     CALL iceberg.system.set_table_property('schema_name', 'table_name', 'commit.retry.num-retries', '10');
 
+Rewrite Data Files
+^^^^^^^^^^^^^^^^^^
+
+Iceberg tracks all data files under different partition specs in a table. More data files require
+more metadata to be stored in manifest files, and small data files can cause an unnecessary amount of metadata and
+less efficient queries due to file open costs. Also, data files under different partition specs can
+prevent metadata level deletion or thorough predicate push down for Presto.
+
+Use ``rewrite_data_files`` to rewrite the data files of a specified table so that they are
+merged into fewer but larger files under the newest partition spec. If the table is partitioned, the data
+files compaction can act separately on the selected partitions to improve read performance by reducing
+metadata overhead and runtime file open cost.
+
+The following arguments are available:
+
+===================== ========== =============== =======================================================================
+Argument Name         required   type            Description
+===================== ========== =============== =======================================================================
+``schema``            Yes        string          Schema of the table to update.
+
+``table_name``        Yes        string          Name of the table to update.
+
+``filter``                       string          Predicate as a string used for filtering the files. Currently
+                                                 only rewrite of whole partitions is supported. Filter on partition
+                                                 columns. The default value is ``true``.
+
+``sorted_by``                    array of        Specify an array of one or more columns to use for sorting. When
+                                 strings         performing a rewrite, the specified sorting definition must be
+                                                 compatible with the table's own sorting property, if one exists.
+
+``options``                      map             Options to be used for data files rewrite. (to be expanded)
+===================== ========== =============== =======================================================================
+
+Examples:
+
+* Rewrite all the data files in table ``db.sample`` to the newest partition spec and combine small files to larger ones::
+
+    CALL iceberg.system.rewrite_data_files('db', 'sample');
+    CALL iceberg.system.rewrite_data_files(schema => 'db', table_name => 'sample');
+
+* Rewrite the data files in partitions specified by a filter in table ``db.sample`` to the newest partition spec::
+
+    CALL iceberg.system.rewrite_data_files('db', 'sample', 'partition_key = 1');
+    CALL iceberg.system.rewrite_data_files(schema => 'db', table_name => 'sample', filter => 'partition_key = 1');
+
+* Rewrite the data files in partitions specified by a filter in table ``db.sample`` to the newest partition spec and a sorting definition::
+
+    CALL iceberg.system.rewrite_data_files('db', 'sample', 'partition_key = 1', ARRAY['join_date DESC NULLS FIRST', 'emp_id ASC NULLS LAST']);
+    CALL iceberg.system.rewrite_data_files(schema => 'db', table_name => 'sample', filter => 'partition_key = 1', sorted_by => ARRAY['join_date']);
+
+Rewrite Manifests
+^^^^^^^^^^^^^^^^^
+
+This procedure rewrites the manifest files of an Iceberg table to optimize table metadata.
+The procedure is a metadata-only operation and commits a new snapshot with `operation = replace`.
+
+The following arguments are available:
+
+===================== ========== =============== ========================================================================
+Argument Name         required   type            Description
+===================== ========== =============== ========================================================================
+``schema``            Yes        string          Schema of the table to update
+
+``table_name``        Yes        string          Name of the table to update
+
+``spec_id``           No         integer         Partition spec ID to rewrite manifests for.
+                                                 If not specified, manifests for the curren partition spec are rewritten.
+===================== ========== =============== ========================================================================
+
+``rewrite_manifests`` does not modify data files and does not change query results.
+The procedure may be a logical no-op if the existing manifests are already optimal.
+
+Delete-only manifests are retained as long as snapshots that reference them are valid.
+To allow cleanup of such manifests, old snapshots must first be expired using ``CALL system.expire_snapshots``.
+
+The procedure always commits a snapshot with `operation = replace`, even when no physical rewrite is required.
+
+Examples:
+
+* Rewrite manifests for a table using positional arguments: ::
+
+    CALL iceberg.system.rewrite_manifests('schema_name', 'table_name');
+
+* Rewrite manifests for a specific partition spec: ::
+
+    CALL iceberg.system.rewrite_manifests('schema_name', 'table_name', 0);
+
 Presto C++ Support
 ^^^^^^^^^^^^^^^^^^
 
@@ -1205,6 +1398,8 @@ SQL Operation                  Presto Java   Presto C++   Comments
 ``DESCRIBE``                   Yes           Yes
 
 ``UPDATE``                     Yes           No
+
+``MERGE``                      Yes           No
 ============================== ============= ============ ============================================================================
 
 The Iceberg connector supports querying and manipulating Iceberg tables and schemas
@@ -1404,6 +1599,10 @@ Alter table operations are supported in the Iceberg connector::
 
      ALTER TABLE iceberg.web.page_views DROP COLUMN location;
 
+     ALTER TABLE iceberg.web.page_views DROP BRANCH 'branch1';
+
+     ALTER TABLE iceberg.web.page_views DROP TAG 'tag1';
+
 To add a new column as a partition column, identify the transform functions for the column.
 The table is partitioned by the transformed value of the column::
 
@@ -1421,10 +1620,27 @@ The table is partitioned by the transformed value of the column::
 
      ALTER TABLE iceberg.web.page_views ADD COLUMN ts timestamp WITH (partitioning = 'hour');
 
-Table properties can be modified for an Iceberg table using an ALTER TABLE SET PROPERTIES statement. Only `commit_retries` can be modified at present.
-For example, to set `commit_retries` to 6 for the table `iceberg.web.page_views_v2`, use::
+Use ``ARRAY[...]`` instead of a string to specify multiple partition transforms when adding a column. For example::
 
-    ALTER TABLE iceberg.web.page_views_v2 SET PROPERTIES (commit_retries = 6);
+    ALTER TABLE iceberg.web.page_views ADD COLUMN location VARCHAR WITH (partitioning = ARRAY['truncate(2)', 'bucket(8)', 'identity']);
+
+    ALTER TABLE iceberg.web.page_views ADD COLUMN dt date WITH (partitioning = ARRAY['year', 'bucket(16)', 'identity']);
+
+Some Iceberg table properties can be modified using an ``ALTER TABLE SET PROPERTIES`` statement. The modifiable table properties are:
+
+* ``commit.retry.num-retries``
+* ``read.split.target-size``
+* ``write.metadata.delete-after-commit.enabled``
+* ``engine.hive.lock-enabled``
+* ``write.metadata.previous-versions-max``
+
+For example, to set ``commit.retry.num-retries`` to 6 for the table ``iceberg.web.page_views_v2``, use::
+
+    ALTER TABLE iceberg.web.page_views_v2 SET PROPERTIES ("commit.retry.num-retries" = 6);
+
+To set ``write.metadata.delete-after-commit.enabled`` to true and set ``write.metadata.previous-versions-max`` to 5, use::
+
+    ALTER TABLE iceberg.web.page_views_v2 SET PROPERTIES ("write.metadata.delete-after-commit.enabled" = true, "write.metadata.previous-versions-max" = 5);
 
 ALTER VIEW
 ^^^^^^^^^^
@@ -1638,11 +1854,11 @@ For example, ``DESCRIBE`` from the partitioned Iceberg table ``customer``:
      comment   | varchar |       |
      (3 rows)
 
-UPDATE
-^^^^^^
+UPDATE and MERGE
+^^^^^^^^^^^^^^^^
 
-The Iceberg connector supports :doc:`../sql/update` operations on Iceberg
-tables. Only some tables support updates. These tables must be at minimum format
+The Iceberg connector supports :doc:`../sql/update` and :doc:`../sql/merge` operations on Iceberg
+tables. Only some tables support them. These tables must be at minimum format
 version 2, and the ``write.update.mode`` must be set to `merge-on-read`.
 
 .. code-block:: sql
@@ -1661,6 +1877,16 @@ updates.
 .. code-block:: text
 
     Query 20250204_010445_00022_ymwi5 failed: Iceberg table updates require at least format version 2 and update mode must be merge-on-read
+
+Iceberg tables do not support running multiple :doc:`../sql/merge` statements on the same table in parallel. If two or more ``MERGE`` operations are executed concurrently on the same Iceberg table:
+
+* The first operation to complete will succeed.
+* Subsequent operations will fail due to conflicting writes and will return the following error:
+
+.. code-block:: text
+
+    Failed to commit Iceberg update to table: <table name>
+    Found conflicting files that can contain records matching true
 
 Schema Evolution
 ----------------
@@ -2149,7 +2375,7 @@ Sorting can be combined with partitioning on the same column. For example::
         sorted_by = ARRAY['join_date']
     )
 
-The Iceberg connector does not support sort order transforms. The following sort order transformations are not supported:
+Sort order does not support transforms. The following transforms are not supported:
 
 .. code-block:: text
 
@@ -2173,3 +2399,242 @@ For example::
 
 If a user creates a table externally with non-identity sort columns and then inserts data, the following warning message will be shown.
 ``Iceberg table sort order has sort fields of <X>, <Y>, ... which are not currently supported by Presto``
+
+Materialized Views
+------------------
+
+The Iceberg connector supports materialized views. See :doc:`/admin/materialized-views` for general information and :doc:`/sql/create-materialized-view` for SQL syntax.
+
+Storage
+^^^^^^^
+
+Materialized views use a dedicated Iceberg storage table to persist the pre-computed results. By default, the storage table is created with the prefix ``__mv_storage__`` followed by the materialized view name in the same schema as the view.
+
+Table Properties
+^^^^^^^^^^^^^^^^
+
+The following table properties can be specified when creating a materialized view:
+
+========================================================== ============================================================================
+Property Name                                              Description
+========================================================== ============================================================================
+``storage_schema``                                         Schema name for the storage table. Defaults to the materialized view's
+                                                           schema.
+
+``storage_table``                                          Custom name for the storage table. Defaults to the prefix plus the
+                                                           materialized view name.
+
+``stale_read_behavior``                                    Behavior when reading from a materialized view that is stale beyond the
+                                                           staleness window. Valid values: ``FAIL`` (throw an error),
+                                                           ``USE_VIEW_QUERY`` (query base tables instead).
+
+``staleness_window``                                       Duration window for staleness tolerance (e.g., ``1h``, ``30m``, ``0s``).
+                                                           Defaults to ``0s`` if only ``stale_read_behavior`` is set. When set to
+                                                           ``0s``, any staleness triggers the configured behavior.
+
+``refresh_type``                                           Refresh strategy for the materialized view. Currently only ``FULL`` is
+                                                           supported. Default: ``FULL``
+========================================================== ============================================================================
+
+The storage table inherits standard Iceberg table properties for partitioning, sorting, and file format.
+
+Freshness and Refresh
+^^^^^^^^^^^^^^^^^^^^^
+
+Materialized views track the snapshot IDs of their base tables to determine staleness. When base tables are modified, the materialized view becomes stale and returns results by querying the base tables directly. After running ``REFRESH MATERIALIZED VIEW``, queries read from the pre-computed storage table.
+
+The refresh operation uses a full refresh strategy, replacing all data in the storage table with the current query results.
+
+.. _iceberg-stale-data-handling:
+
+Stale Data Handling
+^^^^^^^^^^^^^^^^^^^
+
+By default, when no staleness properties are configured, queries against a stale materialized
+view will fall back to executing the underlying view query against the base tables. You can
+change this default using the ``materialized_view_stale_read_behavior`` session property.
+
+To configure staleness handling per view, set both of these properties together:
+
+- ``stale_read_behavior``: What to do when reading stale data (``FAIL`` or ``USE_VIEW_QUERY``)
+- ``staleness_window``: How much staleness to tolerate (e.g., ``1h``, ``30m``, ``0s``)
+
+The Iceberg connector automatically detects staleness based on base table modifications.
+A materialized view is considered stale if base tables have changed AND the time since
+the last base table modification exceeds the staleness window.
+
+Example with staleness handling:
+
+.. code-block:: sql
+
+    CREATE MATERIALIZED VIEW hourly_sales
+    WITH (
+        stale_read_behavior = 'FAIL',
+        staleness_window = '1h'
+    )
+    AS SELECT date_trunc('hour', sale_time) as hour, SUM(amount) as total
+    FROM sales GROUP BY 1;
+
+Limitations
+^^^^^^^^^^^
+
+- All refreshes recompute the entire result set
+- REFRESH does not provide snapshot isolation across multiple base tables
+- Querying materialized views at specific snapshots or timestamps is not supported
+
+Example
+^^^^^^^
+
+Create a materialized view with custom storage configuration:
+
+.. code-block:: sql
+
+    CREATE MATERIALIZED VIEW regional_sales
+    WITH (
+        storage_schema = 'analytics',
+        storage_table = 'sales_summary'
+    )
+    AS SELECT region, SUM(amount) as total FROM orders GROUP BY region;
+
+Authorization
+-------------
+
+Enable authorization checks for the :doc:`/connector/iceberg` by setting
+the ``iceberg.security`` property in the Iceberg catalog properties file. This
+property must be one of the following values:
+
+================================================== ============================================================
+Property Value                                     Description
+================================================== ============================================================
+``allow-all`` (default value)                      No authorization checks are enforced, thus allowing all
+                                                   operations.
+
+``file``                                           Authorization checks are enforced using a config file specified
+                                                   by the Iceberg configuration property ``security.config-file``.
+                                                   See :ref:`iceberg-file-based-authorization` for details.
+================================================== ============================================================
+
+.. _iceberg-file-based-authorization:
+
+File Based Authorization
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The config file is specified using JSON and is composed of three sections,
+each of which is a list of rules that are matched in the order specified
+in the config file. The user is granted the privileges from the first
+matching rule. All regexes default to ``.*`` if not specified.
+
+Schema Rules
+~~~~~~~~~~~~
+
+These rules govern who is considered an owner of a schema.
+
+* ``user`` (optional): regex to match against user name.
+
+* ``schema`` (optional): regex to match against schema name.
+
+* ``owner`` (required): boolean indicating ownership.
+
+Table Rules
+~~~~~~~~~~~
+
+These rules govern the privileges granted on specific tables.
+
+* ``user`` (optional): regex to match against user name.
+
+* ``schema`` (optional): regex to match against schema name.
+
+* ``table`` (optional): regex to match against table name.
+
+* ``privileges`` (required): zero or more of ``SELECT``, ``INSERT``,
+  ``DELETE``, ``OWNERSHIP``, ``GRANT_SELECT``.
+
+Session Property Rules
+~~~~~~~~~~~~~~~~~~~~~~
+
+These rules govern who may set session properties.
+
+* ``user`` (optional): regex to match against user name.
+
+* ``property`` (optional): regex to match against session property name.
+
+* ``allowed`` (required): boolean indicating whether this session property may be set.
+
+Procedure Rules
+~~~~~~~~~~~~~~~
+
+These rules govern the privileges granted on specific procedures.
+
+* ``user`` (optional): regex to match against user name.
+
+* ``schema`` (optional): regex to match against schema name.
+
+* ``procedure`` (optional): regex to match against procedure name.
+
+* ``privileges`` (required): a list that is empty or contains ``EXECUTE``.
+
+See below for an example.
+
+.. code-block:: json
+
+    {
+      "schemas": [
+        {
+          "user": "admin",
+          "schema": ".*",
+          "owner": true
+        },
+        {
+          "user": "guest",
+          "owner": false
+        },
+        {
+          "schema": "default",
+          "owner": true
+        }
+      ],
+      "tables": [
+        {
+          "user": "admin",
+          "privileges": ["SELECT", "INSERT", "DELETE", "OWNERSHIP"]
+        },
+        {
+          "user": "banned_user",
+          "privileges": []
+        },
+        {
+          "schema": "default",
+          "table": ".*",
+          "privileges": ["SELECT"]
+        }
+      ],
+      "sessionProperties": [
+        {
+          "property": "force_local_scheduling",
+          "allow": true
+        },
+        {
+          "user": "admin",
+          "property": "max_split_size",
+          "allow": true
+        }
+      ],
+      "procedures": [
+        {
+          "user": "admin",
+          "schema": ".*",
+          "privileges": ["EXECUTE"]
+        },
+        {
+          "user": "alice",
+          "schema": "alice_schema",
+          "privileges": ["EXECUTE"]
+        },
+        {
+          "user": "guest",
+          "schema": "alice_schema",
+          "procedure": "test_procedure",
+          "privileges": ["EXECUTE"]
+        }
+      ]
+    }

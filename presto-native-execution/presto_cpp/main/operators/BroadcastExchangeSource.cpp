@@ -14,7 +14,6 @@
 #include <fmt/format.h>
 #include <folly/Uri.h>
 
-#include "presto_cpp/main/common/Configs.h"
 #include "presto_cpp/main/operators/BroadcastExchangeSource.h"
 
 using namespace facebook::velox;
@@ -34,53 +33,73 @@ std::optional<std::string> getBroadcastInfo(folly::Uri& uri) {
 
 folly::SemiFuture<BroadcastExchangeSource::Response>
 BroadcastExchangeSource::request(
-    uint32_t /*maxBytes*/,
+    uint32_t maxBytes,
     std::chrono::microseconds /*maxWait*/) {
+  VELOX_CHECK_GT(maxBytes, 0);
   if (atEnd_) {
     return folly::makeFuture(Response{0, true});
   }
 
-  atEnd_ = !reader_->hasNext();
-  int64_t totalBytes = 0;
-  std::unique_ptr<velox::exec::SerializedPage> page;
-  if (!atEnd_) {
-    // Read outside the lock to avoid a potential deadlock
-    // ExchangeClient guarantees not to call ExchangeSource#request concurrently
-    auto buffer = reader_->next();
-    totalBytes = buffer->size();
-    auto ioBuf = folly::IOBuf::wrapBuffer(buffer->as<char>(), buffer->size());
-    page = std::make_unique<velox::exec::SerializedPage>(
-        std::move(ioBuf), [buffer](auto& /*unused*/) {});
-  }
+  return folly::makeTryWith([&]() -> Response {
+    int64_t totalBytes = 0;
+    std::vector<std::unique_ptr<velox::exec::SerializedPageBase>> pages;
 
-  std::vector<velox::ContinuePromise> promises;
-  {
-    // Limit locking scope to queue manipulation
-    std::lock_guard<std::mutex> l(queue_->mutex());
-    queue_->enqueueLocked(std::move(page), promises);
-  }
-  for (auto& promise : promises) {
-    promise.setValue();
-  }
+    while (totalBytes < maxBytes && reader_->hasNext()) {
+      auto buffer = reader_->next();
+      VELOX_CHECK_NOT_NULL(buffer);
 
-  return folly::makeFuture(Response{totalBytes, atEnd_});
-}
+      auto ioBuf = folly::IOBuf::wrapBuffer(buffer->as<char>(), buffer->size());
+      auto page = std::make_unique<velox::exec::PrestoSerializedPage>(
+          std::move(ioBuf), [buffer](auto& /*unused*/) {});
+      pages.push_back(std::move(page));
 
-folly::F14FastMap<std::string, int64_t> BroadcastExchangeSource::stats() const {
-  return reader_->stats();
+      totalBytes += buffer->size();
+    }
+
+    atEnd_ = !reader_->hasNext();
+    std::vector<velox::ContinuePromise> promises;
+    {
+      // Limit locking scope to queue manipulation
+      std::lock_guard<std::mutex> l(queue_->mutex());
+      for (auto& page : pages) {
+        queue_->enqueueLocked(std::move(page), promises);
+      }
+      if (atEnd_) {
+        // Notify exchange queue 'this' source has finished.
+        queue_->enqueueLocked(nullptr, promises);
+      }
+    }
+    for (auto& promise : promises) {
+      promise.setValue();
+    }
+
+    return Response{totalBytes, atEnd_, reader_->remainingPageSizes()};
+  });
 }
 
 folly::SemiFuture<BroadcastExchangeSource::Response>
 BroadcastExchangeSource::requestDataSizes(
     std::chrono::microseconds /*maxWait*/) {
-  std::vector<int64_t> remainingBytes;
-  if (!atEnd_) {
-    // Use default value of ExchangeClient::getAveragePageSize() for now.
-    //
-    // TODO: Change BroadcastFileReader to return the next batch size.
-    remainingBytes.push_back(1 << 20);
-  }
-  return folly::makeSemiFuture(Response{0, atEnd_, std::move(remainingBytes)});
+  // Deferred execution to avoid blocking the caller thread.
+  return folly::makeSemiFuture().deferValue([this](auto&&) -> Response {
+    auto remainingPageSizes = reader_->remainingPageSizes();
+
+    // If the source is empty from the start, signal completion to ExchangeQueue
+    if (remainingPageSizes.empty()) {
+      atEnd_ = true;
+      std::vector<velox::ContinuePromise> promises;
+      {
+        std::lock_guard<std::mutex> l(queue_->mutex());
+        // Notify exchange queue 'this' source has finished.
+        queue_->enqueueLocked(nullptr, promises);
+      }
+      for (auto& promise : promises) {
+        promise.setValue();
+      }
+    }
+
+    return Response{0, atEnd_, std::move(remainingPageSizes)};
+  });
 }
 
 // static
@@ -104,18 +123,20 @@ BroadcastExchangeSource::createExchangeSource(
   try {
     broadcastFileInfo =
         BroadcastFileInfo::deserialize(broadcastInfoJson.value());
-  } catch (const VeloxException& e) {
+  } catch (const VeloxException&) {
     throw;
   } catch (const std::exception& e) {
     VELOX_USER_FAIL("BroadcastInfo deserialization failed: {}", e.what());
   }
 
-  auto fileSystemBroadcast = BroadcastFactory(broadcastFileInfo->filePath_);
+  auto fileSystem =
+      velox::filesystems::getFileSystem(broadcastFileInfo->filePath_, nullptr);
   return std::make_shared<BroadcastExchangeSource>(
       uri.host(),
       destination,
       queue,
-      fileSystemBroadcast.createReader(std::move(broadcastFileInfo), pool),
+      std::make_shared<BroadcastFileReader>(
+          broadcastFileInfo, fileSystem, pool),
       pool);
 }
 } // namespace facebook::presto::operators

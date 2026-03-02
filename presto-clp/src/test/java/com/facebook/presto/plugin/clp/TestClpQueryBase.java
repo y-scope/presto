@@ -24,6 +24,7 @@ import com.facebook.presto.metadata.CatalogManager;
 import com.facebook.presto.metadata.ColumnPropertyManager;
 import com.facebook.presto.metadata.FunctionAndTypeManager;
 import com.facebook.presto.metadata.FunctionExtractor;
+import com.facebook.presto.metadata.MaterializedViewPropertyManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.metadata.SchemaPropertyManager;
@@ -77,6 +78,7 @@ public class TestClpQueryBase
             createTestingSessionPropertyManager(),
             new SchemaPropertyManager(),
             new TablePropertyManager(),
+            new MaterializedViewPropertyManager(),
             new ColumnPropertyManager(),
             new AnalyzePropertyManager(),
             createTestTransactionManager(new CatalogManager()));

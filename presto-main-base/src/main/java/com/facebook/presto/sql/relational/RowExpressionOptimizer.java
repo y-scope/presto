@@ -39,7 +39,7 @@ public final class RowExpressionOptimizer
 
     public RowExpressionOptimizer(FunctionAndTypeManager functionAndTypeManager)
     {
-        this.functionAndTypeManager = requireNonNull(functionAndTypeManager, "functionMetadataManager is null");
+        this.functionAndTypeManager = requireNonNull(functionAndTypeManager, "functionAndTypeManager is null");
     }
 
     @Override

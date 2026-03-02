@@ -20,7 +20,7 @@ AbstractClasses:
   ConnectorPartitioningHandle:
     super: JsonEncodedSubclass
     subclasses:
-      - { name: HivePartitioningHandle,   key: hive}
+      - { name: HivePartitioningHandle,   key: hive }
 
   ConnectorTableHandle:
     super: JsonEncodedSubclass
@@ -37,15 +37,15 @@ AbstractClasses:
     subclasses:
       - { name: IcebergInsertTableHandle,       key: hive-iceberg }
 
+  ConnectorDistributedProcedureHandle:
+    super: JsonEncodedSubclass
+    subclasses:
+      - { name: IcebergDistributedProcedureHandle,       key: hive-iceberg }
+
   ConnectorTableLayoutHandle:
     super: JsonEncodedSubclass
     subclasses:
       - { name: IcebergTableLayoutHandle, key: hive-iceberg }
-
-  ConnectorMetadataUpdateHandle:
-    super: JsonEncodedSubclass
-    subclasses:
-      - { name: HiveMetadataUpdateHandle, key: hive}
 
   ConnectorSplit:
     super: JsonEncodedSubclass
@@ -67,12 +67,14 @@ JavaClasses:
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergTableLayoutHandle.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergOutputTableHandle.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergInsertTableHandle.java
+  - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergDistributedProcedureHandle.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergColumnHandle.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/ColumnIdentity.java
+  - presto-iceberg/src/main/java/com/facebook/presto/iceberg/IcebergPartitionField.java
+  - presto-iceberg/src/main/java/com/facebook/presto/iceberg/PartitionTransformType.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/PrestoIcebergPartitionSpec.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/PrestoIcebergNestedField.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/delete/DeleteFile.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/changelog/ChangelogOperation.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/changelog/ChangelogSplitInfo.java
   - presto-iceberg/src/main/java/com/facebook/presto/iceberg/SortField.java
-  

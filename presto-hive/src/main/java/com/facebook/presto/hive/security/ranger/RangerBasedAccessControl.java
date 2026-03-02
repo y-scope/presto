@@ -17,6 +17,8 @@ import com.facebook.airlift.http.client.HttpClient;
 import com.facebook.airlift.http.client.Request;
 import com.facebook.airlift.json.JsonCodec;
 import com.facebook.presto.common.Subfield;
+import com.facebook.presto.hive.security.SecurityConfig;
+import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.ConnectorAccessControl;
@@ -50,6 +52,7 @@ import static com.facebook.presto.hive.security.ranger.RangerBasedAccessControlC
 import static com.facebook.presto.hive.security.ranger.RangerBasedAccessControlConfig.RANGER_REST_USER_GROUP_URL;
 import static com.facebook.presto.hive.security.ranger.RangerBasedAccessControlConfig.RANGER_REST_USER_ROLES_URL;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyAddColumn;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyCallProcedure;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateView;
@@ -63,6 +66,9 @@ import static com.facebook.presto.spi.security.AccessDeniedException.denyInsertT
 import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameColumn;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denySelectColumns;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyShowColumnsMetadata;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyShowCreateTable;
+import static com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 import static com.google.common.base.Suppliers.memoizeWithExpiration;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.String.format;
@@ -77,7 +83,8 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 public class RangerBasedAccessControl
         implements ConnectorAccessControl
 {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .configure(FAIL_ON_UNKNOWN_PROPERTIES, false);
     private static final JsonCodec<Users> USER_INFO_CODEC = jsonCodec(Users.class);
     private static final JsonCodec<List<String>> ROLES_INFO_CODEC = listJsonCodec(String.class);
 
@@ -86,14 +93,17 @@ public class RangerBasedAccessControl
     private final Supplier<Map<String, Set<String>>> userGroupsMapping;
     private final Supplier<ServicePolicies> servicePolicies;
     private final HttpClient httpClient;
+    private final boolean restrictProcedureCall;
 
     @Inject
-    public RangerBasedAccessControl(RangerBasedAccessControlConfig config, @ForRangerInfo HttpClient httpClient)
+    public RangerBasedAccessControl(RangerBasedAccessControlConfig config, SecurityConfig securityConfig, @ForRangerInfo HttpClient httpClient)
     {
         requireNonNull(config, "config is null");
         requireNonNull(config.getRangerHttpEndPoint(), "Ranger service http end point is null");
         requireNonNull(config.getRangerHiveServiceName(), "Ranger hive service name is null");
+        requireNonNull(securityConfig, "securityConfig is null");
         this.httpClient = requireNonNull(httpClient, "httpClient is null");
+        this.restrictProcedureCall = securityConfig.isRestrictProcedureCall();
 
         try {
             servicePolicies = memoizeWithExpiration(
@@ -130,7 +140,7 @@ public class RangerBasedAccessControl
             return OBJECT_MAPPER.readValue(httpClient.execute(request, createStringResponseHandler()).getBody(), ServicePolicies.class);
         }
         catch (IOException e) {
-            throw new PrestoException(HIVE_RANGER_SERVER_ERROR, format("Unable to fetch policies from %s hive service end point", config.getRangerHiveServiceName()));
+            throw new PrestoException(HIVE_RANGER_SERVER_ERROR, format("Unable to fetch policies from %s hive service end point", config.getRangerHiveServiceName()), e);
         }
     }
 
@@ -278,6 +288,20 @@ public class RangerBasedAccessControl
     }
 
     /**
+     * Check if identity is allowed to execute SHOW CREATE TABLE or SHOW CREATE VIEW.
+     *
+     * @throws AccessDeniedException if not allowed
+     */
+    @Override
+    public void checkCanShowCreateTable(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        if (!checkAccess(identity, tableName, null, HiveAccessType.SELECT)) {
+            denyShowCreateTable(tableName.getTableName(), format("Access denied - User [ %s ] does not have [SELECT] " +
+                    "privilege on [ %s/%s ] ", identity.getUser(), tableName.getSchemaName(), tableName.getTableName()));
+        }
+    }
+
+    /**
      * Check if identity is allowed to create the specified table in this catalog.
      *
      * @throws AccessDeniedException if not allowed
@@ -307,6 +331,33 @@ public class RangerBasedAccessControl
             }
         }
         return allowedTables;
+    }
+
+    /**
+     * Check if identity is allowed to show columns of tables by executing SHOW COLUMNS, DESCRIBE etc.
+     * <p>
+     * NOTE: This method is only present to give users an error message when listing is not allowed.
+     * The {@link #filterColumns} method must filter all results for unauthorized users,
+     * since there are multiple ways to list columns.
+     *
+     * @throws AccessDeniedException if not allowed
+     */
+    @Override
+    public void checkCanShowColumnsMetadata(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName)
+    {
+        if (!checkAccess(identity, tableName, null, HiveAccessType.SELECT)) {
+            denyShowColumnsMetadata(tableName.getTableName(), format("Access denied - User [ %s ] does not have [SELECT] " +
+                    "privilege on [ %s/%s ] ", identity.getUser(), tableName.getSchemaName(), tableName.getTableName()));
+        }
+    }
+
+    /**
+     * Filter the list of columns to those visible to the identity.
+     */
+    @Override
+    public List<ColumnMetadata> filterColumns(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName tableName, List<ColumnMetadata> columns)
+    {
+        return columns;
     }
 
     /**
@@ -368,6 +419,14 @@ public class RangerBasedAccessControl
         if (deniedColumns.size() > 0) {
             denySelectColumns(tableName.getTableName(), columnOrSubfieldNames.stream().map(column -> column.getRootName()).collect(toImmutableSet()), format("Access denied - User [ %s ] does not have [SELECT] " +
                     "privilege on all mentioned columns of [ %s/%s ] ", identity.getUser(), tableName.getSchemaName(), tableName.getTableName()));
+        }
+    }
+
+    @Override
+    public void checkCanCallProcedure(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, AccessControlContext context, SchemaTableName procedureName)
+    {
+        if (restrictProcedureCall) {
+            denyCallProcedure(procedureName.toString());
         }
     }
 

@@ -132,7 +132,7 @@ Map Functions
     Returns top ``n`` keys in the map ``x`` by sorting its values in descending order. If two or more keys have equal values, the higher key takes precedence.
     ``n`` must be a non-negative integer.::
 
-        SELECT map_top_n_keys_by_value(map(ARRAY['a', 'b', 'c'], ARRAY[2, 1, 3]), 2) --- ['c', 'a']
+        SELECT map_keys_by_top_n_values(map(ARRAY['a', 'b', 'c'], ARRAY[2, 1, 3]), 2) --- ['c', 'a']
 
 .. function:: map_top_n(x(K,V), n) -> map(K, V)
 
@@ -214,3 +214,14 @@ Map Functions
         SELECT transform_values(MAP(ARRAY ['a', 'b'], ARRAY [1, 2]), (k, v) -> k || CAST(v as VARCHAR)); -- {a -> a1, b -> b2}
         SELECT transform_values(MAP(ARRAY [1, 2], ARRAY [1.0, 1.4]), -- {1 -> one_1.0, 2 -> two_1.4}
                                 (k, v) -> MAP(ARRAY[1, 2], ARRAY['one', 'two'])[k] || '_' || CAST(v AS VARCHAR));
+
+.. function:: map_int_keys_to_array(map(int,V)) -> array(V)
+        Returns an ``array`` of values from the ``map`` with value at indexed by the original keys from ``map``::
+            SELECT MAP_INT_KEYS_TO_ARRAY(MAP(ARRAY[3, 5, 6, 9], ARRAY['a', 'b', 'c', 'd'])) -> ARRAY[null, null, 'a', null, 'b', 'c', null, null, 'd']
+            SELECT MAP_INT_KEYS_TO_ARRAY(MAP(ARRAY[3, 5, 6, 9], ARRAY['a', null, 'c', 'd'])) -> ARRAY[null, null, 'a', null, null, 'c', 'd']
+
+.. function:: array_to_map_int_keys(array(v)) -> map(int, v)
+        Returns an ``map`` with indices of all non-null values from the ``array`` as keys and element at the specified index as the value::
+            SELECT ARRAY_TO_MAP_INT_KEYS(CAST(ARRAY[3, 5, 6, 9] AS ARRAY<INT>)) -> MAP(ARRAY[1, 2, 3,4], ARRAY[3, 5, 6, 9])
+            SELECT ARRAY_TO_MAP_INT_KEYS(CAST(ARRAY[3, 5, null, 6, 9] AS ARRAY<INT>)) -> MAP(ARRAY[1, 2, 4, 5], ARRAY[3, 5, 6, 9])
+            SELECT ARRAY_TO_MAP_INT_KEYS(CAST(ARRAY[3, 5, null, 6, 9, null, null, 1] AS ARRAY<INT>)) -> MAP(ARRAY[1, 2, 4, 5, 8], ARRAY[3, 5, 6, 9, 1])

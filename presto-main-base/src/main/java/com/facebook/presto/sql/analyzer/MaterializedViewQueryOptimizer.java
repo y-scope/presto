@@ -28,6 +28,7 @@ import com.facebook.presto.spi.MaterializedViewStatus;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.analyzer.MetadataResolver;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.spi.security.AccessControl;
@@ -344,7 +345,7 @@ public class MaterializedViewQueryOptimizer
 
         List<QualifiedObjectName> referencedMaterializedViews = metadata.getReferencedMaterializedViews(
                 session,
-                createQualifiedObjectName(session, baseTable, baseTable.getName()));
+                createQualifiedObjectName(session, baseTable, baseTable.getName(), metadata));
 
         // TODO: Select the most compatible and efficient materialized view for query rewrite optimization https://github.com/prestodb/presto/issues/16431
         // TODO: Refactor query optimization code https://github.com/prestodb/presto/issues/16759
@@ -771,7 +772,7 @@ public class MaterializedViewQueryOptimizer
                     accessControl,
                     sqlParser,
                     scope,
-                    new Analysis(null, ImmutableMap.of(), false),
+                    new Analysis(null, ImmutableMap.of(), false, new ViewDefinitionReferences()),
                     expression,
                     WarningCollector.NOOP);
         }
@@ -815,7 +816,7 @@ public class MaterializedViewQueryOptimizer
 
         private Scope extractScope(Table table, QuerySpecification node, Expression whereClause)
         {
-            QualifiedObjectName baseTableName = createQualifiedObjectName(session, table, table.getName());
+            QualifiedObjectName baseTableName = createQualifiedObjectName(session, table, table.getName(), metadata);
 
             Optional<TableHandle> tableHandle = metadata.getMetadataResolver(session).getTableHandle(baseTableName);
             if (!tableHandle.isPresent()) {

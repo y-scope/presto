@@ -22,7 +22,9 @@ import com.facebook.presto.spi.security.AccessControlContext;
 import com.facebook.presto.spi.security.AccessDeniedException;
 import com.facebook.presto.spi.security.AuthorizedIdentity;
 import com.facebook.presto.spi.security.Identity;
+import com.google.common.collect.ImmutableMap;
 
+import java.util.Map;
 import java.util.Optional;
 
 public class AccessControlUtils
@@ -49,7 +51,9 @@ public class AccessControlUtils
                             sessionContext.getRuntimeStats(),
                             Optional.empty(),
                             Optional.ofNullable(sessionContext.getCatalog()),
-                            Optional.ofNullable(sessionContext.getSchema())),
+                            Optional.ofNullable(sessionContext.getSchema()),
+                            getSqlText(sessionContext, securityConfig),
+                            getPreparedStatements(sessionContext, securityConfig)),
                     identity.getPrincipal(),
                     identity.getUser());
         }
@@ -77,11 +81,29 @@ public class AccessControlUtils
                             sessionContext.getRuntimeStats(),
                             Optional.empty(),
                             Optional.ofNullable(sessionContext.getCatalog()),
-                            Optional.ofNullable(sessionContext.getSchema())),
+                            Optional.ofNullable(sessionContext.getSchema()),
+                            getSqlText(sessionContext, securityConfig),
+                            getPreparedStatements(sessionContext, securityConfig)),
                     identity.getUser(),
                     sessionContext.getCertificates());
             return Optional.of(authorizedIdentity);
         }
         return Optional.empty();
+    }
+
+    private static Optional<String> getSqlText(SessionContext sessionContext, SecurityConfig securityConfig)
+    {
+        if (securityConfig.isEnableSqlQueryTextContextField()) {
+            return Optional.of(sessionContext.getSqlText());
+        }
+        return Optional.empty();
+    }
+
+    private static Map<String, String> getPreparedStatements(SessionContext sessionContext, SecurityConfig securityConfig)
+    {
+        if (securityConfig.isEnableSqlQueryTextContextField()) {
+            return sessionContext.getPreparedStatements();
+        }
+        return ImmutableMap.of();
     }
 }

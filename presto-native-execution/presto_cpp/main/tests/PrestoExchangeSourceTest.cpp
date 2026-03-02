@@ -20,12 +20,11 @@
 #include "folly/experimental/EventCount.h"
 #include "presto_cpp/main/PrestoExchangeSource.h"
 #include "presto_cpp/main/common/Utils.h"
+#include "presto_cpp/main/common/tests/MutableConfigs.h"
 #include "presto_cpp/main/tests/HttpServerWrapper.h"
-#include "presto_cpp/main/tests/MultableConfigs.h"
+#include "presto_cpp/presto_protocol/core/presto_protocol_core.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/common/file/FileSystems.h"
-#include "velox/common/memory/MemoryAllocator.h"
-#include "velox/common/memory/MmapAllocator.h"
 #include "velox/common/testutil/TestValue.h"
 #include "velox/exec/ExchangeQueue.h"
 
@@ -129,9 +128,11 @@ class Producer {
   }
 
   proxygen::RequestHandler* getResults(
-      proxygen::HTTPMessage* /*message*/,
+      proxygen::HTTPMessage* message,
       const std::vector<std::string>& pathMatch,
       bool getDataSizeOnly) {
+    const auto& headers = message->getHeaders();
+    VELOX_CHECK(headers.exists(proxygen::HTTP_HEADER_HOST));
     protocol::TaskId taskId = pathMatch[1];
     long sequence = std::stol(pathMatch[3]);
 
@@ -410,7 +411,7 @@ class Producer {
   bool receivedDeleteResults_ = false;
 };
 
-std::string toString(exec::SerializedPage* page) {
+std::string toString(exec::SerializedPageBase* page) {
   auto input = page->prepareStreamForDeserialize();
 
   auto numBytes = input->read<int32_t>();
@@ -420,7 +421,7 @@ std::string toString(exec::SerializedPage* page) {
   return std::string(data);
 }
 
-std::unique_ptr<exec::SerializedPage> waitForNextPage(
+std::unique_ptr<exec::SerializedPageBase> waitForNextPage(
     const std::shared_ptr<exec::ExchangeQueue>& queue) {
   bool atEnd;
   facebook::velox::ContinueFuture future;
@@ -496,7 +497,7 @@ struct Params {
 class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
  public:
   static void SetUpTestCase() {
-    MemoryManagerOptions options;
+    MemoryManager::Options options;
     options.allocatorCapacity = 1L << 30;
     options.useMmapAllocator = true;
     MemoryManager::testingSetInstance(options);
@@ -521,7 +522,8 @@ class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
         GetParam().enableBufferCopy ? "true" : "false");
     const std::string keyPath = getCertsPath("client_ca.pem");
     const std::string ciphers = "AES128-SHA,AES128-SHA256,AES256-GCM-SHA384";
-    sslContext_ = facebook::presto::util::createSSLContext(keyPath, ciphers);
+    sslContext_ =
+        facebook::presto::util::createSSLContext(keyPath, ciphers, false);
   }
 
   void TearDown() override {
@@ -638,9 +640,11 @@ TEST_P(PrestoExchangeSourceTest, basic) {
   EXPECT_EQ(pool_->usedBytes(), 0);
 
   const auto stats = exchangeSource->metrics();
-  ASSERT_EQ(stats.size(), 2);
+  ASSERT_EQ(stats.size(), 4);
   ASSERT_EQ(stats.at("prestoExchangeSource.numPages").sum, pages.size());
-  ASSERT_EQ(stats.at("prestoExchangeSource.totalBytes").sum, totalBytes(pages));
+  ASSERT_EQ(stats.at("prestoExchangeSource.pageSize").sum, totalBytes(pages));
+  ASSERT_GT(stats.at("prestoExchangeSource.getDataNanos").count, 0);
+  ASSERT_GT(stats.at("prestoExchangeSource.iobufBytes").count, 0);
 }
 
 TEST_P(PrestoExchangeSourceTest, getDataSize) {
@@ -870,7 +874,7 @@ TEST_P(PrestoExchangeSourceTest, earlyTerminatingConsumer) {
   const auto stats = exchangeSource->metrics();
   ASSERT_EQ(stats.size(), 2);
   ASSERT_EQ(stats.at("prestoExchangeSource.numPages").sum, 0);
-  ASSERT_EQ(stats.at("prestoExchangeSource.totalBytes").sum, 0);
+  ASSERT_EQ(stats.at("prestoExchangeSource.pageSize").sum, 0);
 }
 
 TEST_P(PrestoExchangeSourceTest, slowProducer) {
@@ -910,9 +914,11 @@ TEST_P(PrestoExchangeSourceTest, slowProducer) {
   EXPECT_EQ(pool_->usedBytes(), 0);
 
   const auto stats = exchangeSource->metrics();
-  ASSERT_EQ(stats.size(), 2);
+  ASSERT_EQ(stats.size(), 4);
   ASSERT_EQ(stats.at("prestoExchangeSource.numPages").sum, pages.size());
-  ASSERT_EQ(stats.at("prestoExchangeSource.totalBytes").sum, totalBytes(pages));
+  ASSERT_EQ(stats.at("prestoExchangeSource.pageSize").sum, totalBytes(pages));
+  ASSERT_GT(stats.at("prestoExchangeSource.getDataNanos").count, 0);
+  ASSERT_GT(stats.at("prestoExchangeSource.iobufBytes").count, 0);
 }
 
 DEBUG_ONLY_TEST_P(

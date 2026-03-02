@@ -17,6 +17,7 @@ package com.facebook.presto.sql.planner;
 import com.facebook.airlift.json.Codec;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.cost.StatsAndCosts;
+import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.PartitioningHandle;
 import com.facebook.presto.spi.plan.PartitioningScheme;
 import com.facebook.presto.spi.plan.PlanFragmentId;
@@ -30,8 +31,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
-
-import javax.annotation.concurrent.GuardedBy;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 
 import java.util.List;
 import java.util.Optional;
@@ -55,6 +55,10 @@ public class PlanFragment
     private final PartitioningScheme partitioningScheme;
     private final StageExecutionDescriptor stageExecutionDescriptor;
 
+    // Describes the ordering of the fragment's output data
+    // This is separate from partitioningScheme as ordering is orthogonal to partitioning
+    private final Optional<OrderingScheme> outputOrderingScheme;
+
     // Only true for output table writer and false for temporary table writers
     private final boolean outputTableWriterFragment;
     private final Optional<StatsAndCosts> statsAndCosts;
@@ -74,6 +78,7 @@ public class PlanFragment
             @JsonProperty("partitioning") PartitioningHandle partitioning,
             @JsonProperty("tableScanSchedulingOrder") List<PlanNodeId> tableScanSchedulingOrder,
             @JsonProperty("partitioningScheme") PartitioningScheme partitioningScheme,
+            @JsonProperty("outputOrderingScheme") Optional<OrderingScheme> outputOrderingScheme,
             @JsonProperty("stageExecutionDescriptor") StageExecutionDescriptor stageExecutionDescriptor,
             @JsonProperty("outputTableWriterFragment") boolean outputTableWriterFragment,
             @JsonProperty("statsAndCosts") Optional<StatsAndCosts> statsAndCosts,
@@ -85,6 +90,7 @@ public class PlanFragment
         this.partitioning = requireNonNull(partitioning, "partitioning is null");
         this.tableScanSchedulingOrder = ImmutableList.copyOf(requireNonNull(tableScanSchedulingOrder, "tableScanSchedulingOrder is null"));
         this.stageExecutionDescriptor = requireNonNull(stageExecutionDescriptor, "stageExecutionDescriptor is null");
+        this.outputOrderingScheme = requireNonNull(outputOrderingScheme, "outputOrderingScheme is null");
         this.outputTableWriterFragment = outputTableWriterFragment;
         this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         this.jsonRepresentation = requireNonNull(jsonRepresentation, "jsonRepresentation is null");
@@ -158,6 +164,12 @@ public class PlanFragment
     }
 
     @JsonProperty
+    public Optional<OrderingScheme> getOutputOrderingScheme()
+    {
+        return outputOrderingScheme;
+    }
+
+    @JsonProperty
     public Optional<String> getJsonRepresentation()
     {
         return jsonRepresentation;
@@ -188,6 +200,7 @@ public class PlanFragment
                 id, root, variables, partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme,
+                outputOrderingScheme,
                 stageExecutionDescriptor,
                 outputTableWriterFragment,
                 Optional.empty(),
@@ -247,6 +260,7 @@ public class PlanFragment
                 partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme.withBucketToPartition(bucketToPartition),
+                outputOrderingScheme,
                 stageExecutionDescriptor,
                 outputTableWriterFragment,
                 statsAndCosts,
@@ -262,6 +276,7 @@ public class PlanFragment
                 partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme,
+                outputOrderingScheme,
                 StageExecutionDescriptor.fixedLifespanScheduleGroupedExecution(capableTableScanNodes, totalLifespans),
                 outputTableWriterFragment,
                 statsAndCosts,
@@ -277,6 +292,7 @@ public class PlanFragment
                 partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme,
+                outputOrderingScheme,
                 StageExecutionDescriptor.dynamicLifespanScheduleGroupedExecution(capableTableScanNodes, totalLifespans),
                 outputTableWriterFragment,
                 statsAndCosts,
@@ -292,6 +308,7 @@ public class PlanFragment
                 partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme,
+                outputOrderingScheme,
                 StageExecutionDescriptor.recoverableGroupedExecution(capableTableScanNodes, totalLifespans),
                 outputTableWriterFragment,
                 statsAndCosts,
@@ -307,6 +324,7 @@ public class PlanFragment
                 partitioning,
                 tableScanSchedulingOrder,
                 partitioningScheme,
+                outputOrderingScheme,
                 stageExecutionDescriptor,
                 outputTableWriterFragment,
                 statsAndCosts,

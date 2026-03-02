@@ -36,8 +36,7 @@ import com.facebook.presto.spi.function.SqlFunctionHandle;
 import com.facebook.presto.spi.function.SqlFunctionId;
 import com.facebook.presto.spi.function.SqlInvokedFunction;
 import com.google.common.collect.ImmutableList;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Collection;
 import java.util.List;
@@ -48,9 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_USER_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.function.FunctionVersion.notVersioned;
-import static com.facebook.presto.spi.function.RoutineCharacteristics.Language.CPP;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static java.lang.Long.parseLong;
@@ -139,7 +136,6 @@ public class JsonFileBasedFunctionNamespaceManager
 
     private SqlInvokedFunction createSqlInvokedFunction(String functionName, JsonBasedUdfFunctionMetadata jsonBasedUdfFunctionMetaData)
     {
-        checkState(jsonBasedUdfFunctionMetaData.getRoutineCharacteristics().getLanguage().equals(CPP), "JsonFileBasedFunctionNamespaceManager only supports CPP UDF");
         QualifiedObjectName qualifiedFunctionName = QualifiedObjectName.valueOf(new CatalogSchemaName(getCatalogName(), jsonBasedUdfFunctionMetaData.getSchema()), functionName);
         List<String> parameterNameList = jsonBasedUdfFunctionMetaData.getParamNames();
         List<TypeSignature> parameterTypeList = jsonBasedUdfFunctionMetaData.getParamTypes();
@@ -168,6 +164,25 @@ public class JsonFileBasedFunctionNamespaceManager
                 .filter(function -> function.getSignature().getName().equals(functionName))
                 .map(JsonFileBasedFunctionNamespaceManager::copyFunction)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    protected FunctionMetadata sqlInvokedFunctionToMetadata(SqlInvokedFunction function)
+    {
+        return new FunctionMetadata(
+                function.getSignature().getName(),
+                function.getSignature().getArgumentTypes(),
+                function.getParameters().stream()
+                        .map(Parameter::getName)
+                        .collect(toImmutableList()),
+                function.getSignature().getReturnType(),
+                function.getSignature().getKind(),
+                function.getRoutineCharacteristics().getLanguage(),
+                getFunctionImplementationType(function),
+                function.isDeterministic(),
+                function.isCalledOnNullInput(),
+                function.getVersion(),
+                function.getDescription());
     }
 
     @Override

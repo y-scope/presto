@@ -67,7 +67,7 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
-    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
+    public void checkQueryIntegrity(Identity identity, AccessControlContext context, String query, Map<String, String> preparedStatements, Map<QualifiedObjectName, ViewDefinition> viewDefinitions, Map<QualifiedObjectName, MaterializedViewDefinition> materializedViewDefinitions)
     {
     }
 
@@ -125,6 +125,11 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
+    public void checkCanShowCreateTable(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
+    {
+    }
+
+    @Override
     public void checkCanCreateTable(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
     {
     }
@@ -155,6 +160,17 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
+    public void checkCanShowColumnsMetadata(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
+    {
+    }
+
+    @Override
+    public List<ColumnMetadata> filterColumns(Identity identity, AccessControlContext context, CatalogSchemaTableName table, List<ColumnMetadata> columns)
+    {
+        return columns;
+    }
+
+    @Override
     public void checkCanAddColumn(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
     {
     }
@@ -171,6 +187,11 @@ public class AllowAllSystemAccessControl
 
     @Override
     public void checkCanSelectFromColumns(Identity identity, AccessControlContext context, CatalogSchemaTableName table, Set<String> columns)
+    {
+    }
+
+    @Override
+    public void checkCanCallProcedure(Identity identity, AccessControlContext context, CatalogSchemaTableName procedure)
     {
     }
 
@@ -226,6 +247,16 @@ public class AllowAllSystemAccessControl
 
     @Override
     public void checkCanRevokeTablePrivilege(Identity identity, AccessControlContext context, Privilege privilege, CatalogSchemaTableName table, PrestoPrincipal revokee, boolean grantOptionFor)
+    {
+    }
+
+    @Override
+    public void checkCanDropBranch(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
+    {
+    }
+
+    @Override
+    public void checkCanDropTag(Identity identity, AccessControlContext context, CatalogSchemaTableName table)
     {
     }
 

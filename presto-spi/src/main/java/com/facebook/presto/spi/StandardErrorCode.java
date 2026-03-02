@@ -30,9 +30,9 @@ public enum StandardErrorCode
     PERMISSION_DENIED(0x0000_0004, USER_ERROR),
     NOT_FOUND(0x0000_0005, USER_ERROR),
     FUNCTION_NOT_FOUND(0x0000_0006, USER_ERROR),
-    INVALID_FUNCTION_ARGUMENT(0x0000_0007, USER_ERROR),             // caught by TRY
-    DIVISION_BY_ZERO(0x0000_0008, USER_ERROR),                      // caught by TRY
-    INVALID_CAST_ARGUMENT(0x0000_0009, USER_ERROR),                 // caught by TRY
+    INVALID_FUNCTION_ARGUMENT(0x0000_0007, USER_ERROR, false, true),  // caught by TRY
+    DIVISION_BY_ZERO(0x0000_0008, USER_ERROR, false, true),           // caught by TRY
+    INVALID_CAST_ARGUMENT(0x0000_0009, USER_ERROR, false, true),      // caught by TRY
     OPERATOR_NOT_FOUND(0x0000_000A, USER_ERROR),
     INVALID_VIEW(0x0000_000B, USER_ERROR),
     ALREADY_EXISTS(0x0000_000C, USER_ERROR),
@@ -42,7 +42,7 @@ public enum StandardErrorCode
     CONSTRAINT_VIOLATION(0x0000_0010, USER_ERROR),
     TRANSACTION_CONFLICT(0x0000_0011, USER_ERROR),
     INVALID_TABLE_PROPERTY(0x0000_0012, USER_ERROR),
-    NUMERIC_VALUE_OUT_OF_RANGE(0x0000_0013, USER_ERROR),            // caught by TRY
+    NUMERIC_VALUE_OUT_OF_RANGE(0x0000_0013, USER_ERROR, false, true), // caught by TRY
     UNKNOWN_TRANSACTION(0x0000_0014, USER_ERROR),
     NOT_IN_TRANSACTION(0x0000_0015, USER_ERROR),
     TRANSACTION_ALREADY_ABORTED(0x0000_0016, USER_ERROR),
@@ -78,6 +78,10 @@ public enum StandardErrorCode
     INVALID_ROW_FILTER(0x0000_0034, USER_ERROR),
     INVALID_COLUMN_MASK(0x0000_0035, USER_ERROR),
     DATATYPE_MISMATCH(0x0000_0036, USER_ERROR),
+    SESSION_CATALOG_NOT_SET(0x0000_0037, USER_ERROR),
+    MV_MISSING_TOO_MUCH_DATA(0x0000_0038, USER_ERROR),
+    MATERIALIZED_VIEW_STALE(0x0000_0039, USER_ERROR),
+    INVALID_MATERIALIZED_VIEW_PROPERTY(0x0000_003A, USER_ERROR),
 
     GENERIC_INTERNAL_ERROR(0x0001_0000, INTERNAL_ERROR),
     TOO_MANY_REQUESTS_FAILED(0x0001_0001, INTERNAL_ERROR, true),
@@ -149,6 +153,7 @@ public enum StandardErrorCode
     HEADER_MODIFICATION_ATTEMPT(0x0002_0015, INTERNAL_ERROR),
     DUPLICATE_FUNCTION_ERROR(0x0002_0016, INTERNAL_ERROR),
     MEMORY_ARBITRATION_FAILURE(0x0002_0017, INSUFFICIENT_RESOURCES),
+    AUTHENTICATOR_NOT_APPLICABLE(0x0002_0018, INTERNAL_ERROR),
     /**/;
 
     // Error code range 0x0003 is reserved for Presto-on-Spark
@@ -161,12 +166,17 @@ public enum StandardErrorCode
 
     StandardErrorCode(int code, ErrorType type)
     {
-        this(code, type, false);
+        this(code, type, false, false);
     }
 
     StandardErrorCode(int code, ErrorType type, boolean retriable)
     {
-        errorCode = new ErrorCode(code, name(), type, retriable);
+        this(code, type, retriable, false);
+    }
+
+    StandardErrorCode(int code, ErrorType type, boolean retriable, boolean catchableByTry)
+    {
+        errorCode = new ErrorCode(code, name(), type, retriable, catchableByTry);
     }
 
     @Override

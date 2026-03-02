@@ -74,17 +74,19 @@ PrestoTaskState toPrestoTaskState(exec::TaskState state) {
   return PrestoTaskState::kAborted;
 }
 
-protocol::TaskState toProtocolTaskState(exec::TaskState state) {
+protocol::TaskState toProtocolTaskState(PrestoTaskState state) {
   switch (state) {
-    case exec::TaskState::kRunning:
+    case PrestoTaskState::kRunning:
       return protocol::TaskState::RUNNING;
-    case exec::TaskState::kFinished:
+    case PrestoTaskState::kFinished:
       return protocol::TaskState::FINISHED;
-    case exec::TaskState::kCanceled:
+    case PrestoTaskState::kCanceled:
       return protocol::TaskState::CANCELED;
-    case exec::TaskState::kFailed:
+    case PrestoTaskState::kFailed:
       return protocol::TaskState::FAILED;
-    case exec::TaskState::kAborted:
+    case PrestoTaskState::kPlanned:
+      return protocol::TaskState::PLANNED;
+    case PrestoTaskState::kAborted:
       [[fallthrough]];
     default:
       return protocol::TaskState::ABORTED;
@@ -95,9 +97,9 @@ protocol::ExecutionFailureInfo toPrestoError(std::exception_ptr ex) {
   try {
     rethrow_exception(ex);
   } catch (const VeloxException& e) {
-    return VeloxToPrestoExceptionTranslator::translate(e);
+    return translateToPrestoException(e);
   } catch (const std::exception& e) {
-    return VeloxToPrestoExceptionTranslator::translate(e);
+    return translateToPrestoException(e);
   }
 }
 
@@ -349,7 +351,8 @@ void updatePipelineStats(
     protocol::PipelineStats& prestoPipelineStats) {
   prestoPipelineStats.inputPipeline = veloxPipelineStats.inputPipeline;
   prestoPipelineStats.outputPipeline = veloxPipelineStats.outputPipeline;
-  prestoPipelineStats.firstStartTimeInMillis = prestoTaskStats.createTimeInMillis;
+  prestoPipelineStats.firstStartTimeInMillis =
+      prestoTaskStats.createTimeInMillis;
   prestoPipelineStats.lastStartTimeInMillis = prestoTaskStats.endTimeInMillis;
   prestoPipelineStats.lastEndTimeInMillis = prestoTaskStats.endTimeInMillis;
 
@@ -440,12 +443,18 @@ void updatePipelineStats(
     prestoOp.blockedWall = protocol::Duration(
         veloxOp.blockedWallNanos, protocol::TimeUnit::NANOSECONDS);
 
-    prestoOp.userMemoryReservationInBytes = veloxOp.memoryStats.userMemoryReservation;
-    prestoOp.revocableMemoryReservationInBytes = veloxOp.memoryStats.revocableMemoryReservation;
-    prestoOp.systemMemoryReservationInBytes = veloxOp.memoryStats.systemMemoryReservation;
-    prestoOp.peakUserMemoryReservationInBytes = veloxOp.memoryStats.peakUserMemoryReservation;
-    prestoOp.peakSystemMemoryReservationInBytes = veloxOp.memoryStats.peakSystemMemoryReservation;
-    prestoOp.peakTotalMemoryReservationInBytes = veloxOp.memoryStats.peakTotalMemoryReservation;
+    prestoOp.userMemoryReservationInBytes =
+        veloxOp.memoryStats.userMemoryReservation;
+    prestoOp.revocableMemoryReservationInBytes =
+        veloxOp.memoryStats.revocableMemoryReservation;
+    prestoOp.systemMemoryReservationInBytes =
+        veloxOp.memoryStats.systemMemoryReservation;
+    prestoOp.peakUserMemoryReservationInBytes =
+        veloxOp.memoryStats.peakUserMemoryReservation;
+    prestoOp.peakSystemMemoryReservationInBytes =
+        veloxOp.memoryStats.peakSystemMemoryReservation;
+    prestoOp.peakTotalMemoryReservationInBytes =
+        veloxOp.memoryStats.peakTotalMemoryReservation;
 
     prestoOp.spilledDataSizeInBytes = veloxOp.spilledBytes;
 
@@ -557,14 +566,6 @@ void PrestoTask::recordProcessCpuTime() {
 }
 
 protocol::TaskStatus PrestoTask::updateStatusLocked() {
-  if (!taskStarted && (error == nullptr)) {
-    protocol::TaskStatus ret = info.taskStatus;
-    if (ret.state != protocol::TaskState::ABORTED) {
-      ret.state = protocol::TaskState::PLANNED;
-    }
-    return ret;
-  }
-
   // Error occurs when creating task or even before task is created. Set error
   // and return immediately
   if (error != nullptr) {
@@ -575,11 +576,16 @@ protocol::TaskStatus PrestoTask::updateStatusLocked() {
     recordProcessCpuTime();
     return info.taskStatus;
   }
-  VELOX_CHECK_NOT_NULL(task, "task is null when updating status");
+
+  // We can be here before the fragment plan is received and exec task created.
+  if (task == nullptr) {
+    VELOX_CHECK(!taskStarted);
+    return info.taskStatus;
+  }
 
   const auto veloxTaskStats = task->taskStats();
 
-  info.taskStatus.state = toProtocolTaskState(task->state());
+  info.taskStatus.state = toProtocolTaskState(taskState());
 
   // Presto has a Driver per split. When splits represent partitions
   // of data, there is a queue of them per Task. We represent
@@ -640,7 +646,7 @@ void PrestoTask::updateOutputBufferInfoLocked(
   const auto& outputBufferStats = veloxTaskStats.outputBufferStats.value();
   auto& outputBufferInfo = info.outputBuffers;
   outputBufferInfo.type =
-      velox::core::PartitionedOutputNode::kindString(outputBufferStats.kind);
+      velox::core::PartitionedOutputNode::toName(outputBufferStats.kind);
   outputBufferInfo.canAddBuffers = !outputBufferStats.noMoreBuffers;
   outputBufferInfo.canAddPages = !outputBufferStats.noMoreData;
   outputBufferInfo.totalBufferedBytes = outputBufferStats.bufferedBytes;
@@ -711,7 +717,7 @@ protocol::TaskInfo PrestoTask::updateInfoLocked(bool summarize) {
     for (const auto it : veloxTaskStats.numBlockedDrivers) {
       addRuntimeMetricIfNotZero(
           taskRuntimeStats,
-          fmt::format("drivers.{}", exec::blockingReasonToString(it.first)),
+          fmt::format("drivers.{}", exec::BlockingReasonName::toName(it.first)),
           it.second);
     }
     if (veloxTaskStats.longestRunningOpCallMs != 0) {
@@ -770,6 +776,12 @@ void PrestoTask::updateTimeInfoLocked(
     taskRuntimeStats["endTime"].addValue(veloxTaskStats.endTimeMs);
   }
   taskRuntimeStats.insert({"nativeProcessCpuTime", fromNanos(processCpuTime_)});
+  // Represents the time between receiving first taskUpdate and task creation
+  // time.
+  taskRuntimeStats.insert(
+      {"taskCreationTime",
+       fromNanos(
+           (createFinishTimeMs - firstTimeReceiveTaskUpdateMs) * 1'000'000)});
 }
 
 void PrestoTask::updateMemoryInfoLocked(
@@ -823,20 +835,33 @@ void PrestoTask::updateExecutionInfoLocked(
   prestoTaskStats.outputPositions = 0;
   prestoTaskStats.outputDataSizeInBytes = 0;
 
-  // Presto Java reports number of drivers to number of splits in Presto UI
-  // because split and driver are 1 to 1 mapping relationship. This is not true
-  // in Prestissimo where 1 driver handles many splits. In order to quickly
-  // unblock developers from viewing the correct progress of splits in
-  // Prestissimo's coordinator UI, we put number of splits in total, queued, and
-  // finished to indicate the progress of the query. Number of running drivers
-  // are passed as it is to have a proper running drivers count in UI.
+  // NOTE: This logic is implemented in a backwards-compatible way because
+  // the coordinator and worker may not be upgraded at the same time.
   //
-  // TODO: We should really extend the API (protocol::TaskStats and Presto
-  // coordinator UI) to have splits information as a proper fix.
+  // To ensure safe rollout:
+  // - We are introducing new fields (e.g., `totalNewDrivers`) instead of
+  //   modifying or removing existing ones.
+  // - The worker is updated first to populate both old and new fields.
+  // - The coordinator continues to use the old fields until it is updated to
+  //   handle the new ones.
+  //
+  // Once both coordinator and worker support the new fields, we can safely
+  // remove the legacy fields in a follow-up cleanup PR.
+
   prestoTaskStats.totalDrivers = veloxTaskStats.numTotalSplits;
   prestoTaskStats.queuedDrivers = veloxTaskStats.numQueuedSplits;
   prestoTaskStats.runningDrivers = veloxTaskStats.numRunningDrivers;
   prestoTaskStats.completedDrivers = veloxTaskStats.numFinishedSplits;
+
+  prestoTaskStats.totalNewDrivers = veloxTaskStats.numTotalDrivers;
+  prestoTaskStats.queuedNewDrivers = veloxTaskStats.numQueuedDrivers;
+  prestoTaskStats.runningNewDrivers = veloxTaskStats.numRunningDrivers;
+  prestoTaskStats.completedNewDrivers = veloxTaskStats.numCompletedDrivers;
+
+  prestoTaskStats.totalSplits = veloxTaskStats.numTotalSplits;
+  prestoTaskStats.queuedSplits = veloxTaskStats.numQueuedSplits;
+  prestoTaskStats.runningSplits = veloxTaskStats.numRunningSplits;
+  prestoTaskStats.completedSplits = veloxTaskStats.numFinishedSplits;
 
   if (includePipelineStats) {
     prestoTaskStats.pipelines.resize(veloxTaskStats.pipelineStats.size());

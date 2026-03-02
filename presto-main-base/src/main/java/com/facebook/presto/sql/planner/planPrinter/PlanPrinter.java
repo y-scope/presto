@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.sql.planner.planPrinter;
 
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.predicate.Domain;
 import com.facebook.presto.common.predicate.Range;
@@ -34,6 +35,9 @@ import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.SourceLocation;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.function.FunctionHandle;
+import com.facebook.presto.spi.function.table.Argument;
+import com.facebook.presto.spi.function.table.DescriptorArgument;
+import com.facebook.presto.spi.function.table.ScalarArgument;
 import com.facebook.presto.spi.plan.AbstractJoinNode;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.Assignments;
@@ -45,12 +49,14 @@ import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
 import com.facebook.presto.spi.plan.MergeJoinNode;
+import com.facebook.presto.spi.plan.MetadataDeleteNode;
 import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.Partitioning;
@@ -67,8 +73,10 @@ import com.facebook.presto.spi.plan.StatisticAggregations;
 import com.facebook.presto.spi.plan.TableFinishNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
+import com.facebook.presto.spi.plan.TableWriterNode.CallDistributedProcedureTarget;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.CallExpression;
@@ -82,22 +90,25 @@ import com.facebook.presto.sql.planner.iterative.GroupReference;
 import com.facebook.presto.sql.planner.optimizations.JoinNodeUtils;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.InternalPlanVisitor;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
-import com.facebook.presto.sql.planner.plan.MetadataDeleteNode;
+import com.facebook.presto.sql.planner.plan.MergeProcessorNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.RowExpressionDeterminismEvaluator;
@@ -107,31 +118,35 @@ import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Streams;
 import io.airlift.slice.Slice;
-import io.airlift.units.Duration;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.facebook.airlift.units.DataSize.succinctBytes;
 import static com.facebook.presto.SystemSessionProperties.isVerboseOptimizerInfoEnabled;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.execution.StageInfo.getAllStages;
 import static com.facebook.presto.expressions.DynamicFilters.extractDynamicFilters;
 import static com.facebook.presto.metadata.CastType.CAST;
+import static com.facebook.presto.spi.function.table.DescriptorArgument.NULL_DESCRIPTOR;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.createSymbolReference;
 import static com.facebook.presto.sql.planner.SortExpressionExtractor.getSortExpressionContext;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
@@ -145,11 +160,12 @@ import static com.google.common.base.CaseFormat.UPPER_UNDERSCORE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.airlift.units.DataSize.succinctBytes;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 import static java.util.Arrays.stream;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toList;
 
 public class PlanPrinter
@@ -434,6 +450,9 @@ public class PlanPrinter
                     Joiner.on(", ").join(partitioningScheme.getPartitioning().getArguments()),
                     formatHash(partitioningScheme.getHashColumn())));
         }
+        if (fragment.getOutputOrderingScheme().isPresent()) {
+            builder.append(indentString(1)).append(format("Output ordering: %s%n", fragment.getOutputOrderingScheme()));
+        }
         builder.append(indentString(1)).append(format("Output encoding: %s%n", fragment.getPartitioningScheme().getEncoding()));
         builder.append(indentString(1)).append(format("Stage Execution Strategy: %s%n", fragment.getStageExecutionDescriptor().getStageExecutionStrategy()));
 
@@ -465,6 +484,7 @@ public class PlanPrinter
                 SINGLE_DISTRIBUTION,
                 ImmutableList.of(plan.getId()),
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getOutputVariables()),
+                Optional.empty(),
                 StageExecutionDescriptor.ungroupedExecution(),
                 false,
                 Optional.of(estimatedStatsAndCosts),
@@ -586,6 +606,10 @@ public class PlanPrinter
                     format("[%s, lookup = %s]", node.getIndexHandle(), node.getLookupVariables()));
 
             nodeOutput.appendDetailsLine("TableHandle: %s", node.getTableHandle().getConnectorHandle().toString());
+
+            Optional<ConnectorTableLayoutHandle> tableLayoutHandle = node.getTableHandle().getLayout();
+            tableLayoutHandle.ifPresent(
+                    connectorTableLayoutHandle -> nodeOutput.appendDetailsLine("TableHandleLayout: %s", connectorTableLayoutHandle.toString()));
 
             for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : node.getAssignments().entrySet()) {
                 if (node.getOutputVariables().contains(entry.getKey())) {
@@ -1126,9 +1150,15 @@ public class PlanPrinter
         @Override
         public Void visitRemoteSource(RemoteSourceNode node, Void context)
         {
+            String nodeName = "RemoteSource";
+            String orderingSchemStr = "";
+            if (node.getOrderingScheme().isPresent()) {
+                orderingSchemStr = node.getOrderingScheme().toString();
+                nodeName = "RemoteMerge";
+            }
             addNode(node,
-                    format("Remote%s", node.getOrderingScheme().isPresent() ? "Merge" : "Source"),
-                    format("[%s]", Joiner.on(',').join(node.getSourceFragmentIds())),
+                    format("%s", nodeName),
+                    format("[%s] %s", Joiner.on(',').join(node.getSourceFragmentIds()), orderingSchemStr),
                     ImmutableList.of(),
                     ImmutableList.of(),
                     node.getSourceFragmentIds());
@@ -1190,6 +1220,13 @@ public class PlanPrinter
         public Void visitStatisticsWriterNode(StatisticsWriterNode node, Void context)
         {
             addNode(node, "StatisticsWriter", format("[%s]", node.getTableHandle()));
+            return processChildren(node, context);
+        }
+
+        @Override
+        public Void visitCallDistributedProcedure(CallDistributedProcedureNode node, Void context)
+        {
+            addNode(node, "CallDistributedProcedure", format("[%s]", node.getTarget().map(CallDistributedProcedureTarget::getProcedureName).orElse(null)));
             return processChildren(node, context);
         }
 
@@ -1268,6 +1305,27 @@ public class PlanPrinter
         }
 
         @Override
+        public Void visitMergeWriter(MergeWriterNode node, Void context)
+        {
+            addNode(node, "MergeWriter", format("table: %s", node.getTarget().toString()));
+            return processChildren(node, context);
+        }
+
+        @Override
+        public Void visitMergeProcessor(MergeProcessorNode node, Void context)
+        {
+            String identifier = format("[target: %s, output: %s]", node.getTarget(), node.getOutputVariables());
+
+            NodeRepresentation nodeOutput = addNode(node, "MergeProcessor", identifier);
+            nodeOutput.appendDetails("target: %s", node.getTarget());
+            nodeOutput.appendDetails("merge row column: %s", node.getMergeRowVariable());
+            nodeOutput.appendDetails("target table row id column: %s", node.getTargetTableRowIdColumnVariable());
+            nodeOutput.appendDetails("data columns: %s", node.getTargetColumnVariables());
+
+            return processChildren(node, context);
+        }
+
+        @Override
         public Void visitEnforceSingleRow(EnforceSingleRowNode node, Void context)
         {
             addNode(node, "EnforceSingleRow");
@@ -1304,6 +1362,189 @@ public class PlanPrinter
         public Void visitLateralJoin(LateralJoinNode node, Void context)
         {
             addNode(node, "Lateral", format("[%s]", node.getCorrelation()));
+
+            return processChildren(node, context);
+        }
+
+        @Override
+        public Void visitTableFunction(TableFunctionNode node, Void context)
+        {
+            NodeRepresentation nodeOutput = addNode(
+                    node,
+                    "TableFunction",
+                    node.getName());
+
+            if (!node.getArguments().isEmpty()) {
+                nodeOutput.appendDetails("Arguments:");
+
+                Map<String, TableArgumentProperties> tableArguments = node.getTableArgumentProperties().stream()
+                        .collect(toImmutableMap(TableArgumentProperties::getArgumentName, identity()));
+
+                node.getArguments().entrySet().stream()
+                        .forEach(entry -> nodeOutput.appendDetailsLine(formatArgument(entry.getKey(), entry.getValue(), tableArguments)));
+
+                if (!node.getCopartitioningLists().isEmpty()) {
+                    nodeOutput.appendDetailsLine(node.getCopartitioningLists().stream()
+                            .map(list -> list.stream().collect(Collectors.joining(", ", "(", ")")))
+                            .collect(Collectors.joining(", ", "Co-partition: [", "] ")));
+                }
+            }
+
+            processChildren(node, context);
+
+            return null;
+        }
+
+        private String formatArgument(String argumentName, Argument argument, Map<String, TableArgumentProperties> tableArguments)
+        {
+            if (argument instanceof ScalarArgument) {
+                ScalarArgument scalarArgument = (ScalarArgument) argument;
+                return formatScalarArgument(argumentName, scalarArgument);
+            }
+            if (argument instanceof DescriptorArgument) {
+                DescriptorArgument descriptorArgument = (DescriptorArgument) argument;
+                return formatDescriptorArgument(argumentName, descriptorArgument);
+            }
+            else {
+                TableArgumentProperties argumentProperties = tableArguments.get(argumentName);
+                return formatTableArgument(argumentName, argumentProperties);
+            }
+        }
+
+        private String formatScalarArgument(String argumentName, ScalarArgument argument)
+        {
+            return format(
+                    "%s => ScalarArgument{type=%s, value=%s}",
+                    argumentName,
+                    argument.getType().getDisplayName(),
+                    argument.getValue());
+        }
+
+        private String formatDescriptorArgument(String argumentName, DescriptorArgument argument)
+        {
+            String descriptor;
+            if (argument.equals(NULL_DESCRIPTOR)) {
+                descriptor = "NULL";
+            }
+            else {
+                descriptor = argument.getDescriptor().orElseThrow(() -> new IllegalStateException("Missing descriptor")).getFields().stream()
+                        .map(field -> field.getName() + field.getType().map(type -> " " + type.getDisplayName()).orElse(""))
+                        .collect(Collectors.joining(", ", "(", ")"));
+            }
+            return format("%s => DescriptorArgument{%s}", argumentName, descriptor);
+        }
+
+        private String formatTableArgument(String argumentName, TableArgumentProperties argumentProperties)
+        {
+            List<String> properties = new ArrayList<>();
+
+            if (argumentProperties.isRowSemantics()) {
+                properties.add("row semantics ");
+            }
+            argumentProperties.getSpecification().ifPresent(specification -> {
+                StringBuilder specificationBuilder = new StringBuilder();
+                specificationBuilder
+                        .append("partition by: [")
+                        .append(Joiner.on(", ").join(specification.getPartitionBy()))
+                        .append("]");
+                specification.getOrderingScheme().ifPresent(orderingScheme -> {
+                    specificationBuilder
+                            .append(", order by: ")
+                            .append(formatOrderingScheme(orderingScheme));
+                });
+                properties.add(specificationBuilder.toString());
+            });
+
+            properties.add("required columns: [" +
+                    Joiner.on(", ").join(argumentProperties.getRequiredColumns()) + "]");
+
+            if (argumentProperties.isPruneWhenEmpty()) {
+                properties.add("prune when empty");
+            }
+
+            if (argumentProperties.getPassThroughSpecification().isDeclaredAsPassThrough()) {
+                properties.add("pass through columns");
+            }
+
+            return format("%s => TableArgument{%s}", argumentName, Joiner.on(", ").join(properties));
+        }
+
+        private String formatOrderingScheme(OrderingScheme orderingScheme)
+        {
+            return formatCollection(orderingScheme.getOrderByVariables(), variable -> variable + " " + orderingScheme.getOrdering(variable));
+        }
+
+        private String formatOrderingScheme(OrderingScheme orderingScheme, int preSortedOrderPrefix)
+        {
+            List<String> orderBy = Stream.concat(
+                            orderingScheme.getOrderByVariables().stream()
+                                    .limit(preSortedOrderPrefix)
+                                    .map(variable -> "<" + variable + " " + orderingScheme.getOrdering(variable) + ">"),
+                            orderingScheme.getOrderByVariables().stream()
+                                    .skip(preSortedOrderPrefix)
+                                    .map(variable -> variable + " " + orderingScheme.getOrdering(variable)))
+                    .collect(toImmutableList());
+            return formatCollection(orderBy, Objects::toString);
+        }
+
+        public <T> String formatCollection(Collection<T> collection, Function<T, String> formatter)
+        {
+            return collection.stream()
+                    .map(formatter)
+                    .collect(Collectors.joining(", ", "[", "]"));
+        }
+
+        @Override
+        public Void visitTableFunctionProcessor(TableFunctionProcessorNode node, Void context)
+        {
+            ImmutableMap.Builder<String, String> descriptor = ImmutableMap.builder();
+
+            descriptor.put("name", node.getName());
+
+            descriptor.put("properOutputs", format("[%s]", Joiner.on(", ").join(node.getProperOutputs())));
+
+            String specs = node.getPassThroughSpecifications().stream()
+                    .map(spec -> spec.getColumns().stream()
+                            .map(col -> col.getOutputVariables().toString())
+                            .collect(Collectors.joining(", ", "[", "]")))
+                    .collect(Collectors.joining(", "));
+            descriptor.put("passThroughSymbols", format("[%s]", specs));
+
+            String requiredSymbols = node.getRequiredVariables().stream()
+                    .map(vars -> vars.stream()
+                            .map(VariableReferenceExpression::toString)
+                            .collect(Collectors.joining(", ", "[", "]")))
+                    .collect(Collectors.joining(", ", "[", "]"));
+            descriptor.put("requiredSymbols", format("[%s]", requiredSymbols));
+
+            node.getSpecification().ifPresent(specification -> {
+                if (!specification.getPartitionBy().isEmpty()) {
+                    List<VariableReferenceExpression> prePartitioned = specification.getPartitionBy().stream()
+                            .filter(node.getPrePartitioned()::contains)
+                            .collect(toImmutableList());
+
+                    List<VariableReferenceExpression> notPrePartitioned = specification.getPartitionBy().stream()
+                            .filter(column -> !node.getPrePartitioned().contains(column))
+                            .collect(toImmutableList());
+
+                    StringBuilder builder = new StringBuilder();
+                    if (!prePartitioned.isEmpty()) {
+                        builder.append(prePartitioned.stream()
+                                .map(VariableReferenceExpression::toString)
+                                .collect(Collectors.joining(", ", "<", ">")));
+                        if (!notPrePartitioned.isEmpty()) {
+                            builder.append(", ");
+                        }
+                    }
+                    if (!notPrePartitioned.isEmpty()) {
+                        builder.append(Joiner.on(", ").join(notPrePartitioned));
+                    }
+                    descriptor.put("partitionBy", format("[%s]", builder));
+                }
+                specification.getOrderingScheme().ifPresent(orderingScheme -> descriptor.put("orderBy", formatOrderingScheme(orderingScheme, node.getPreSorted())));
+            });
+
+            addNode(node, "TableFunctionProcessorNode" + descriptor.build());
 
             return processChildren(node, context);
         }

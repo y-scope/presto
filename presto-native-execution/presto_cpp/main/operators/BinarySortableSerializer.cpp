@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 #include "presto_cpp/main/operators/BinarySortableSerializer.h"
+#include "velox/common/base/SimdUtil.h"
 #include "velox/exec/Operator.h"
 
 namespace facebook::presto::operators {
@@ -22,6 +23,8 @@ static constexpr int64_t DOUBLE_SIGNIF_BIT_MASK = 0x000FFFFFFFFFFFFFL;
 
 static constexpr int64_t FLOAT_EXP_BIT_MASK = 0x7F800000;
 static constexpr int64_t FLOAT_SIGNIF_BIT_MASK = 0x007FFFFF;
+
+static constexpr size_t kNullByteSize = 1;
 
 // This is to implement the java's Double.doubleToLongBits(double value)
 FOLLY_ALWAYS_INLINE int64_t doubleToLong(double value) {
@@ -93,6 +96,20 @@ FOLLY_ALWAYS_INLINE void writeBytes(
   writeByte(out, 0, isDescending);
 }
 
+FOLLY_ALWAYS_INLINE size_t
+getBytesSerializedSize(const char* data, size_t offset, size_t size) {
+  size_t count = 0;
+  for (auto i = 0; i < size; ++i) {
+    if (data[offset + i] == 0 || data[offset + i] == 1) {
+      count += 2;
+    } else {
+      ++count;
+    }
+  }
+  // One additional byte for end marker.
+  return count + 1;
+}
+
 template <typename T>
 FOLLY_ALWAYS_INLINE void writeBool(T* out, bool value) {
   writeByte(out, value, /*isDescending=*/false);
@@ -106,6 +123,16 @@ void serializeSwitch(
     bool isNullLast,
     bool isDescending);
 
+size_t serializedSizeSwitch(
+    const velox::BaseVector& source,
+    velox::vector_size_t index);
+
+void serializedSizeSwitchBatch(
+    const velox::BaseVector& source,
+    const folly::Range<const velox::vector_size_t*>& rows,
+    velox::vector_size_t** sizes,
+    velox::Scratch& scratch);
+
 template <typename T>
 void serializeBigInt(
     const velox::BaseVector& vector,
@@ -118,8 +145,8 @@ void serializeBigInt(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::BIGINT>::NativeType>>()
             ->valueAt(index);
 
@@ -139,8 +166,8 @@ void serializeDouble(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::DOUBLE>::NativeType>>()
             ->valueAt(index);
     int64_t longValue = doubleToLong(value);
@@ -175,8 +202,8 @@ void serializeReal(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::REAL>::NativeType>>()
             ->valueAt(index);
     int32_t intValue = floatToInt(value);
@@ -207,8 +234,8 @@ void serializeTinyInt(
   } else {
     writeBool(out, !isNullLast);
     const int8_t value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::TINYINT>::NativeType>>()
             ->valueAt(index);
     writeByte(out, static_cast<int8_t>(value ^ 0x80), isDescending);
@@ -227,8 +254,8 @@ void serializeSmallInt(
   } else {
     writeBool(out, !isNullLast);
     const int16_t value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::SMALLINT>::NativeType>>()
             ->valueAt(index);
     writeByte(out, static_cast<int8_t>((value >> 8) ^ 0x80), isDescending);
@@ -248,8 +275,8 @@ void serializeInteger(
   } else {
     writeBool(out, !isNullLast);
     const int32_t value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::INTEGER>::NativeType>>()
             ->valueAt(index);
     writeInteger(out, value, isDescending);
@@ -267,9 +294,8 @@ void serializeDate(
     writeBool(out, isNullLast);
   } else {
     writeBool(out, !isNullLast);
-    const int32_t value = vector.loadedVector()
-                              ->asUnchecked<velox::SimpleVector<int32_t>>()
-                              ->valueAt(index);
+    const int32_t value =
+        vector.asUnchecked<velox::SimpleVector<int32_t>>()->valueAt(index);
     writeInteger(out, value, isDescending);
   }
 }
@@ -286,8 +312,8 @@ void serializeTimestamp(
   } else {
     writeBool(out, !isNullLast);
     const int64_t value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::TIMESTAMP>::NativeType>>()
             ->valueAt(index)
             .toNanos();
@@ -308,8 +334,8 @@ void serializeBoolean(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::BOOLEAN>::NativeType>>()
             ->valueAt(index);
     writeByte(out, static_cast<int8_t>(value ? 2 : 1), isDescending);
@@ -328,8 +354,8 @@ void serializeVarchar(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::VARCHAR>::NativeType>>()
             ->valueAt(index);
     writeBytes(out, value.data(), /*offset=*/0, value.size(), isDescending);
@@ -348,8 +374,8 @@ void serializeVarbinary(
   } else {
     writeBool(out, !isNullLast);
     const auto value =
-        vector.loadedVector()
-            ->asUnchecked<velox::SimpleVector<
+        vector
+            .asUnchecked<velox::SimpleVector<
                 velox::TypeTraits<velox::TypeKind::VARBINARY>::NativeType>>()
             ->valueAt(index);
 
@@ -367,12 +393,12 @@ void serializeRow(
   if (vector.isNullAt(index)) {
     writeBool(out, isNullLast);
   } else {
-    const auto* rowVector =
-        vector.wrappedVector()->template asUnchecked<velox::RowVector>();
-    const auto wrappedIndex = vector.wrappedIndex(index);
-    const auto& type = rowVector->type()->as<velox::TypeKind::ROW>();
+    const velox::DecodedVector decoded(vector);
+    const auto* rowBase = decoded.base()->as<velox::RowVector>();
+    const auto decodedIndex = decoded.index(index);
+    const auto& type = rowBase->type()->as<velox::TypeKind::ROW>();
     const auto childrenSize = type.size();
-    const auto& children = rowVector->children();
+    const auto& children = rowBase->children();
 
     for (int32_t i = 0; i < childrenSize; ++i) {
       if (i >= children.size() || !children[i]) {
@@ -380,8 +406,62 @@ void serializeRow(
       } else {
         writeBool(out, !isNullLast);
         serializeSwitch(
-            *children[i], wrappedIndex, out, isNullLast, isDescending);
+            *children[i], decodedIndex, out, isNullLast, isDescending);
       }
+    }
+  }
+}
+
+size_t getSerializedRowSize(
+    const velox::BaseVector& vector,
+    velox::vector_size_t index) {
+  const velox::DecodedVector decoded(vector);
+  const auto* rowBase = decoded.base()->as<velox::RowVector>();
+  const auto decodedIndex = decoded.index(index);
+  const auto& type = rowBase->type()->as<velox::TypeKind::ROW>();
+  const auto childrenSize = type.size();
+  const auto& children = rowBase->children();
+
+  size_t serializedSize = childrenSize;
+  for (int32_t i = 0; i < childrenSize; ++i) {
+    if (i < children.size() && children[i]) {
+      serializedSize += serializedSizeSwitch(*children[i], decodedIndex);
+    }
+  }
+  return serializedSize;
+}
+
+void calculateSerializedSizeRowBatch(
+    const velox::BaseVector& source,
+    const folly::Range<const velox::vector_size_t*>& rows,
+    velox::vector_size_t** sizes,
+    velox::Scratch& scratch) {
+  const auto numRows = rows.size();
+
+  const velox::DecodedVector decoded(source);
+  const auto* rowBase = decoded.base()->as<velox::RowVector>();
+  const auto& rowType = rowBase->type()->as<velox::TypeKind::ROW>();
+  const auto& children = rowBase->children();
+  const auto childrenSize = rowType.size();
+
+  // Collect decoded indices for all rows
+  velox::ScratchPtr<velox::vector_size_t, 1> decodedIndicesHolder(scratch);
+  auto decodedIndices = decodedIndicesHolder.get(numRows);
+
+  for (auto i = 0; i < numRows; ++i) {
+    *sizes[i] += childrenSize;
+    decodedIndices[i] = decoded.index(rows[i]);
+  }
+
+  // Process each child column in batch
+  for (int32_t childIdx = 0; childIdx < childrenSize; ++childIdx) {
+    if (childIdx < children.size() && children[childIdx]) {
+      // Process this child column for all rows at once
+      serializedSizeSwitchBatch(
+          *children[childIdx],
+          folly::Range<const velox::vector_size_t*>(decodedIndices, numRows),
+          sizes,
+          scratch);
     }
   }
 }
@@ -411,17 +491,88 @@ void serializeArray(
     writeBool(out, isNullLast);
   } else {
     writeBool(out, !isNullLast);
-    const auto* arrayVector =
-        vector.wrappedVector()->asUnchecked<velox::ArrayVector>();
-    const auto wrappedIndex = vector.wrappedIndex(index);
+    const velox::DecodedVector decoded(vector);
+    const auto* arrayBase = decoded.base()->as<velox::ArrayVector>();
+    const auto decodedIndex = decoded.index(index);
+
     serializeArrayElements(
-        *arrayVector->elements(),
-        arrayVector->offsetAt(wrappedIndex),
-        arrayVector->sizeAt(wrappedIndex),
+        *arrayBase->elements(),
+        arrayBase->offsetAt(decodedIndex),
+        arrayBase->sizeAt(decodedIndex),
         out,
         isNullLast,
         isDescending);
     writeByte(out, 0, isDescending);
+  }
+}
+
+size_t getSerializedArraySize(
+    const velox::BaseVector& vector,
+    velox::vector_size_t index) {
+  const velox::DecodedVector decoded(vector);
+  const auto* arrayBase = decoded.base()->as<velox::ArrayVector>();
+  const auto decodedIndex = decoded.index(index);
+  size_t serializedSize = 0;
+  for (auto i = 0; i < arrayBase->sizeAt(decodedIndex); ++i) {
+    serializedSize +=
+        1 + // null byte (element)
+        serializedSizeSwitch(
+            *arrayBase->elements(), i + arrayBase->offsetAt(decodedIndex));
+  }
+  // One additional byte for end marker.
+  return serializedSize + 1;
+}
+
+void calculateSerializedSizeArrayBatch(
+    const velox::BaseVector& source,
+    const folly::Range<const velox::vector_size_t*>& rows,
+    velox::vector_size_t** sizes,
+    velox::Scratch& scratch) {
+  const auto numRows = rows.size();
+
+  const velox::DecodedVector decoded(source);
+  const auto* arrayBase = decoded.base()->as<velox::ArrayVector>();
+
+  // Collect element ranges and corresponding size pointers
+  velox::ScratchPtr<velox::vector_size_t, 1> elementRowsHolder(scratch);
+  velox::ScratchPtr<velox::vector_size_t*, 1> elementSizesHolder(scratch);
+
+  // Count total elements
+  velox::vector_size_t totalElements = 0;
+  for (auto i = 0; i < numRows; ++i) {
+    const auto decodedIndex = decoded.index(rows[i]);
+    totalElements += arrayBase->sizeAt(decodedIndex);
+  }
+
+  auto elementRows = elementRowsHolder.get(totalElements);
+  auto elementSizes = elementSizesHolder.get(totalElements);
+
+  size_t elementIndex = 0;
+
+  for (auto i = 0; i < numRows; ++i) {
+    const auto decodedIndex = decoded.index(rows[i]);
+    const auto offset = arrayBase->offsetAt(decodedIndex);
+    const auto size = arrayBase->sizeAt(decodedIndex);
+
+    // Add element indices and size pointers for batch processing
+    for (auto j = 0; j < size; ++j) {
+      elementRows[elementIndex] = offset + j;
+      elementSizes[elementIndex] = sizes[i];
+      elementIndex++;
+      // Add element null byte
+      *sizes[i] += 1;
+    }
+    // Add one end marker byte per row
+    *sizes[i] += 1;
+  }
+
+  // Process all array elements in batch if there are any
+  if (totalElements > 0) {
+    serializedSizeSwitchBatch(
+        *arrayBase->elements(),
+        folly::Range<const velox::vector_size_t*>(elementRows, totalElements),
+        elementSizes,
+        scratch);
   }
 }
 
@@ -464,7 +615,166 @@ void serializeSwitch(
     default:
       VELOX_NYI("Unsupported type: {}", source.typeKind());
   }
-};
+}
+
+size_t serializedSizeSwitch(
+    const velox::BaseVector& source,
+    velox::vector_size_t index) {
+  if (source.isNullAt(index)) {
+    return kNullByteSize;
+  }
+  if (source.type()->isDate()) {
+    return kNullByteSize + sizeof(int32_t);
+  }
+
+  switch (source.typeKind()) {
+    case velox::TypeKind::BIGINT:
+      [[fallthrough]];
+    case velox::TypeKind::BOOLEAN:
+      [[fallthrough]];
+    case velox::TypeKind::DOUBLE:
+      [[fallthrough]];
+    case velox::TypeKind::REAL:
+      [[fallthrough]];
+    case velox::TypeKind::TINYINT:
+      [[fallthrough]];
+    case velox::TypeKind::SMALLINT:
+      [[fallthrough]];
+    case velox::TypeKind::INTEGER:
+      return kNullByteSize + source.type()->cppSizeInBytes();
+    case velox::TypeKind::TIMESTAMP:
+      return kNullByteSize + sizeof(int64_t);
+    case velox::TypeKind::VARCHAR: {
+      const auto varchar =
+          source
+              .asUnchecked<velox::SimpleVector<
+                  velox::TypeTraits<velox::TypeKind::VARCHAR>::NativeType>>()
+              ->valueAt(index);
+      return kNullByteSize +
+          getBytesSerializedSize(varchar.data(), /*offset=*/0, varchar.size());
+    }
+    case velox::TypeKind::VARBINARY: {
+      const auto varbinary =
+          source
+              .asUnchecked<velox::SimpleVector<
+                  velox::TypeTraits<velox::TypeKind::VARBINARY>::NativeType>>()
+              ->valueAt(index);
+      return kNullByteSize +
+          getBytesSerializedSize(
+                 varbinary.data(), /*offset=*/0, varbinary.size());
+    }
+    case velox::TypeKind::ROW:
+      return getSerializedRowSize(source, index);
+    case velox::TypeKind::ARRAY:
+      return kNullByteSize + getSerializedArraySize(source, index);
+    default:
+      VELOX_NYI("Unsupported type: {}", source.typeKind());
+  }
+}
+
+void serializedSizeSwitchBatch(
+    const velox::BaseVector& source,
+    const folly::Range<const velox::vector_size_t*>& rows,
+    velox::vector_size_t** sizes,
+    velox::Scratch& scratch) {
+  // null handling using SIMD with scratch memory
+  velox::ScratchPtr<uint64_t, 1> nullsHolder(scratch);
+  velox::ScratchPtr<velox::vector_size_t, 1> nonNullsHolder(scratch);
+  velox::ScratchPtr<velox::vector_size_t*, 1> nonNullSizesHolder(scratch);
+
+  folly::Range<const velox::vector_size_t*> nonNullRows = rows;
+  auto* nonNullSizes = sizes;
+  const auto numRows = rows.size();
+
+  if (source.mayHaveNulls()) {
+    auto nulls = nullsHolder.get(velox::bits::nwords(numRows));
+    for (auto i = 0; i < numRows; ++i) {
+      // Set null bits (0 for null, 1 for non-null)
+      velox::bits::setBit(nulls, i);
+      if (source.isNullAt(rows[i])) {
+        velox::bits::clearBit(nulls, i);
+        *sizes[i] += kNullByteSize;
+      }
+    }
+
+    auto nonNulls = nonNullsHolder.get(numRows);
+    const auto numNonNull =
+        velox::simd::indicesOfSetBits(nulls, 0, numRows, nonNulls);
+    if (numNonNull == 0) {
+      return;
+    }
+    nonNullSizes = nonNullSizesHolder.get(numNonNull);
+    for (int32_t i = 0; i < numNonNull; ++i) {
+      nonNullSizes[i] = sizes[nonNulls[i]];
+    }
+
+    velox::simd::transpose(
+        rows.data(),
+        folly::Range<const velox::vector_size_t*>(nonNulls, numNonNull),
+        nonNulls);
+    nonNullRows =
+        folly::Range<const velox::vector_size_t*>(nonNulls, numNonNull);
+  }
+
+  // Process data for non-null rows only (or all rows if no nulls)
+  if (source.type()->isDate()) {
+    // Process date columns
+    for (auto i = 0; i < nonNullRows.size(); ++i) {
+      *nonNullSizes[i] += (kNullByteSize + sizeof(int32_t));
+    }
+    return;
+  }
+
+  switch (source.typeKind()) {
+    case velox::TypeKind::BIGINT:
+    case velox::TypeKind::BOOLEAN:
+    case velox::TypeKind::DOUBLE:
+    case velox::TypeKind::REAL:
+    case velox::TypeKind::TINYINT:
+    case velox::TypeKind::SMALLINT:
+    case velox::TypeKind::INTEGER: {
+      // Fixed-width types
+      const auto elementSize = source.type()->cppSizeInBytes();
+      for (auto i = 0; i < nonNullRows.size(); ++i) {
+        *nonNullSizes[i] += (kNullByteSize + elementSize);
+      }
+      break;
+    }
+    case velox::TypeKind::TIMESTAMP: {
+      // Timestamp
+      for (auto i = 0; i < nonNullRows.size(); ++i) {
+        *nonNullSizes[i] += (kNullByteSize + sizeof(int64_t));
+      }
+      break;
+    }
+    case velox::TypeKind::VARCHAR:
+    case velox::TypeKind::VARBINARY: {
+      auto valueBytes =
+          source.asUnchecked<velox::SimpleVector<velox::StringView>>();
+      for (auto i = 0; i < nonNullRows.size(); ++i) {
+        const auto value = valueBytes->valueAt(nonNullRows[i]);
+        *nonNullSizes[i] += kNullByteSize +
+            getBytesSerializedSize(value.data(), /*offset=*/0, value.size());
+      }
+      break;
+    }
+    case velox::TypeKind::ROW: {
+      calculateSerializedSizeRowBatch(
+          source, nonNullRows, nonNullSizes, scratch);
+      break;
+    }
+    case velox::TypeKind::ARRAY: {
+      for (auto i = 0; i < nonNullRows.size(); ++i) {
+        *nonNullSizes[i] += kNullByteSize;
+      }
+      calculateSerializedSizeArrayBatch(
+          source, nonNullRows, nonNullSizes, scratch);
+      break;
+    }
+    default:
+      VELOX_NYI("Unsupported type: {}", source.typeKind());
+  }
+}
 
 std::vector<std::pair<int32_t, velox::column_index_t>> computeSortChannels(
     const std::vector<velox::core::FieldAccessTypedExprPtr>& sortFields,
@@ -492,23 +802,96 @@ BinarySortableSerializer::BinarySortableSerializer(
 
 void BinarySortableSerializer::serialize(
     velox::vector_size_t rowId,
-    velox::StringVectorBuffer* out) {
-  const auto* rowVector =
-      input_->wrappedVector()->template asUnchecked<velox::RowVector>();
-  const auto wrappedIndex = input_->wrappedIndex(rowId);
-  const auto& children = rowVector->children();
+    velox::StringVectorBuffer* out) const {
+  const velox::DecodedVector decoded(*input_, /*loadLazy=*/true);
+  const auto* rowBase = decoded.base()->as<velox::RowVector>();
+  const auto decodedIndex = decoded.index(rowId);
+  const auto& children = rowBase->children();
 
   for (const auto& pair : sortChannels_) {
     const int32_t idx = pair.first;
     const auto channel = pair.second;
     const bool isNullLast = !sortOrders_[idx].isNullsFirst();
     const bool isDescending = !sortOrders_[idx].isAscending();
-    if (channel >= children.size() || !children[channel]) {
+    if (channel >= children.size()) {
+      VELOX_CHECK_EQ(
+          channel,
+          velox::kConstantChannel,
+          "Channel must be field access or constant");
       writeBool(out, isNullLast);
     } else {
+      VELOX_CHECK_NOT_NULL(children[channel]);
       writeBool(out, !isNullLast);
       serializeSwitch(
-          *children[channel], wrappedIndex, out, isNullLast, isDescending);
+          *children[channel], decodedIndex, out, isNullLast, isDescending);
+    }
+  }
+}
+
+size_t BinarySortableSerializer::serializedSizeInBytes(
+    velox::vector_size_t rowId) const {
+  const velox::DecodedVector decoded(*input_, /*loadLazy=*/true);
+  const auto* rowBase = decoded.base()->as<velox::RowVector>();
+  const auto decodedIndex = decoded.index(rowId);
+  const auto& children = rowBase->children();
+
+  size_t serializedSize = sortChannels_.size();
+  for (const auto& sortChannelEntry : sortChannels_) {
+    const auto channel = sortChannelEntry.second;
+    if (channel >= children.size()) {
+      VELOX_CHECK_EQ(
+          channel,
+          velox::kConstantChannel,
+          "Channel must be field access or constant");
+    } else {
+      VELOX_CHECK_NOT_NULL(children[channel]);
+      serializedSize += serializedSizeSwitch(*children[channel], decodedIndex);
+    }
+  }
+  return serializedSize;
+}
+
+void BinarySortableSerializer::serializedSizeInBytes(
+    velox::vector_size_t offset,
+    velox::vector_size_t size,
+    velox::vector_size_t** sizes,
+    velox::Scratch& scratch) const {
+  if (size == 0) {
+    return;
+  }
+  VELOX_CHECK_LE(offset + size, input_->size(), "Invalid offset or size");
+
+  // Decode the input vector
+  const velox::DecodedVector decoded(*input_, /*loadLazy=*/true);
+  const auto* rowBase = decoded.base()->as<velox::RowVector>();
+  const auto& children = rowBase->children();
+
+  // Initialize base sizes with one byte per sort channel
+  for (auto i = 0; i < size; ++i) {
+    *sizes[i] += sortChannels_.size();
+  }
+
+  // Process each sort channel in columnar order
+  for (const auto& sortChannelEntry : sortChannels_) {
+    const auto channel = sortChannelEntry.second;
+    if (channel >= children.size()) {
+      VELOX_CHECK_EQ(
+          channel,
+          velox::kConstantChannel,
+          "Channel must be field access or constant");
+    } else {
+      VELOX_CHECK_NOT_NULL(children[channel]);
+      velox::ScratchPtr<velox::vector_size_t, 1> decodedRowsHolder(scratch);
+      auto decodedRows = decodedRowsHolder.get(size);
+      for (auto i = 0; i < size; ++i) {
+        decodedRows[i] = decoded.index(offset + i);
+      }
+
+      serializedSizeSwitchBatch(
+          *children[channel],
+          folly::Range<const velox::vector_size_t*>(decodedRows, size),
+          sizes,
+          scratch);
     }
   }
 }

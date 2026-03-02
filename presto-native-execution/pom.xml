@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.293</version>
+        <version>0.297-edge10.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>presto-native-execution</artifactId>
@@ -15,42 +15,104 @@
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.checkstyle.config-file>src/checkstyle/presto-checks.xml</air.checkstyle.config-file>
+        <project.build.targetJdk>17</project.build.targetJdk>
+        <air.check.skip-modernizer>true</air.check.skip-modernizer>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>javax.annotation</groupId>
+                <artifactId>javax.annotation-api</artifactId>
+                <version>1.3.2</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
+        <!-- Spark2 still needs these while running unit tests -->
+        <dependency>
+            <groupId>javax.ws.rs</groupId>
+            <artifactId>javax.ws.rs-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>3.1.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- -->
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-tpch</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.airlift</groupId>
+            <artifactId>json</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.weakref</groupId>
+            <artifactId>jmxutils</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.airlift.tpch</groupId>
             <artifactId>tpch</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.inject</groupId>
+            <artifactId>guice</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-main-base</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-main-tests</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-main</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -63,16 +125,31 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-common</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-tests</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-function-namespace-managers</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-function-namespace-managers-common</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-built-in-worker-function-tools</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -85,12 +162,29 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-spi</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-parser</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.facebook.presto</groupId>
+                    <artifactId>presto-spi</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-iceberg</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.xerial.snappy</groupId>
@@ -99,18 +193,6 @@
                 <exclusion>
                     <groupId>org.apache.hudi</groupId>
                     <artifactId>hudi-presto-bundle</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-column</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-common</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-format-structures</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.commons</groupId>
@@ -123,35 +205,64 @@
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-iceberg</artifactId>
             <type>test-jar</type>
+            <scope>test</scope>
             <exclusions>
                 <exclusion>
                     <groupId>com.esotericsoftware</groupId>
                     <artifactId>kryo-shaded</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-column</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-common</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-format-structures</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-delta</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>scala-library</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                     <artifactId>commons-lang3</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-delta</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>scala-library</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-lang3</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.xerial.snappy</groupId>
+            <artifactId>snappy-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
             <artifactId>presto-hive-metastore</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-hive</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.xerial.snappy</groupId>
@@ -171,12 +282,14 @@
         <dependency>
             <groupId>com.facebook.presto.hive</groupId>
             <artifactId>hive-apache</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-hive</artifactId>
             <type>test-jar</type>
+            <scope>test</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.xerial.snappy</groupId>
@@ -203,34 +316,53 @@
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-spark-base</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.facebook.drift</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto.spark</groupId>
             <artifactId>spark-core</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.facebook.drift</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-spark-base</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.facebook.drift</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-
         <dependency>
             <groupId>com.facebook.airlift</groupId>
             <artifactId>log</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.airlift</groupId>
             <artifactId>log-manager</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.airlift</groupId>
             <artifactId>testing</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
@@ -248,6 +380,7 @@
             <artifactId>presto-jdbc</artifactId>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -256,14 +389,22 @@
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
+            <artifactId>presto-sql-invoked-functions-plugin</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.facebook.presto</groupId>
             <artifactId>presto-clp</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-clp</artifactId>
             <type>test-jar</type>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -306,7 +447,7 @@
                 <configuration>
                     <forkCount>1</forkCount>
                     <reuseForks>false</reuseForks>
-                    <excludedGroups>remote-function,textfile_reader</excludedGroups>
+                    <excludedGroups>remote-function</excludedGroups>
                     <systemPropertyVariables>
                         <PRESTO_SERVER>/root/project/build/debug/presto_cpp/main/presto_server</PRESTO_SERVER>
                         <DATA_DIR>/tmp/velox</DATA_DIR>
@@ -358,7 +499,7 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <excludedGroups combine.self="override">writer,parquet,remote-function,textfile_reader,no_textfile_reader,async_data_cache</excludedGroups>
+                            <excludedGroups combine.self="override">writer,parquet,remote-function,textfile</excludedGroups>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -394,6 +535,12 @@
                                             <directory>${project.parent.basedir}/presto-cli/target</directory>
                                             <includes>
                                                 <include>presto-cli-*-executable.jar</include>
+                                            </includes>
+                                        </resource>
+                                        <resource>
+                                            <directory>${project.parent.basedir}/presto-function-server/target</directory>
+                                            <includes>
+                                                <include>presto-function-server-executable.jar</include>
                                             </includes>
                                         </resource>
                                         <resource>
@@ -467,7 +614,7 @@
                                                 <args>
                                                     <BUILD_TYPE>Release</BUILD_TYPE>
                                                     <DEPENDENCY_IMAGE>presto-native-dependency:latest</DEPENDENCY_IMAGE>
-                                                    <EXTRA_CMAKE_FLAGS>-DPRESTO_ENABLE_TESTING=OFF</EXTRA_CMAKE_FLAGS>
+                                                    <EXTRA_CMAKE_FLAGS>"-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_REMOTE_FUNCTIONS=ON"</EXTRA_CMAKE_FLAGS>
                                                     <NUM_THREADS>2</NUM_THREADS>
                                                     <BASE_IMAGE>ubuntu:22.04</BASE_IMAGE>
                                                     <OSNAME>ubuntu</OSNAME>

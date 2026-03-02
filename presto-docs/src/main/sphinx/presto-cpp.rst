@@ -7,9 +7,11 @@ Note: Presto C++ is in active development. See :doc:`Limitations </presto_cpp/li
 .. toctree::
     :maxdepth: 1
 
+    presto_cpp/installation
     presto_cpp/features
     presto_cpp/sidecar
     presto_cpp/limitations
+    presto_cpp/plugin
     presto_cpp/properties
     presto_cpp/properties-session
 
@@ -84,3 +86,10 @@ TPCH Connector
 ^^^^^^^^^^^^^^
 
 * TPCH connector, with ``tpch.naming=standard`` catalog property.
+
+TPC-DS Connector
+^^^^^^^^^^^^^^^^
+
+* TPC-DS connector, with ``tpcds.use-varchar-type=true`` in the coordinator's TPCDS catalog file.
+
+For more information see :doc:`/connector/tpcds` documentation.

@@ -21,13 +21,13 @@ import com.facebook.presto.metadata.SqlScalarFunction;
 import com.facebook.presto.operator.aggregation.TypedSet;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.Description;
+import com.facebook.presto.spi.function.LiteralParameter;
 import com.facebook.presto.spi.function.LiteralParameters;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.Signature;
 import com.facebook.presto.spi.function.SqlNullable;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.type.Constraint;
-import com.facebook.presto.type.LiteralParameter;
 import com.facebook.presto.util.SecureRandomGeneration;
 import com.google.common.primitives.Doubles;
 import io.airlift.slice.Slice;
@@ -39,6 +39,7 @@ import org.apache.commons.math3.distribution.FDistribution;
 import org.apache.commons.math3.distribution.GammaDistribution;
 import org.apache.commons.math3.distribution.LaplaceDistribution;
 import org.apache.commons.math3.distribution.PoissonDistribution;
+import org.apache.commons.math3.distribution.TDistribution;
 import org.apache.commons.math3.distribution.WeibullDistribution;
 import org.apache.commons.math3.special.Erf;
 
@@ -49,6 +50,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static com.facebook.presto.common.type.Decimals.longTenToNth;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
+import static com.facebook.presto.common.type.RealType.REAL;
 import static com.facebook.presto.common.type.UnscaledDecimal128Arithmetic.add;
 import static com.facebook.presto.common.type.UnscaledDecimal128Arithmetic.isNegative;
 import static com.facebook.presto.common.type.UnscaledDecimal128Arithmetic.isZero;
@@ -980,6 +982,31 @@ public final class MathFunctions
         return distribution.cumulativeProbability((int) value);
     }
 
+    @Description("inverse of Student's t cdf given degrees of freedom and probability")
+    @ScalarFunction
+    @SqlType(StandardTypes.DOUBLE)
+    public static double inverseTCdf(
+            @SqlType(StandardTypes.DOUBLE) double df,
+            @SqlType(StandardTypes.DOUBLE) double p)
+    {
+        checkCondition(df > 0, INVALID_FUNCTION_ARGUMENT, "df must be greater than 0");
+        checkCondition(p >= 0.0 && p <= 1.0, INVALID_FUNCTION_ARGUMENT, "p must be in the interval [0, 1]");
+        TDistribution distribution = new TDistribution(null, df, TDistribution.DEFAULT_INVERSE_ABSOLUTE_ACCURACY);
+        return distribution.inverseCumulativeProbability(p);
+    }
+
+    @Description("Student's t cdf given degrees of freedom and value")
+    @ScalarFunction
+    @SqlType(StandardTypes.DOUBLE)
+    public static double tCdf(
+            @SqlType(StandardTypes.DOUBLE) double df,
+            @SqlType(StandardTypes.DOUBLE) double value)
+    {
+        checkCondition(df > 0, INVALID_FUNCTION_ARGUMENT, "df must be greater than 0");
+        TDistribution distribution = new TDistribution(null, df, TDistribution.DEFAULT_INVERSE_ABSOLUTE_ACCURACY);
+        return distribution.cumulativeProbability(value);
+    }
+
     @Description("Inverse of Weibull cdf given a, b parameters and probability")
     @ScalarFunction
     @SqlType(StandardTypes.DOUBLE)
@@ -1631,6 +1658,11 @@ public final class MathFunctions
                 INVALID_FUNCTION_ARGUMENT,
                 "Both array arguments need to have identical size");
 
+        checkCondition(
+                !(leftArray.mayHaveNull() || rightArray.mayHaveNull()),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both arrays must not have nulls");
+
         Double normLeftArray = array2Norm(leftArray);
         Double normRightArray = array2Norm(rightArray);
 
@@ -1641,6 +1673,113 @@ public final class MathFunctions
         double dotProduct = arrayDotProduct(leftArray, rightArray);
 
         return dotProduct / (normLeftArray * normRightArray);
+    }
+
+    @Description("squared Euclidean distance between the given identical sized vectors represented as arrays")
+    @ScalarFunction("l2_squared")
+    @SqlType(StandardTypes.REAL)
+    public static long arrayL2Squared(@SqlType("array(real)") Block leftArray, @SqlType("array(real)") Block rightArray)
+    {
+        checkCondition(
+                leftArray.getPositionCount() == rightArray.getPositionCount(),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments need to have identical size");
+
+        checkCondition(
+                !(leftArray.mayHaveNull() || rightArray.mayHaveNull()),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both arrays must not have nulls");
+
+        float sum = 0.0f;
+        for (int i = 0; i < leftArray.getPositionCount(); i++) {
+            float left = intBitsToFloat((int) leftArray.getInt(i));
+            float right = intBitsToFloat((int) rightArray.getInt(i));
+            float diff = left - right;
+            sum += diff * diff;
+        }
+
+        return floatToRawIntBits(sum);
+    }
+
+    @Description("squared Euclidean distance between the given identical sized vectors represented as arrays")
+    @ScalarFunction("l2_squared")
+    @SqlType(StandardTypes.DOUBLE)
+    public static double arrayL2SquaredDouble(
+            @SqlType("array(double)") Block leftArray,
+            @SqlType("array(double)") Block rightArray)
+    {
+        checkCondition(
+                leftArray.getPositionCount() == rightArray.getPositionCount(),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments need to have identical size");
+
+        checkCondition(
+                !(leftArray.mayHaveNull() || rightArray.mayHaveNull()),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both arrays must not have nulls");
+
+        double sum = 0.0;
+        for (int i = 0; i < leftArray.getPositionCount(); i++) {
+            double left = DOUBLE.getDouble(leftArray, i);
+            double right = DOUBLE.getDouble(rightArray, i);
+            double diff = left - right;
+            sum += diff * diff;
+        }
+        return sum;
+    }
+
+    @Description("Dot Product distance between the given identical sized vectors represented as DOUBLE arrays")
+    @ScalarFunction("dot_product")
+    @SqlNullable
+    @SqlType(StandardTypes.DOUBLE)
+    public static Double arrayDotProduct(
+            @SqlType("array(double)") Block leftArray,
+            @SqlType("array(double)") Block rightArray)
+    {
+        checkCondition(
+                leftArray.getPositionCount() == rightArray.getPositionCount(),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments must have identical sizes");
+
+        checkCondition(
+                !(leftArray.mayHaveNull() || rightArray.mayHaveNull()),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments must not have nulls");
+
+        double result = 0.0;
+
+        for (int i = 0; i < leftArray.getPositionCount(); i++) {
+            result += DOUBLE.getDouble(leftArray, i) * DOUBLE.getDouble(rightArray, i);
+        }
+
+        return result;
+    }
+
+    @Description("Dot Product distance between the given identical sized vectors represented as REAL arrays")
+    @ScalarFunction("dot_product")
+    @SqlNullable
+    @SqlType(StandardTypes.REAL)
+    public static Long arrayDotProductReal(
+            @SqlType("array(real)") Block leftArray,
+            @SqlType("array(real)") Block rightArray)
+    {
+        checkCondition(
+                leftArray.getPositionCount() == rightArray.getPositionCount(),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments must have identical sizes");
+
+        checkCondition(
+                !(leftArray.mayHaveNull() || rightArray.mayHaveNull()),
+                INVALID_FUNCTION_ARGUMENT,
+                "Both array arguments must not have nulls");
+
+        float dotProduct = 0.0F;
+
+        for (int i = 0; i < leftArray.getPositionCount(); i++) {
+            dotProduct += intBitsToFloat((int) REAL.getLong(leftArray, i)) * Float.intBitsToFloat((int) REAL.getLong(rightArray, i));
+        }
+
+        return ((long) floatToRawIntBits(dotProduct));
     }
 
     private static double mapDotProduct(Block leftMap, Block rightMap)
@@ -1660,17 +1799,6 @@ public final class MathFunctions
                 result += DOUBLE.getDouble(leftMap, i + 1) *
                         DOUBLE.getDouble(rightMap, 2 * position + 1);
             }
-        }
-
-        return result;
-    }
-
-    private static double arrayDotProduct(Block leftArray, Block rightArray)
-    {
-        double result = 0.0;
-
-        for (int i = 0; i < leftArray.getPositionCount(); i++) {
-            result += DOUBLE.getDouble(leftArray, i) * DOUBLE.getDouble(rightArray, i);
         }
 
         return result;

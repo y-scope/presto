@@ -15,12 +15,15 @@ package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.common.QualifiedObjectName;
+import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.metadata.TableFunctionHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.TableHandle;
@@ -29,16 +32,20 @@ import com.facebook.presto.spi.constraints.TableConstraint;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.Assignments;
 import com.facebook.presto.spi.plan.CteReferenceNode;
+import com.facebook.presto.spi.plan.DataOrganizationSpecification;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
+import com.facebook.presto.spi.plan.MaterializedViewScanNode;
+import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
@@ -48,13 +55,17 @@ import com.facebook.presto.sql.analyzer.Analysis.NamedQuery;
 import com.facebook.presto.sql.analyzer.Field;
 import com.facebook.presto.sql.analyzer.RelationId;
 import com.facebook.presto.sql.analyzer.RelationType;
+import com.facebook.presto.sql.analyzer.ResolvedField;
 import com.facebook.presto.sql.analyzer.Scope;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.optimizations.JoinNodeUtils;
 import com.facebook.presto.sql.planner.optimizations.SampleNodeUtil;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
 import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.Cast;
 import com.facebook.presto.sql.tree.CoalesceExpression;
@@ -82,8 +93,10 @@ import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SampledRelation;
 import com.facebook.presto.sql.tree.SetOperation;
+import com.facebook.presto.sql.tree.SortItem;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.sql.tree.Table;
+import com.facebook.presto.sql.tree.TableFunctionInvocation;
 import com.facebook.presto.sql.tree.TableSubquery;
 import com.facebook.presto.sql.tree.Union;
 import com.facebook.presto.sql.tree.Unnest;
@@ -91,11 +104,11 @@ import com.facebook.presto.sql.tree.Values;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.UnmodifiableIterator;
-
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -112,6 +125,7 @@ import static com.facebook.presto.SystemSessionProperties.getCteMaterializationS
 import static com.facebook.presto.SystemSessionProperties.getQueryAnalyzerTimeout;
 import static com.facebook.presto.common.type.TypeUtils.isEnumType;
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_PLAN_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.QUERY_PLANNING_TIMEOUT;
 import static com.facebook.presto.spi.plan.AggregationNode.singleGroupingSet;
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
@@ -176,6 +190,11 @@ class RelationPlanner
     @Override
     protected RelationPlan visitTable(Table node, SqlPlannerContext context)
     {
+        Optional<Analysis.MaterializedViewInfo> materializedViewInfo = analysis.getMaterializedViewInfo(node);
+        if (materializedViewInfo.isPresent()) {
+            return planMaterializedView(node, materializedViewInfo.get(), context);
+        }
+
         NamedQuery namedQuery = analysis.getNamedQuery(node);
         Scope scope = analysis.getScope(node);
 
@@ -183,7 +202,7 @@ class RelationPlanner
         if (namedQuery != null) {
             String cteName = node.getName().toString();
             if (namedQuery.isFromView()) {
-                cteName = createQualifiedObjectName(session, node, node.getName()).toString();
+                cteName = createQualifiedObjectName(session, node, node.getName(), metadata).toString();
             }
             RelationPlan subPlan = process(namedQuery.getQuery(), context);
             if (getCteMaterializationStrategy(session).equals(NONE)) {
@@ -298,6 +317,240 @@ class RelationPlanner
         return new RelationPlan(planBuilder.getRoot(), plan.getScope(), newMappings.build());
     }
 
+    private RelationPlan planMaterializedView(Table node, Analysis.MaterializedViewInfo materializedViewInfo, SqlPlannerContext context)
+    {
+        RelationPlan dataTablePlan = process(materializedViewInfo.getDataTable(), context);
+        RelationPlan viewQueryPlan = process(materializedViewInfo.getViewQuery(), context);
+
+        Scope scope = analysis.getScope(node);
+
+        QualifiedObjectName materializedViewName = materializedViewInfo.getMaterializedViewName();
+
+        RelationType dataTableDescriptor = dataTablePlan.getDescriptor();
+        List<VariableReferenceExpression> dataTableVariables = dataTablePlan.getFieldMappings();
+        List<VariableReferenceExpression> viewQueryVariables = viewQueryPlan.getFieldMappings();
+
+        checkArgument(
+                dataTableDescriptor.getVisibleFieldCount() == viewQueryVariables.size(),
+                "Materialized view %s has mismatched field counts: data table has %s visible fields but view query has %s fields",
+                materializedViewName,
+                dataTableDescriptor.getVisibleFieldCount(),
+                viewQueryVariables.size());
+
+        ImmutableList.Builder<VariableReferenceExpression> outputVariablesBuilder = ImmutableList.builder();
+        ImmutableMap.Builder<VariableReferenceExpression, VariableReferenceExpression> dataTableMappingsBuilder = ImmutableMap.builder();
+        ImmutableMap.Builder<VariableReferenceExpression, VariableReferenceExpression> viewQueryMappingsBuilder = ImmutableMap.builder();
+
+        for (Field field : dataTableDescriptor.getVisibleFields()) {
+            int fieldIndex = dataTableDescriptor.indexOf(field);
+            VariableReferenceExpression dataTableVar = dataTableVariables.get(fieldIndex);
+            VariableReferenceExpression viewQueryVar = viewQueryVariables.get(fieldIndex);
+
+            VariableReferenceExpression outputVar = variableAllocator.newVariable(dataTableVar);
+            outputVariablesBuilder.add(outputVar);
+
+            dataTableMappingsBuilder.put(outputVar, dataTableVar);
+            viewQueryMappingsBuilder.put(outputVar, viewQueryVar);
+        }
+
+        List<VariableReferenceExpression> outputVariables = outputVariablesBuilder.build();
+        Map<VariableReferenceExpression, VariableReferenceExpression> dataTableMappings = dataTableMappingsBuilder.build();
+        Map<VariableReferenceExpression, VariableReferenceExpression> viewQueryMappings = viewQueryMappingsBuilder.build();
+
+        MaterializedViewScanNode mvScanNode = new MaterializedViewScanNode(
+                getSourceLocation(node.getLocation()),
+                idAllocator.getNextId(),
+                dataTablePlan.getRoot(),
+                viewQueryPlan.getRoot(),
+                materializedViewName,
+                dataTableMappings,
+                viewQueryMappings,
+                outputVariables);
+
+        return new RelationPlan(mvScanNode, scope, outputVariables);
+    }
+
+    /**
+     * Processes a {@code TableFunctionInvocation} node to construct and return a {@link RelationPlan}.
+     * This involves preparing the necessary plan nodes, variable mappings, and associated properties
+     * to represent the execution plan for the invoked table function.
+     *
+     * @param node The {@code TableFunctionInvocation} syntax tree node to be processed.
+     * @param context The SQL planner context used for planning and analysis tasks.
+     * @return A {@link RelationPlan} encapsulating the execution plan for the table function invocation.
+     */
+    @Override
+    protected RelationPlan visitTableFunctionInvocation(TableFunctionInvocation node, SqlPlannerContext context)
+    {
+        Analysis.TableFunctionInvocationAnalysis functionAnalysis = analysis.getTableFunctionAnalysis(node);
+        ImmutableList.Builder<PlanNode> sources = ImmutableList.builder();
+        ImmutableList.Builder<TableArgumentProperties> sourceProperties = ImmutableList.builder();
+        ImmutableList.Builder<VariableReferenceExpression> outputVariables = ImmutableList.builder();
+
+        // create new symbols for table function's proper columns
+        RelationType relationType = analysis.getScope(node).getRelationType();
+        List<VariableReferenceExpression> properOutputs = IntStream.range(0, functionAnalysis.getProperColumnsCount())
+                .mapToObj(relationType::getFieldByIndex)
+                .map(field -> variableAllocator.newVariable(getSourceLocation(node), field.getName().orElse("field"), field.getType()))
+                .collect(toImmutableList());
+
+        outputVariables.addAll(properOutputs);
+
+        processTableArguments(context, functionAnalysis, outputVariables, sources, sourceProperties);
+
+        PlanNode root = new TableFunctionNode(
+                idAllocator.getNextId(),
+                functionAnalysis.getFunctionName(),
+                functionAnalysis.getArguments(),
+                properOutputs,
+                sources.build(),
+                sourceProperties.build(),
+                functionAnalysis.getCopartitioningLists(),
+                new TableFunctionHandle(
+                        functionAnalysis.getConnectorId(),
+                        functionAnalysis.getConnectorTableFunctionHandle(),
+                        functionAnalysis.getTransactionHandle()));
+
+        return new RelationPlan(root, analysis.getScope(node), outputVariables.build());
+    }
+
+    private void processTableArguments(SqlPlannerContext context,
+                                       Analysis.TableFunctionInvocationAnalysis functionAnalysis,
+                                       ImmutableList.Builder<VariableReferenceExpression> outputVariables,
+                                       ImmutableList.Builder<PlanNode> sources,
+                                       ImmutableList.Builder<TableArgumentProperties> sourceProperties)
+    {
+        QueryPlanner partitionQueryPlanner = new QueryPlanner(analysis, variableAllocator, idAllocator, lambdaDeclarationToVariableMap, metadata, session, context, sqlParser);
+        // process sources in order of argument declarations
+        for (Analysis.TableArgumentAnalysis tableArgument : functionAnalysis.getTableArgumentAnalyses()) {
+            RelationPlan sourcePlan = process(tableArgument.getRelation(), context);
+            PlanBuilder sourcePlanBuilder = initializePlanBuilder(sourcePlan);
+
+            int[] fieldIndexForVisibleColumn = getFieldIndexesForVisibleColumns(sourcePlan);
+
+            List<VariableReferenceExpression> requiredColumns = functionAnalysis.getRequiredColumns().get(tableArgument.getArgumentName()).stream()
+                    .map(column -> fieldIndexForVisibleColumn[column])
+                    .map(sourcePlan::getVariable)
+                    .collect(toImmutableList());
+
+            Optional<DataOrganizationSpecification> specification = Optional.empty();
+
+            // if the table argument has set semantics, create Specification
+            if (!tableArgument.isRowSemantics()) {
+                // partition by
+                List<VariableReferenceExpression> partitionBy = ImmutableList.of();
+                // if there are partitioning columns, they might have to be coerced for copartitioning
+                if (tableArgument.getPartitionBy().isPresent() && !tableArgument.getPartitionBy().get().isEmpty()) {
+                    List<Expression> partitioningColumns = tableArgument.getPartitionBy().get();
+                    for (Expression partitionColumn : partitioningColumns) {
+                        if (!sourcePlanBuilder.canTranslate(partitionColumn)) {
+                            ResolvedField partition = sourcePlan.getScope().tryResolveField(partitionColumn).orElseThrow(() -> new PrestoException(INVALID_PLAN_ERROR, "Missing equivalent alias"));
+                            sourcePlanBuilder.getTranslations().put(partitionColumn, sourcePlan.getVariable(partition.getRelationFieldIndex()));
+                        }
+                    }
+                    QueryPlanner.PlanAndMappings copartitionCoercions = partitionQueryPlanner.coerce(sourcePlanBuilder, partitioningColumns, analysis, idAllocator, variableAllocator, metadata);
+                    sourcePlanBuilder = copartitionCoercions.getSubPlan();
+                    partitionBy = partitioningColumns.stream()
+                            .map(copartitionCoercions::get)
+                            .collect(toImmutableList());
+                }
+
+                // order by
+                Optional<OrderingScheme> orderBy = getOrderingScheme(tableArgument, sourcePlanBuilder, sourcePlan);
+                specification = Optional.of(new DataOrganizationSpecification(partitionBy, orderBy));
+            }
+
+            // add output symbols passed from the table argument
+            ImmutableList.Builder<PassThroughColumn> passThroughColumns = ImmutableList.builder();
+            addPassthroughColumns(outputVariables, tableArgument, sourcePlan, specification, passThroughColumns, sourcePlanBuilder);
+            sources.add(sourcePlanBuilder.getRoot());
+
+            sourceProperties.add(new TableArgumentProperties(
+                    tableArgument.getArgumentName(),
+                    tableArgument.isRowSemantics(),
+                    tableArgument.isPruneWhenEmpty(),
+                    new PassThroughSpecification(tableArgument.isPassThroughColumns(), passThroughColumns.build()),
+                    requiredColumns,
+                    specification));
+        }
+    }
+
+    private static int[] getFieldIndexesForVisibleColumns(RelationPlan sourcePlan)
+    {
+        // required columns are a subset of visible columns of the source. remap required column indexes to field indexes in source relation type.
+        RelationType sourceRelationType = sourcePlan.getScope().getRelationType();
+        int[] fieldIndexForVisibleColumn = new int[sourceRelationType.getVisibleFieldCount()];
+        int visibleColumn = 0;
+        for (int i = 0; i < sourceRelationType.getAllFieldCount(); i++) {
+            if (!sourceRelationType.getFieldByIndex(i).isHidden()) {
+                fieldIndexForVisibleColumn[visibleColumn] = i;
+                visibleColumn++;
+            }
+        }
+        return fieldIndexForVisibleColumn;
+    }
+
+    private static Optional<OrderingScheme> getOrderingScheme(Analysis.TableArgumentAnalysis tableArgument, PlanBuilder sourcePlanBuilder, RelationPlan sourcePlan)
+    {
+        Optional<OrderingScheme> orderBy = Optional.empty();
+        if (tableArgument.getOrderBy().isPresent()) {
+            List<SortItem> sortItems = tableArgument.getOrderBy().get().getSortItems();
+
+            // Ensure all ORDER BY columns can be translated (populate missing translations if needed)
+            for (SortItem sortItem : sortItems) {
+                Expression sortKey = sortItem.getSortKey();
+                if (!sourcePlanBuilder.canTranslate(sortKey)) {
+                    Optional<ResolvedField> resolvedField = sourcePlan.getScope().tryResolveField(sortKey);
+                    resolvedField.ifPresent(field -> sourcePlanBuilder.getTranslations().put(
+                            sortKey,
+                            sourcePlan.getVariable(field.getRelationFieldIndex())));
+                }
+            }
+
+            // The ordering symbols are coerced
+            List<VariableReferenceExpression> coerced = sortItems.stream()
+                    .map(SortItem::getSortKey)
+                    .map(sourcePlanBuilder::translate)
+                    .collect(toImmutableList());
+
+            List<SortOrder> sortOrders = sortItems.stream()
+                    .map(PlannerUtils::toSortOrder)
+                    .collect(toImmutableList());
+
+            orderBy = Optional.of(PlannerUtils.toOrderingScheme(coerced, sortOrders));
+        }
+        return orderBy;
+    }
+
+    private static void addPassthroughColumns(ImmutableList.Builder<VariableReferenceExpression> outputVariables,
+                                         Analysis.TableArgumentAnalysis tableArgument, RelationPlan sourcePlan,
+                                         Optional<DataOrganizationSpecification> specification,
+                                         ImmutableList.Builder<PassThroughColumn> passThroughColumns,
+                                         PlanBuilder sourcePlanBuilder)
+    {
+        if (tableArgument.isPassThroughColumns()) {
+            // the original output symbols from the source node, not coerced
+            // note: hidden columns are included. They are present in sourcePlan.fieldMappings
+            outputVariables.addAll(sourcePlan.getFieldMappings());
+            Set<VariableReferenceExpression> partitionBy = specification
+                    .map(DataOrganizationSpecification::getPartitionBy)
+                    .map(ImmutableSet::copyOf)
+                    .orElse(ImmutableSet.of());
+            sourcePlan.getFieldMappings().stream()
+                    .map(variable -> new PassThroughColumn(variable, partitionBy.contains(variable)))
+                    .forEach(passThroughColumns::add);
+        }
+        else if (tableArgument.getPartitionBy().isPresent()) {
+            tableArgument.getPartitionBy().get().stream()
+                    .map(sourcePlanBuilder::translate)
+                    // the original symbols for partitioning columns, not coerced
+                    .forEach(variable -> {
+                        outputVariables.add(variable);
+                        passThroughColumns.add(new PassThroughColumn(variable, true));
+                    });
+        }
+    }
+
     @Override
     protected RelationPlan visitAliasedRelation(AliasedRelation node, SqlPlannerContext context)
     {
@@ -370,6 +623,11 @@ class RelationPlanner
             return planJoinUsing(node, leftPlan, rightPlan, context);
         }
 
+        return planJoin(analysis.getJoinCriteria(node), node.getType(), analysis.getScope(node), leftPlan, rightPlan, node, context);
+    }
+
+    public RelationPlan planJoin(Expression criteria, Join.Type type, Scope scope, RelationPlan leftPlan, RelationPlan rightPlan, Node node, SqlPlannerContext context)
+    {
         PlanBuilder leftPlanBuilder = initializePlanBuilder(leftPlan);
         PlanBuilder rightPlanBuilder = initializePlanBuilder(rightPlan);
 
@@ -383,12 +641,10 @@ class RelationPlanner
         List<Expression> complexJoinExpressions = new ArrayList<>();
         List<Expression> postInnerJoinConditions = new ArrayList<>();
 
-        if (node.getType() != Join.Type.CROSS && node.getType() != Join.Type.IMPLICIT) {
-            Expression criteria = analysis.getJoinCriteria(node);
+        RelationType left = leftPlan.getDescriptor();
+        RelationType right = rightPlan.getDescriptor();
 
-            RelationType left = analysis.getOutputDescriptor(node.getLeft());
-            RelationType right = analysis.getOutputDescriptor(node.getRight());
-
+        if (type != Join.Type.CROSS && type != Join.Type.IMPLICIT) {
             List<Expression> leftComparisonExpressions = new ArrayList<>();
             List<Expression> rightComparisonExpressions = new ArrayList<>();
             List<ComparisonExpression.Operator> joinConditionComparisonOperators = new ArrayList<>();
@@ -396,7 +652,7 @@ class RelationPlanner
             for (Expression conjunct : ExpressionUtils.extractConjuncts(criteria)) {
                 conjunct = ExpressionUtils.normalize(conjunct);
 
-                if (!isEqualComparisonExpression(conjunct) && node.getType() != INNER) {
+                if (!isEqualComparisonExpression(conjunct) && type != INNER) {
                     complexJoinExpressions.add(conjunct);
                     continue;
                 }
@@ -460,7 +716,7 @@ class RelationPlanner
         PlanNode root = new JoinNode(
                 getSourceLocation(node),
                 idAllocator.getNextId(),
-                JoinNodeUtils.typeConvert(node.getType()),
+                JoinNodeUtils.typeConvert(type),
                 leftPlanBuilder.getRoot(),
                 rightPlanBuilder.getRoot(),
                 equiClauses.build(),
@@ -474,7 +730,7 @@ class RelationPlanner
                 Optional.empty(),
                 ImmutableMap.of());
 
-        if (node.getType() != INNER) {
+        if (type != INNER) {
             for (Expression complexExpression : complexJoinExpressions) {
                 Set<InPredicate> inPredicates = subqueryPlanner.collectInPredicateSubqueries(complexExpression, node);
                 if (!inPredicates.isEmpty()) {
@@ -483,10 +739,7 @@ class RelationPlanner
                 }
             }
 
-            if (node.getType() == LEFT || node.getType() == RIGHT) {
-                RelationType left = analysis.getOutputDescriptor(node.getLeft());
-                RelationType right = analysis.getOutputDescriptor(node.getRight());
-
+            if (type == LEFT || type == RIGHT) {
                 for (Expression complexJoinExpression : complexJoinExpressions) {
                     Set<QualifiedName> dependencies = VariablesExtractor.extractNames(complexJoinExpression, analysis.getColumnReferences());
                     // If there are no dependencies, no subqueries, or if the expression references both inputs,
@@ -502,7 +755,7 @@ class RelationPlanner
                         // If the subquery references the right input, those variables will remain unresolved and caught in NoIdentifierLeftChecker
                         leftPlanBuilder = subqueryPlanner.handleUncorrelatedSubqueries(leftPlanBuilder, ImmutableList.of(complexJoinExpression), node, context);
                     }
-                    else if (node.getType() == LEFT && !dependencies.stream().allMatch(left::canResolve)) {
+                    else if (type == LEFT && !dependencies.stream().allMatch(left::canResolve)) {
                         rightPlanBuilder = subqueryPlanner.handleSubqueries(rightPlanBuilder, complexJoinExpression, node, context);
                     }
                     else {
@@ -517,19 +770,19 @@ class RelationPlanner
             }
         }
 
-        RelationPlan intermediateRootRelationPlan = new RelationPlan(root, analysis.getScope(node), outputs);
+        RelationPlan intermediateRootRelationPlan = new RelationPlan(root, scope, outputs);
         TranslationMap translationMap = new TranslationMap(intermediateRootRelationPlan, analysis, lambdaDeclarationToVariableMap);
         translationMap.setFieldMappings(outputs);
         translationMap.putExpressionMappingsFrom(leftPlanBuilder.getTranslations());
         translationMap.putExpressionMappingsFrom(rightPlanBuilder.getTranslations());
 
-        if (node.getType() != INNER && !complexJoinExpressions.isEmpty()) {
+        if (type != INNER && !complexJoinExpressions.isEmpty()) {
             Expression joinedFilterCondition = ExpressionUtils.and(complexJoinExpressions);
             Expression rewrittenFilterCondition = translationMap.rewrite(joinedFilterCondition);
             root = new JoinNode(
                     getSourceLocation(node),
                     idAllocator.getNextId(),
-                    JoinNodeUtils.typeConvert(node.getType()),
+                    JoinNodeUtils.typeConvert(type),
                     leftPlanBuilder.getRoot(),
                     rightPlanBuilder.getRoot(),
                     equiClauses.build(),
@@ -544,7 +797,7 @@ class RelationPlanner
                     ImmutableMap.of());
         }
 
-        if (node.getType() == INNER) {
+        if (type == INNER) {
             // rewrite all the other conditions using output variables from left + right plan node.
             PlanBuilder rootPlanBuilder = new PlanBuilder(translationMap, root);
             rootPlanBuilder = subqueryPlanner.handleSubqueries(rootPlanBuilder, complexJoinExpressions, node, context);
@@ -561,7 +814,7 @@ class RelationPlanner
             }
         }
 
-        return new RelationPlan(root, analysis.getScope(node), outputs);
+        return new RelationPlan(root, scope, outputs);
     }
 
     private RelationPlan planJoinUsing(Join node, RelationPlan left, RelationPlan right, SqlPlannerContext context)

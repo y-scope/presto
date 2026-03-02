@@ -33,6 +33,7 @@ import com.facebook.drift.server.DriftServer;
 import com.facebook.drift.transport.netty.server.DriftNettyServerTransport;
 import com.facebook.presto.ClientRequestFilterManager;
 import com.facebook.presto.ClientRequestFilterModule;
+import com.facebook.presto.builtin.tools.WorkerFunctionRegistryTool;
 import com.facebook.presto.dispatcher.QueryPrerequisitesManager;
 import com.facebook.presto.dispatcher.QueryPrerequisitesManagerModule;
 import com.facebook.presto.eventlistener.EventListenerManager;
@@ -48,12 +49,16 @@ import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.metadata.SessionPropertyManager;
 import com.facebook.presto.metadata.StaticCatalogStore;
 import com.facebook.presto.metadata.StaticFunctionNamespaceStore;
+import com.facebook.presto.metadata.StaticTypeManagerStore;
 import com.facebook.presto.nodeManager.PluginNodeManager;
 import com.facebook.presto.security.AccessControlManager;
 import com.facebook.presto.security.AccessControlModule;
 import com.facebook.presto.server.security.PasswordAuthenticatorManager;
 import com.facebook.presto.server.security.PrestoAuthenticatorManager;
+import com.facebook.presto.server.security.SecurityConfig;
 import com.facebook.presto.server.security.ServerSecurityModule;
+import com.facebook.presto.server.security.oauth2.OAuth2Client;
+import com.facebook.presto.spi.function.SqlFunction;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.expressions.ExpressionOptimizerManager;
 import com.facebook.presto.sql.parser.SqlParserOptions;
@@ -85,6 +90,7 @@ import static com.facebook.airlift.discovery.client.ServiceAnnouncement.serviceA
 import static com.facebook.airlift.json.JsonBinder.jsonBinder;
 import static com.facebook.presto.server.PrestoSystemRequirements.verifyJvmRequirements;
 import static com.facebook.presto.server.PrestoSystemRequirements.verifySystemTimeIsReasonable;
+import static com.facebook.presto.server.security.SecurityConfig.AuthenticationType.OAUTH2;
 import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
@@ -175,8 +181,14 @@ public class PrestoServer
                     injector.getInstance(DriftServer.class));
 
             injector.getInstance(StaticFunctionNamespaceStore.class).loadFunctionNamespaceManagers();
+            injector.getInstance(StaticTypeManagerStore.class).loadTypeManagers();
             injector.getInstance(SessionPropertyDefaults.class).loadConfigurationManager();
             injector.getInstance(ResourceGroupManager.class).loadConfigurationManager();
+            if (injector.getInstance(FeaturesConfig.class).isBuiltInSidecarFunctionsEnabled()) {
+                List<? extends SqlFunction> functions = injector.getInstance(WorkerFunctionRegistryTool.class).getWorkerFunctions();
+                injector.getInstance(FunctionAndTypeManager.class).registerWorkerFunctions(functions);
+            }
+
             if (!serverConfig.isResourceManager()) {
                 injector.getInstance(AccessControlManager.class).loadSystemAccessControl();
             }
@@ -191,7 +203,6 @@ public class PrestoServer
             injector.getInstance(NodeStatusNotificationManager.class).loadNodeStatusNotificationProvider();
             injector.getInstance(GracefulShutdownHandler.class).loadNodeStatusNotification();
             injector.getInstance(SessionPropertyManager.class).loadSessionPropertyProviders();
-            injector.getInstance(FunctionAndTypeManager.class).loadTypeManagers();
             PlanCheckerProviderManager planCheckerProviderManager = injector.getInstance(PlanCheckerProviderManager.class);
             InternalNodeManager nodeManager = injector.getInstance(DiscoveryNodeManager.class);
             NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
@@ -201,7 +212,15 @@ public class PrestoServer
             injector.getInstance(ClientRequestFilterManager.class).loadClientRequestFilters();
             injector.getInstance(ExpressionOptimizerManager.class).loadExpressionOptimizerFactories();
 
+            injector.getInstance(FunctionAndTypeManager.class)
+                    .getBuiltInPluginFunctionNamespaceManager().triggerConflictCheckWithBuiltInFunctions();
+
             startAssociatedProcesses(injector);
+
+            SecurityConfig securityConfig = injector.getInstance(SecurityConfig.class);
+            if (securityConfig.getAuthenticationTypes().contains(OAUTH2)) {
+                injector.getInstance(OAuth2Client.class).load();
+            }
 
             injector.getInstance(Announcer.class).start();
 

@@ -25,6 +25,8 @@ import com.facebook.presto.spark.PrestoSparkPhysicalResourceCalculator;
 import com.facebook.presto.spark.PrestoSparkSourceStatsCollector;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.UpdateInfo;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.function.FunctionKind;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.PlanNode;
@@ -47,9 +49,8 @@ import com.facebook.presto.sql.planner.PlanOptimizers;
 import com.facebook.presto.sql.planner.sanity.PlanChecker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import jakarta.inject.Inject;
 import org.apache.spark.SparkContext;
-
-import javax.inject.Inject;
 
 import java.util.Collections;
 import java.util.List;
@@ -69,6 +70,7 @@ import static com.facebook.presto.sql.Optimizer.PlanStage.OPTIMIZED_AND_VALIDATE
 import static com.facebook.presto.sql.analyzer.utils.ParameterUtils.parameterExtractor;
 import static com.facebook.presto.sql.analyzer.utils.StatementUtils.getQueryType;
 import static com.facebook.presto.sql.planner.PlanNodeCanonicalInfo.getCanonicalInfo;
+import static com.facebook.presto.util.AnalyzerUtil.checkAccessPermissions;
 import static java.util.Objects.requireNonNull;
 
 public class PrestoSparkQueryPlanner
@@ -117,9 +119,11 @@ public class PrestoSparkQueryPlanner
                 preparedQuery.getParameters(),
                 parameterExtractor(preparedQuery.getStatement(), preparedQuery.getParameters()),
                 warningCollector,
-                query);
+                query,
+                new ViewDefinitionReferences());
 
-        Analysis analysis = analyzer.analyze(preparedQuery.getStatement());
+        Analysis analysis = analyzer.analyzeSemantic(preparedQuery.getStatement(), false);
+        checkAccessPermissions(analysis.getAccessControlReferences(), analysis.getViewDefinitionReferences(), query, session.getPreparedStatements(), session.getIdentity(), accessControl, session.getAccessControlContext());
 
         LogicalPlanner logicalPlanner = new LogicalPlanner(
                 session,
@@ -167,7 +171,7 @@ public class PrestoSparkQueryPlanner
 
         return new PlanAndMore(
                 plan,
-                Optional.ofNullable(analysis.getUpdateType()),
+                Optional.ofNullable(analysis.getUpdateInfo()),
                 columnNames,
                 ImmutableSet.copyOf(inputs),
                 output,
@@ -182,7 +186,7 @@ public class PrestoSparkQueryPlanner
     public static class PlanAndMore
     {
         private final Plan plan;
-        private final Optional<String> updateType;
+        private final Optional<UpdateInfo> updateInfo;
         private final List<String> fieldNames;
         private final Set<Input> inputs;
         private final Optional<Output> output;
@@ -195,7 +199,7 @@ public class PrestoSparkQueryPlanner
 
         public PlanAndMore(
                 Plan plan,
-                Optional<String> updateType,
+                Optional<UpdateInfo> updateInfo,
                 List<String> fieldNames,
                 Set<Input> inputs,
                 Optional<Output> output,
@@ -207,7 +211,7 @@ public class PrestoSparkQueryPlanner
                 Set<String> invokedWindowFunctions)
         {
             this.plan = requireNonNull(plan, "plan is null");
-            this.updateType = requireNonNull(updateType, "updateType is null");
+            this.updateInfo = requireNonNull(updateInfo, "UpdateInfo is null");
             this.fieldNames = ImmutableList.copyOf(requireNonNull(fieldNames, "fieldNames is null"));
             this.inputs = ImmutableSet.copyOf(requireNonNull(inputs, "inputs is null"));
             this.output = requireNonNull(output, "output is null");
@@ -224,9 +228,9 @@ public class PrestoSparkQueryPlanner
             return plan;
         }
 
-        public Optional<String> getUpdateType()
+        public Optional<UpdateInfo> getUpdateInfo()
         {
-            return updateType;
+            return updateInfo;
         }
 
         public List<String> getFieldNames()

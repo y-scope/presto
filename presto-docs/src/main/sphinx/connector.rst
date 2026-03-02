@@ -14,7 +14,6 @@ from different data sources.
     connector/blackhole
     connector/cassandra
     connector/clickhouse
-    connector/clp
     connector/deltalake
     connector/druid
     connector/elasticsearch

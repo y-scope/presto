@@ -23,8 +23,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Multimap;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import static java.util.Objects.requireNonNull;
 
@@ -74,10 +73,14 @@ public final class PlanChecker
                         new VerifyNoIntermediateFormExpression(),
                         new VerifyProjectionLocality(),
                         new DynamicFiltersChecker(),
-                        new WarnOnScanWithoutPartitionPredicate(featuresConfig));
-        if (featuresConfig.isNativeExecutionEnabled() && (featuresConfig.isDisableTimeStampWithTimeZoneForNative() ||
-                featuresConfig.isDisableIPAddressForNative())) {
-            builder.put(Stage.INTERMEDIATE, new CheckUnsupportedPrestissimoTypes(featuresConfig));
+                        new WarnOnScanWithoutPartitionPredicate(featuresConfig),
+                        new CallDistributedProcedureValidator());
+        if (featuresConfig.isNativeExecutionEnabled()) {
+            if (featuresConfig.isDisableTimeStampWithTimeZoneForNative() ||
+                    featuresConfig.isDisableIPAddressForNative()) {
+                builder.put(Stage.INTERMEDIATE, new CheckUnsupportedPrestissimoTypes(featuresConfig));
+            }
+            builder.put(Stage.FINAL, new CheckNoIneligibleFunctionsInCoordinatorFragments());
         }
         checkers = builder.build();
     }
