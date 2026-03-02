@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 class HttpsBasicTest : public ::testing::Test {
  protected:
   static void SetUpTestCase() {
-    memory::MemoryManager::testingSetInstance(memory::MemoryManagerOptions{});
+    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
   }
 };
 
@@ -64,7 +64,7 @@ class HttpTestSuite : public ::testing::TestWithParam<bool> {
 
  protected:
   static void SetUpTestCase() {
-    memory::MemoryManager::testingSetInstance(memory::MemoryManagerOptions{});
+    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
   }
 
   std::unique_ptr<http::HttpServer> getServer(
@@ -121,8 +121,8 @@ TEST_P(HttpTestSuite, basic) {
 
     auto tryResponse = sendGet(client.get(), "/blackhole").getTry();
     ASSERT_TRUE(tryResponse.hasException());
-    auto httpException = dynamic_cast<proxygen::HTTPException*>(
-        tryResponse.tryGetExceptionObject());
+    auto httpException =
+        tryResponse.tryGetExceptionObject<proxygen::HTTPException>();
     ASSERT_EQ(httpException->getProxygenError(), proxygen::kErrorTimeout);
 
     response = sendGet(client.get(), "/ping").get();
@@ -133,8 +133,8 @@ TEST_P(HttpTestSuite, basic) {
   auto tryResponse = sendGet(client.get(), "/ping").getTry();
   ASSERT_TRUE(tryResponse.hasException());
 
-  auto socketException = dynamic_cast<folly::AsyncSocketException*>(
-      tryResponse.tryGetExceptionObject());
+  auto socketException =
+      tryResponse.tryGetExceptionObject<folly::AsyncSocketException>();
   ASSERT_EQ(socketException->getType(), folly::AsyncSocketException::NOT_OPEN);
 }
 

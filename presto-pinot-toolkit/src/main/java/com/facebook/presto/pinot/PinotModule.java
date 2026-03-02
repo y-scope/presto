@@ -23,25 +23,19 @@ import com.fasterxml.jackson.databind.deser.std.FromStringDeserializer;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.concurrent.Executor;
 
 import static com.facebook.airlift.concurrent.Threads.threadsNamed;
 import static com.facebook.airlift.configuration.ConfigBinder.configBinder;
-import static com.facebook.airlift.http.client.HttpClientBinder.httpClientBinder;
 import static com.facebook.airlift.json.JsonBinder.jsonBinder;
 import static com.facebook.airlift.json.JsonCodec.listJsonCodec;
 import static com.facebook.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static com.facebook.presto.common.type.TypeSignature.parseTypeSignature;
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newSingleThreadExecutor;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
  * Guice module for the Pinot connector.
@@ -75,13 +69,6 @@ public class PinotModule
         binder.bind(PinotSessionProperties.class).in(Scopes.SINGLETON);
         binder.bind(PinotNodePartitioningProvider.class).in(Scopes.SINGLETON);
         binder.bind(PinotQueryGenerator.class).in(Scopes.SINGLETON);
-        httpClientBinder(binder).bindHttpClient("pinot", ForPinot.class)
-                .withConfigDefaults(cfg -> {
-                    cfg.setIdleTimeout(new Duration(300, SECONDS));
-                    cfg.setRequestTimeout(new Duration(300, SECONDS));
-                    cfg.setMaxConnectionsPerServer(250);
-                    cfg.setMaxContentLength(new DataSize(32, MEGABYTE));
-                });
 
         jsonBinder(binder).addDeserializerBinding(Type.class).to(TypeDeserializer.class);
         jsonCodecBinder(binder).bindMapJsonCodec(String.class, listJsonCodec(PinotTable.class));

@@ -13,22 +13,22 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.airlift.units.DataSize;
 import com.facebook.presto.orc.metadata.DwrfStripeCacheMode;
 import com.facebook.presto.orc.writer.StreamLayoutFactory;
 import com.facebook.presto.orc.writer.StreamLayoutFactory.ColumnSizeLayoutFactory;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.units.DataSize;
 
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 
+import static com.facebook.airlift.units.DataSize.Unit.BYTE;
+import static com.facebook.airlift.units.DataSize.Unit.KILOBYTE;
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
 import static com.facebook.presto.orc.metadata.DwrfStripeCacheMode.INDEX_AND_FOOTER;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.units.DataSize.Unit.BYTE;
-import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static java.util.Objects.requireNonNull;
 
 public class OrcWriterOptions
@@ -49,7 +49,8 @@ public class OrcWriterOptions
     public static final boolean DEFAULT_INTEGER_DICTIONARY_ENCODING_ENABLED = false;
     public static final boolean DEFAULT_STRING_DICTIONARY_ENCODING_ENABLED = true;
     public static final boolean DEFAULT_STRING_DICTIONARY_SORTING_ENABLED = true;
-
+    public static final boolean DEFAULT_RESET_OUTPUT_BUFFER = false;
+    public static final boolean DEFAULT_LAZY_OUTPUT_BUFFER = false;
     private final OrcWriterFlushPolicy flushPolicy;
     private final int rowGroupMaxRowCount;
     private final DataSize dictionaryMaxMemory;
@@ -74,6 +75,8 @@ public class OrcWriterOptions
     private final int preserveDirectEncodingStripeCount;
     private final boolean mapStatisticsEnabled;
     private final int maxFlattenedMapKeyCount;
+    private final boolean resetOutputBuffer;
+    private final boolean lazyOutputBuffer;
 
     /**
      * Contains indexes of columns (not nodes!) for which writer should use flattened encoding, e.g. flat maps.
@@ -101,7 +104,9 @@ public class OrcWriterOptions
             int preserveDirectEncodingStripeCount,
             Set<Integer> flattenedColumns,
             boolean mapStatisticsEnabled,
-            int maxFlattenedMapKeyCount)
+            int maxFlattenedMapKeyCount,
+            boolean resetOutputBuffer,
+            boolean lazyOutputBuffer)
     {
         requireNonNull(flushPolicy, "flushPolicy is null");
         checkArgument(rowGroupMaxRowCount >= 1, "rowGroupMaxRowCount must be at least 1");
@@ -139,6 +144,8 @@ public class OrcWriterOptions
         this.flattenedColumns = flattenedColumns;
         this.mapStatisticsEnabled = mapStatisticsEnabled;
         this.maxFlattenedMapKeyCount = maxFlattenedMapKeyCount;
+        this.resetOutputBuffer = resetOutputBuffer;
+        this.lazyOutputBuffer = lazyOutputBuffer;
     }
 
     public OrcWriterFlushPolicy getFlushPolicy()
@@ -246,6 +253,16 @@ public class OrcWriterOptions
         return maxFlattenedMapKeyCount;
     }
 
+    public boolean isResetOutputBuffer()
+    {
+        return resetOutputBuffer;
+    }
+
+    public boolean isLazyOutputBuffer()
+    {
+        return lazyOutputBuffer;
+    }
+
     @Override
     public String toString()
     {
@@ -269,6 +286,8 @@ public class OrcWriterOptions
                 .add("flattenedColumns", flattenedColumns)
                 .add("mapStatisticsEnabled", mapStatisticsEnabled)
                 .add("maxFlattenedMapKeyCount", maxFlattenedMapKeyCount)
+                .add("resetOutputBuffer", resetOutputBuffer)
+                .add("lazyOutputBuffer", lazyOutputBuffer)
                 .toString();
     }
 
@@ -307,6 +326,8 @@ public class OrcWriterOptions
         private Set<Integer> flattenedColumns = ImmutableSet.of();
         private boolean mapStatisticsEnabled;
         private int maxFlattenedMapKeyCount = DEFAULT_MAX_FLATTENED_MAP_KEY_COUNT;
+        private boolean resetOutputBuffer = DEFAULT_RESET_OUTPUT_BUFFER;
+        private boolean lazyOutputBuffer = DEFAULT_LAZY_OUTPUT_BUFFER;
 
         public Builder withFlushPolicy(OrcWriterFlushPolicy flushPolicy)
         {
@@ -448,6 +469,18 @@ public class OrcWriterOptions
             return this;
         }
 
+        public Builder withResetOutputBuffer(boolean resetOutputBuffer)
+        {
+            this.resetOutputBuffer = resetOutputBuffer;
+            return this;
+        }
+
+        public Builder withLazyOutputBuffer(boolean lazyOutputBuffer)
+        {
+            this.lazyOutputBuffer = lazyOutputBuffer;
+            return this;
+        }
+
         public OrcWriterOptions build()
         {
             Optional<DwrfStripeCacheOptions> dwrfWriterOptions;
@@ -479,7 +512,9 @@ public class OrcWriterOptions
                     preserveDirectEncodingStripeCount,
                     flattenedColumns,
                     mapStatisticsEnabled,
-                    maxFlattenedMapKeyCount);
+                    maxFlattenedMapKeyCount,
+                    resetOutputBuffer,
+                    lazyOutputBuffer);
         }
     }
 }

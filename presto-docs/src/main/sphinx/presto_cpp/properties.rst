@@ -38,6 +38,14 @@ Presto C++ workers.
 These Presto coordinator configuration properties are described here, in
 alphabetical order.
 
+``driver.max-split-preload``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+* **Type:** ``integer``
+* **Default value:** ``2``
+
+  Maximum number of splits to preload per driver.
+  Set to 0 to disable preloading.
+
 ``driver.cancel-tasks-with-stuck-operators-threshold-ms``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 * **Type:** ``string``
@@ -56,18 +64,6 @@ alphabetical order.
 
   This property is required when running Presto C++ workers because of
   underlying differences in behavior from Java workers.
-
-``native-execution-type-rewrite-enabled``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-* **Type:** ``boolean``
-* **Default value:** ``false``
-
-  When set to ``true``:
-    - Custom type names are peeled in the coordinator. Only the actual base type is preserved.
-    - ``CAST(col AS EnumType<T>)`` is rewritten as ``CAST(col AS <T>)``.
-    - ``ENUM_KEY(EnumType<T>)`` is rewritten as ``ELEMENT_AT(MAP(<T>, VARCHAR))``.
-  This property can only be enabled with native execution.
 
 ``optimizer.optimize-hash-generation``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -107,7 +103,19 @@ alphabetical order.
 * **Type:** ``string``
 * **Default value:** ``presto.default``
 
-  Specifies the namespace prefix for native C++ functions.
+  Specifies the namespace prefix for native C++ functions. This prefix is used when
+  registering Velox functions in Prestissimo to ensure proper function resolution in
+  multi-catalog environments.
+
+  .. warning::
+
+     **Critical**: When registering Velox functions, you **must** follow the
+     ``catalog.schema.`` prefix pattern. Functions registered without this pattern
+     will cause worker node crashes.
+
+  The configured value (for example, ``presto.default``) is automatically appended with a
+  trailing dot (``.``) to form the complete prefix (``presto.default.``). This results
+  in fully qualified function names like ``presto.default.substr`` or ``presto.default.sum``. Internal functions (prefixed with ``$internal$``) do not follow this pattern and are exempt from the three-part naming requirement.
 
 Worker Properties
 -----------------
@@ -164,7 +172,7 @@ The configuration properties of Presto C++ workers are described here, in alphab
   worker node. Memory for system usage such as disk spilling and cache prefetch are
   not counted in it.
 
-``max_spill_bytes``
+``max-spill-bytes``
 ^^^^^^^^^^^^^^^^^^^
 
 * **Type:** ``integer``
@@ -217,6 +225,14 @@ avoid exceeding memory limits for the query.
 
 When ``spill_enabled`` is ``true``, this determines whether Presto will try spilling memory to disk for order by to
 avoid exceeding memory limits for the query.
+
+``local-exchange.max-partition-buffer-size``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``65536`` (64KB)
+
+  Specifies the maximum size in bytes to accumulate for a single partition of a local exchange before flushing.
 
 
 ``shared-arbitrator.reserved-capacity``
@@ -414,18 +430,26 @@ avoid exceeding memory limits for the query.
   only by aborting. This flag is only effective if
   ``shared-arbitrator.global-arbitration-enabled`` is ``true``.
 
+``text-writer-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+  Enables writing data in ``TEXTFILE`` format.
+
+``text-reader-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+  Enables reading data in ``TEXTFILE`` format.
+
 Cache Properties
 ----------------
 
 The configuration properties of AsyncDataCache and SSD cache are described here.
-
-``async-cache-persistence-interval``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-* **Type:** ``string``
-* **Default value:** ``0s``
-
-  The interval for persisting in-memory cache to SSD. Set this
-  to a non-zero value to activate periodic cache persistence.
 
 ``async-data-cache-enabled``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -508,6 +532,17 @@ The configuration properties of AsyncDataCache and SSD cache are described here.
   When enabled, a CRC-based checksum is calculated for each cache entry written to SSD.
   The checksum is stored in the next checkpoint file.
 
+``ssd-cache-max-entries``
+^^^^^^^^^^^^^^^^^^^^^^^^^
+* **Type:** ``integer``
+* **Default value:** ``10000000``
+
+  Maximum number of entries allowed in the SSD cache. A value of 0 means no limit.
+  When the limit is reached, new entry writes will be skipped.
+
+  The default of 10 million entries keeps metadata memory usage around 500MB, as each
+  cache entry uses approximately 50-60 bytes for the key, value, and hash overhead.
+
 ``ssd-cache-read-verification-enabled``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 * **Type:** ``bool``
@@ -551,6 +586,17 @@ Exchange Properties
 * **Default value:** ``10``
 
   Maximum wait time for exchange request in seconds.
+
+HTTP Client Properties
+----------------------
+
+``http-client.http2-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+Specifies whether HTTP/2 should be enabled for HTTP client.
 
 Memory Checker Properties
 -------------------------
@@ -616,6 +662,16 @@ memory use. Ignored if zero.
 
 CPU threshold in % above which the worker is considered overloaded in terms of
 CPU use. Ignored if zero.
+
+``worker-overloaded-threshold-num-queued-drivers-hw-multiplier``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``double``
+* **Default value:** ``0.0``
+
+Floating point number used in calculating how many drivers must be queued
+for the worker to be considered overloaded.
+Number of drivers is calculated as hw_concurrency x multiplier. Ignored if zero.
 
 ``worker-overloaded-cooldown-period-sec``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

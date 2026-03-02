@@ -14,9 +14,17 @@
 package com.facebook.presto.iceberg;
 
 import com.facebook.presto.common.type.DecimalType;
+import com.facebook.presto.hive.HiveCompressionCodec;
+import com.facebook.presto.hive.HiveStorageFormat;
+import com.facebook.presto.hive.HiveType;
+import com.facebook.presto.hive.metastore.Column;
+import com.google.common.collect.ImmutableList;
+import org.apache.iceberg.types.Types;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
@@ -376,5 +384,63 @@ public class TestIcebergUtil
     {
         assertEquals(1024, getTargetSplitSize(1024, 512).toBytes());
         assertEquals(512, getTargetSplitSize(0, 512).toBytes());
+    }
+
+    @DataProvider
+    public Object[][] compressionCodecMatrix()
+    {
+        return new Object[][] {
+                // format, codec, expectedSupport
+                {HiveStorageFormat.PARQUET, HiveCompressionCodec.NONE, true},
+                {HiveStorageFormat.PARQUET, HiveCompressionCodec.SNAPPY, true},
+                {HiveStorageFormat.PARQUET, HiveCompressionCodec.GZIP, true},
+                {HiveStorageFormat.PARQUET, HiveCompressionCodec.LZ4, false},
+                {HiveStorageFormat.PARQUET, HiveCompressionCodec.ZSTD, true},
+                {HiveStorageFormat.ORC, HiveCompressionCodec.NONE, true},
+                {HiveStorageFormat.ORC, HiveCompressionCodec.SNAPPY, true},
+                {HiveStorageFormat.ORC, HiveCompressionCodec.GZIP, true},
+                {HiveStorageFormat.ORC, HiveCompressionCodec.ZSTD, true},
+                {HiveStorageFormat.ORC, HiveCompressionCodec.LZ4, true},
+        };
+    }
+
+    @Test(dataProvider = "compressionCodecMatrix")
+    public void testCompressionCodecSupport(HiveStorageFormat format, HiveCompressionCodec codec, boolean expectedSupport)
+    {
+        assertThat(codec.isSupportedStorageFormat(format))
+                .as("Codec %s support for %s format", codec, format)
+                .isEqualTo(expectedSupport);
+    }
+
+    @Test
+    public void testParquetCompressionCodecAvailability()
+    {
+        assertThat(HiveCompressionCodec.NONE.getParquetCompressionCodec()).isNotNull();
+        assertThat(HiveCompressionCodec.SNAPPY.getParquetCompressionCodec()).isNotNull();
+        assertThat(HiveCompressionCodec.GZIP.getParquetCompressionCodec()).isNotNull();
+
+        assertThat(HiveCompressionCodec.LZ4.getParquetCompressionCodec()).isNotNull();
+        assertThat(HiveCompressionCodec.ZSTD.getParquetCompressionCodec()).isNotNull();
+    }
+
+    @Test
+    public void testToHiveColumnsWithTimeType()
+    {
+        List<Types.NestedField> icebergColumns = ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "time", Types.TimeType.get()),
+                Types.NestedField.optional(3, "name", Types.StringType.get()));
+
+        List<Column> hiveColumns = IcebergUtil.toHiveColumns(icebergColumns);
+        assertThat(hiveColumns).hasSize(3);
+
+        assertThat(hiveColumns.get(0).getName()).isEqualTo("id");
+        assertThat(hiveColumns.get(0).getType()).isEqualTo(HiveType.HIVE_LONG);
+
+        assertThat(hiveColumns.get(1).getName()).isEqualTo("time");
+        assertThat(hiveColumns.get(1).getType()).isEqualTo(HiveType.HIVE_LONG);
+
+        assertThat(hiveColumns.get(2).getName()).isEqualTo("name");
+        assertThat(hiveColumns.get(2).getType()).isEqualTo(HiveType.HIVE_STRING);
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.sql.planner.plan;
 
+import com.facebook.presto.spi.plan.MergeJoinNode;
 import com.facebook.presto.spi.plan.PlanVisitor;
 import com.facebook.presto.sql.planner.CanonicalJoinNode;
 import com.facebook.presto.sql.planner.CanonicalTableScanNode;
@@ -37,7 +38,17 @@ public abstract class InternalPlanVisitor<R, C>
         return visitPlan(node, context);
     }
 
-    public R visitIndexJoin(IndexJoinNode node, C context)
+    public R visitMergeJoin(MergeJoinNode node, C context)
+    {
+        return visitPlan(node, context);
+    }
+
+    public R visitMergeWriter(MergeWriterNode node, C context)
+    {
+        return visitPlan(node, context);
+    }
+
+    public R visitMergeProcessor(MergeProcessorNode node, C context)
     {
         return visitPlan(node, context);
     }
@@ -52,11 +63,6 @@ public abstract class InternalPlanVisitor<R, C>
         return visitPlan(node, context);
     }
 
-    public R visitMetadataDelete(MetadataDeleteNode node, C context)
-    {
-        return visitPlan(node, context);
-    }
-
     public R visitUpdate(UpdateNode node, C context)
     {
         return visitPlan(node, context);
@@ -67,7 +73,7 @@ public abstract class InternalPlanVisitor<R, C>
         return visitPlan(node, context);
     }
 
-    public R visitUnnest(UnnestNode node, C context)
+    public R visitCallDistributedProcedure(CallDistributedProcedureNode node, C context)
     {
         return visitPlan(node, context);
     }
@@ -133,6 +139,16 @@ public abstract class InternalPlanVisitor<R, C>
     }
 
     public R visitSequence(SequenceNode node, C context)
+    {
+        return visitPlan(node, context);
+    }
+
+    public R visitTableFunction(TableFunctionNode node, C context)
+    {
+        return visitPlan(node, context);
+    }
+
+    public R visitTableFunctionProcessor(TableFunctionProcessorNode node, C context)
     {
         return visitPlan(node, context);
     }

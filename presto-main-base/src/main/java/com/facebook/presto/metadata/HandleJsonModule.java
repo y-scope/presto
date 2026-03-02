@@ -23,6 +23,18 @@ import static com.facebook.airlift.json.JsonBinder.jsonBinder;
 public class HandleJsonModule
         implements Module
 {
+    private final HandleResolver handleResolver;
+
+    public HandleJsonModule()
+    {
+        this(null);
+    }
+
+    public HandleJsonModule(HandleResolver handleResolver)
+    {
+        this.handleResolver = handleResolver;
+    }
+
     @Override
     public void configure(Binder binder)
     {
@@ -33,12 +45,19 @@ public class HandleJsonModule
         jsonBinder(binder).addModuleBinding().to(OutputTableHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(InsertTableHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(DeleteTableHandleJacksonModule.class);
+        jsonBinder(binder).addModuleBinding().to(MergeTableHandleJacksonModule.class);
+        jsonBinder(binder).addModuleBinding().to(DistributedProcedureHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(IndexHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(TransactionHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(PartitioningHandleJacksonModule.class);
         jsonBinder(binder).addModuleBinding().to(FunctionHandleJacksonModule.class);
-        jsonBinder(binder).addModuleBinding().to(MetadataUpdateJacksonModule.class);
+        jsonBinder(binder).addModuleBinding().to(TableFunctionJacksonHandleModule.class);
 
-        binder.bind(HandleResolver.class).in(Scopes.SINGLETON);
+        if (handleResolver == null) {
+            binder.bind(HandleResolver.class).in(Scopes.SINGLETON);
+        }
+        else {
+            binder.bind(HandleResolver.class).toInstance(handleResolver);
+        }
     }
 }

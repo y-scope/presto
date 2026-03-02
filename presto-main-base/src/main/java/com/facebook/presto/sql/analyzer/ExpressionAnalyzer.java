@@ -14,7 +14,6 @@
 package com.facebook.presto.sql.analyzer;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.UnknownTypeException;
 import com.facebook.presto.common.ErrorCode;
 import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.Subfield;
@@ -30,6 +29,7 @@ import com.facebook.presto.common.type.FunctionType;
 import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
+import com.facebook.presto.common.type.TypeSignature;
 import com.facebook.presto.common.type.TypeSignatureParameter;
 import com.facebook.presto.common.type.TypeUtils;
 import com.facebook.presto.common.type.TypeWithName;
@@ -40,12 +40,14 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.PrestoWarning;
 import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.SqlFunctionId;
 import com.facebook.presto.spi.function.SqlInvokedFunction;
 import com.facebook.presto.spi.security.AccessControl;
 import com.facebook.presto.spi.security.DenyAllAccessControl;
+import com.facebook.presto.spi.type.UnknownTypeException;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.relational.FunctionResolution;
@@ -119,8 +121,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import io.airlift.slice.SliceUtf8;
-
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -154,6 +155,7 @@ import static com.facebook.presto.common.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.BuiltInTypeAndFunctionNamespaceManager.JAVA_BUILTIN_NAMESPACE;
 import static com.facebook.presto.spi.StandardErrorCode.OPERATOR_NOT_FOUND;
+import static com.facebook.presto.spi.StandardWarningCode.PERFORMANCE_WARNING;
 import static com.facebook.presto.spi.StandardWarningCode.SEMANTIC_WARNING;
 import static com.facebook.presto.sql.NodeUtils.getSortItemsFromOrderBy;
 import static com.facebook.presto.sql.analyzer.Analyzer.verifyNoAggregateWindowOrGroupingFunctions;
@@ -249,6 +251,8 @@ public class ExpressionAnalyzer
     // Map to resolved type of any symbols that ExpressionAnalyzer cannot resolved within current scope.
     // This contains types of variables referenced from outer scopes.
     private final Map<NodeRef<Expression>, Type> outerScopeSymbolTypes;
+
+    private final List<Field> sourceFields = new ArrayList<>();
 
     private ExpressionAnalyzer(
             FunctionAndTypeResolver functionAndTypeResolver,
@@ -381,6 +385,11 @@ public class ExpressionAnalyzer
         return tableColumnAndSubfieldReferences;
     }
 
+    public List<Field> getSourceFields()
+    {
+        return sourceFields;
+    }
+
     public Multimap<QualifiedObjectName, Subfield> getTableColumnAndSubfieldReferencesForAccessControl()
     {
         return tableColumnAndSubfieldReferencesForAccessControl;
@@ -470,7 +479,7 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitIdentifier(Identifier node, StackableAstVisitorContext<Context> context)
         {
-            QualifiedName name = QualifiedName.of(node.getValue());
+            QualifiedName name = QualifiedName.of(ImmutableList.of(new Identifier(node.getValue(), node.isDelimited())));
             Optional<ResolvedField> resolvedField = context.getContext().getScope().tryResolveField(node, name);
             if (!resolvedField.isPresent() && outerScopeSymbolTypes.containsKey(NodeRef.of(node))) {
                 return setExpressionType(node, outerScopeSymbolTypes.get(NodeRef.of(node)));
@@ -495,6 +504,8 @@ public class ExpressionAnalyzer
                     }
                 }
             }
+
+            sourceFields.add(field);
 
             // If we found a direct column reference, and we will put it in tableColumnReferencesWithSubFields
             if (isTopMostReference(node, context)) {
@@ -1110,11 +1121,34 @@ public class ExpressionAnalyzer
             FunctionHandle function = resolveFunction(sessionFunctions, transactionId, node, argumentTypes, functionAndTypeResolver);
             FunctionMetadata functionMetadata = functionAndTypeResolver.getFunctionMetadata(function);
 
+            // Delegate function-specific validation to the FunctionNamespaceManager
+            // This allows function namespaces to perform custom validation
+            functionAndTypeResolver.validateFunctionCall(function, node.getArguments());
+
             if (node.getOrderBy().isPresent()) {
                 for (SortItem sortItem : node.getOrderBy().get().getSortItems()) {
                     Type sortKeyType = process(sortItem.getSortKey(), context);
                     if (!sortKeyType.isOrderable()) {
                         throw new SemanticException(TYPE_MISMATCH, node, "ORDER BY can only be applied to orderable types (actual: %s)", sortKeyType.getDisplayName());
+                    }
+                }
+            }
+
+            List<TypeSignature> arguments = functionMetadata.getArgumentTypes();
+            String functionName = functionMetadata.getName().toString();
+
+            if (!argumentTypes.isEmpty() && "map".equals(arguments.get(0).getBase()) &&
+                    "map_filter".equalsIgnoreCase(functionMetadata.getName().getObjectName()) &&
+                    arguments.size() > 1 && node.getArguments().size() >= 2) {
+                Expression mapArg = node.getArguments().get(0);
+                Expression lambdaArg = node.getArguments().get(1);
+
+                if (containsFeatures(mapArg) && lambdaArg instanceof LambdaExpression) {
+                    LambdaExpression lambda = (LambdaExpression) lambdaArg;
+                    if (lambda.getArguments().size() == 2 && isKeyOnlyMembershipFilter(lambda)) {
+                        String warningMessage = createWarningMessage(node,
+                                String.format("Function '%s' uses a lambda on large maps which is expensive. Consider using map_subset", functionName));
+                        warningCollector.add(new PrestoWarning(PERFORMANCE_WARNING, warningMessage));
                     }
                 }
             }
@@ -1176,6 +1210,100 @@ public class ExpressionAnalyzer
             else {
                 return format("%s Expression:%s", message, node);
             }
+        }
+
+        private boolean isKeyOnlyMembershipFilter(LambdaExpression lambda)
+        {
+            String valueArgName = lambda.getArguments().get(1).getName().getValue();
+            Expression body = lambda.getBody();
+
+            if (expressionReferencesName(body, valueArgName)) {
+                return false;
+            }
+
+            return isSimpleKeyEquality(body);
+        }
+
+        private boolean expressionReferencesName(Expression expression, String name)
+        {
+            if (expression == null) {
+                return false;
+            }
+            if (expression instanceof Identifier) {
+                return ((Identifier) expression).getValue().equalsIgnoreCase(name);
+            }
+            if (expression instanceof ComparisonExpression) {
+                ComparisonExpression comp = (ComparisonExpression) expression;
+                return expressionReferencesName(comp.getLeft(), name) || expressionReferencesName(comp.getRight(), name);
+            }
+            if (expression instanceof LogicalBinaryExpression) {
+                LogicalBinaryExpression logical = (LogicalBinaryExpression) expression;
+                return expressionReferencesName(logical.getLeft(), name) || expressionReferencesName(logical.getRight(), name);
+            }
+            if (expression instanceof InPredicate) {
+                InPredicate inPred = (InPredicate) expression;
+                return expressionReferencesName(inPred.getValue(), name) || expressionReferencesName(inPred.getValueList(), name);
+            }
+            if (expression instanceof InListExpression) {
+                InListExpression inList = (InListExpression) expression;
+                for (Expression value : inList.getValues()) {
+                    if (expressionReferencesName(value, name)) {
+                        return true;
+                    }
+                }
+            }
+            if (expression instanceof ArithmeticBinaryExpression) {
+                ArithmeticBinaryExpression arith = (ArithmeticBinaryExpression) expression;
+                return expressionReferencesName(arith.getLeft(), name) || expressionReferencesName(arith.getRight(), name);
+            }
+            if (expression instanceof FunctionCall) {
+                FunctionCall func = (FunctionCall) expression;
+                for (Expression arg : func.getArguments()) {
+                    if (expressionReferencesName(arg, name)) {
+                        return true;
+                    }
+                }
+            }
+            // Literals don't reference any names
+            return false;
+        }
+
+        private boolean containsFeatures(Expression expression)
+        {
+            if (expression instanceof Identifier) {
+                return ((Identifier) expression).getValue().toLowerCase().contains("features");
+            }
+            if (expression instanceof SymbolReference) {
+                return ((SymbolReference) expression).getName().toLowerCase().contains("features");
+            }
+            if (expression instanceof DereferenceExpression) {
+                DereferenceExpression deref = (DereferenceExpression) expression;
+                return containsFeatures(deref.getBase()) || deref.getField().getValue().toLowerCase().contains("features");
+            }
+            return false;
+        }
+
+        private boolean isSimpleKeyEquality(Expression expression)
+        {
+            if (expression instanceof ComparisonExpression) {
+                ComparisonExpression comparison = (ComparisonExpression) expression;
+                return comparison.getOperator() == ComparisonExpression.Operator.EQUAL;
+            }
+            if (expression instanceof InPredicate) {
+                return true;
+            }
+            if (expression instanceof LogicalBinaryExpression) {
+                LogicalBinaryExpression logical = (LogicalBinaryExpression) expression;
+                if (logical.getOperator() == LogicalBinaryExpression.Operator.OR) {
+                    return isSimpleKeyEquality(logical.getLeft()) && isSimpleKeyEquality(logical.getRight());
+                }
+            }
+            if (expression instanceof FunctionCall) {
+                FunctionCall func = (FunctionCall) expression;
+                String funcName = func.getName().toString();
+                return funcName.equalsIgnoreCase("contains") || funcName.equalsIgnoreCase("presto.default.contains");
+            }
+            return false;
         }
 
         private void analyzeFrameRangeOffset(Expression offsetValue, FrameBound.Type boundType, StackableAstVisitorContext<Context> context, Window window)
@@ -1423,7 +1551,7 @@ public class ExpressionAnalyzer
             else {
                 scalarSubqueries.add(NodeRef.of(node));
             }
-
+            sourceFields.add(queryScope.getRelationType().getFieldByIndex(0));
             Type type = getOnlyElement(queryScope.getRelationType().getVisibleFields()).getType();
             return setExpressionType(node, type);
         }
@@ -1513,7 +1641,8 @@ public class ExpressionAnalyzer
                 fieldToLambdaArgumentDeclaration.putAll(context.getContext().getFieldToLambdaArgumentDeclaration());
             }
             for (LambdaArgumentDeclaration lambdaArgument : lambdaArguments) {
-                ResolvedField resolvedField = lambdaScope.resolveField(lambdaArgument, QualifiedName.of(lambdaArgument.getName().getValue()));
+                QualifiedName name = QualifiedName.of(ImmutableList.of(new Identifier(lambdaArgument.getName().getValue(), lambdaArgument.getName().isDelimited())));
+                ResolvedField resolvedField = lambdaScope.resolveField(lambdaArgument, name);
                 fieldToLambdaArgumentDeclaration.put(FieldId.from(resolvedField), lambdaArgument);
             }
 
@@ -1893,7 +2022,7 @@ public class ExpressionAnalyzer
     {
         // expressions at this point can not have sub queries so deny all access checks
         // in the future, we will need a full access controller here to verify access to functions
-        Analysis analysis = new Analysis(null, parameters, isDescribe);
+        Analysis analysis = new Analysis(null, parameters, isDescribe, new ViewDefinitionReferences());
         ExpressionAnalyzer analyzer = create(analysis, session, metadata, sqlParser, new DenyAllAccessControl(), types, warningCollector);
         for (Expression expression : expressions) {
             analyzer.analyze(expression, Scope.builder().withRelationType(RelationId.anonymous(), new RelationType()).build());
@@ -1961,6 +2090,8 @@ public class ExpressionAnalyzer
                 session.getAccessControlContext(),
                 analyzer.getTableColumnAndSubfieldReferences(),
                 analyzer.getTableColumnAndSubfieldReferencesForAccessControl());
+
+        analysis.addExpressionFields(expression, analyzer.getSourceFields());
 
         return new ExpressionAnalysis(
                 expressionTypes,

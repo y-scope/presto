@@ -17,8 +17,7 @@ import com.facebook.presto.spi.SourceLocation;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-
-import javax.annotation.concurrent.Immutable;
+import com.google.errorprone.annotations.Immutable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,7 +32,7 @@ public final class DeleteNode
         extends PlanNode
 {
     private final PlanNode source;
-    private final VariableReferenceExpression rowId;
+    private final Optional<VariableReferenceExpression> rowId;
     private final List<VariableReferenceExpression> outputVariables;
     private final Optional<InputDistribution> inputDistribution;
 
@@ -42,7 +41,7 @@ public final class DeleteNode
             Optional<SourceLocation> sourceLocation,
             @JsonProperty("id") PlanNodeId id,
             @JsonProperty("source") PlanNode source,
-            @JsonProperty("rowId") VariableReferenceExpression rowId,
+            @JsonProperty("rowId") Optional<VariableReferenceExpression> rowId,
             @JsonProperty("outputVariables") List<VariableReferenceExpression> outputVariables,
             @JsonProperty("inputDistribution") Optional<InputDistribution> inputDistribution)
     {
@@ -54,7 +53,7 @@ public final class DeleteNode
             PlanNodeId id,
             Optional<PlanNode> statsEquivalentPlanNode,
             PlanNode source,
-            VariableReferenceExpression rowId,
+            Optional<VariableReferenceExpression> rowId,
             List<VariableReferenceExpression> outputVariables,
             Optional<InputDistribution> inputDistribution)
     {
@@ -73,7 +72,7 @@ public final class DeleteNode
     }
 
     @JsonProperty
-    public VariableReferenceExpression getRowId()
+    public Optional<VariableReferenceExpression> getRowId()
     {
         return rowId;
     }

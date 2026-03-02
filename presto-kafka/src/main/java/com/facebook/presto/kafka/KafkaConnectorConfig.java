@@ -15,14 +15,13 @@ package com.facebook.presto.kafka;
 
 import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
+import com.facebook.airlift.units.Duration;
+import com.facebook.airlift.units.MinDuration;
 import com.facebook.presto.kafka.schema.file.FileTableDescriptionSupplier;
 import com.facebook.presto.kafka.server.file.FileKafkaClusterMetadataSupplier;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.Duration;
-import io.airlift.units.MinDuration;
-
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 
 import java.io.File;
 import java.util.List;
@@ -70,6 +69,8 @@ public class KafkaConnectorConfig
      * The resourceConfigFiles to use for additional properties, default is empty
      */
     private List<File> resourceConfigFiles = ImmutableList.of();
+
+    private boolean caseSensitiveNameMatching;
 
     @NotNull
     public String getDefaultSchema()
@@ -172,6 +173,20 @@ public class KafkaConnectorConfig
         this.resourceConfigFiles = Splitter.on(',').trimResults().omitEmptyStrings().splitToList(files).stream()
                 .map(File::new)
                 .collect(toImmutableList());
+        return this;
+    }
+
+    public boolean isCaseSensitiveNameMatching()
+    {
+        return caseSensitiveNameMatching;
+    }
+
+    @Config("case-sensitive-name-matching")
+    @ConfigDescription("Enable case-sensitive matching of schema, table names across the connector. " +
+            "When disabled, names are matched case-insensitively using lowercase normalization.")
+    public KafkaConnectorConfig setCaseSensitiveNameMatching(boolean caseSensitiveNameMatchingEnabled)
+    {
+        this.caseSensitiveNameMatching = caseSensitiveNameMatchingEnabled;
         return this;
     }
 }

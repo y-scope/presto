@@ -16,6 +16,7 @@ package com.facebook.presto.spark.execution;
 import com.facebook.airlift.json.Codec;
 import com.facebook.airlift.json.JsonCodec;
 import com.facebook.airlift.log.Logger;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
 import com.facebook.presto.cost.HistoryBasedPlanStatisticsTracker;
 import com.facebook.presto.event.QueryMonitor;
@@ -52,7 +53,6 @@ import com.facebook.presto.sql.planner.SubPlan;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.Duration;
 import org.apache.spark.SparkException;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.util.CollectionAccumulator;
@@ -104,7 +104,8 @@ public class PrestoSparkStaticQueryExecution
             PrestoSparkMetadataStorage metadataStorage,
             Optional<String> queryStatusInfoOutputLocation,
             Optional<String> queryDataOutputLocation,
-            TempStorage tempStorage,
+            TempStorage broadcastJoinTempStorage,
+            TempStorage nativeTempStorage,
             NodeMemoryConfig nodeMemoryConfig,
             FeaturesConfig featuresConfig,
             QueryManagerConfig queryManagerConfig,
@@ -142,7 +143,8 @@ public class PrestoSparkStaticQueryExecution
                 metadataStorage,
                 queryStatusInfoOutputLocation,
                 queryDataOutputLocation,
-                tempStorage,
+                broadcastJoinTempStorage,
+                nativeTempStorage,
                 nodeMemoryConfig,
                 featuresConfig,
                 queryManagerConfig,

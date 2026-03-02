@@ -27,18 +27,23 @@ import static com.facebook.presto.SystemSessionProperties.VERBOSE_OPTIMIZER_INFO
 public class TestPrestoNativeCteExecutionParquet
         extends AbstractTestNativeCteExecution
 {
+    private final String storageFormat = "PARQUET";
+
     @Override
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        return PrestoNativeQueryRunnerUtils.createNativeCteQueryRunner(true, "PARQUET");
+        return createQueryRunner(storageFormat, false);
     }
 
     @Override
     protected QueryRunner createExpectedQueryRunner()
             throws Exception
     {
-        return PrestoNativeQueryRunnerUtils.createJavaQueryRunner("PARQUET");
+        return PrestoNativeQueryRunnerUtils.javaHiveQueryRunnerBuilder()
+                .setStorageFormat(storageFormat)
+                .setAddStorageFormatToPath(true)
+                .build();
     }
 
     @Override

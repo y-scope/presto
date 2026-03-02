@@ -14,19 +14,23 @@
 package com.facebook.presto.sql.planner.iterative.rule.test;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.common.QualifiedObjectName;
 import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.metadata.TableFunctionHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.IndexHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.connector.RowChangeParadigm;
 import com.facebook.presto.spi.constraints.TableConstraint;
 import com.facebook.presto.spi.function.FunctionHandle;
+import com.facebook.presto.spi.function.table.ConnectorTableFunctionHandle;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.AggregationNode.Aggregation;
 import com.facebook.presto.spi.plan.AggregationNode.Step;
@@ -38,6 +42,7 @@ import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinDistributionType;
@@ -45,6 +50,7 @@ import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.JoinType;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MaterializedViewScanNode;
 import com.facebook.presto.spi.plan.Ordering;
 import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.OutputNode;
@@ -60,8 +66,11 @@ import com.facebook.presto.spi.plan.SortNode;
 import com.facebook.presto.spi.plan.TableFinishNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
+import com.facebook.presto.spi.plan.TableWriterNode.MergeParadigmAndTypes;
+import com.facebook.presto.spi.plan.TableWriterNode.MergeTarget;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
 import com.facebook.presto.spi.relation.CallExpression;
@@ -79,13 +88,14 @@ import com.facebook.presto.sql.planner.plan.AssignUniqueId;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.OffsetNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.SqlToRowExpressionTranslator;
 import com.facebook.presto.sql.tree.Expression;
@@ -111,6 +121,7 @@ import java.util.stream.Stream;
 
 import static com.facebook.presto.common.block.SortOrder.ASC_NULLS_FIRST;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.common.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.plan.ExchangeEncoding.COLUMNAR;
@@ -297,6 +308,11 @@ public class PlanBuilder
     public ProjectNode project(PlanNode source, Assignments assignments)
     {
         return new ProjectNode(idAllocator.getNextId(), source, assignments);
+    }
+
+    public ProjectNode project(PlanNode source, Assignments assignments, ProjectNode.Locality locality)
+    {
+        return new ProjectNode(Optional.empty(), idAllocator.getNextId(), source, assignments, locality);
     }
 
     public ProjectNode project(Assignments assignments, PlanNode source)
@@ -590,7 +606,7 @@ public class PlanBuilder
                                 deleteSource.getSourceLocation(),
                                 idAllocator.getNextId(),
                                 deleteSource,
-                                deleteRowId,
+                                Optional.of(deleteRowId),
                                 ImmutableList.of(deleteRowId),
                                 Optional.empty()))
                         .addInputsSet(deleteRowId)
@@ -599,6 +615,34 @@ public class PlanBuilder
                 deleteRowId,
                 Optional.empty(),
                 Optional.empty(), Optional.empty());
+    }
+
+    public MergeWriterNode merge(
+            SchemaTableName schemaTableName,
+            PlanNode mergeSource,
+            List<VariableReferenceExpression> inputSymbols,
+            List<VariableReferenceExpression> outputSymbols)
+    {
+        return new MergeWriterNode(
+                mergeSource.getSourceLocation(),
+                idAllocator.getNextId(),
+                mergeSource,
+                mergeTarget(schemaTableName),
+                inputSymbols,
+                outputSymbols);
+    }
+
+    private MergeTarget mergeTarget(SchemaTableName schemaTableName)
+    {
+        return new MergeTarget(
+                new TableHandle(
+                        new ConnectorId("testConnector"),
+                        new TestingTableHandle(),
+                        TestingTransactionHandle.create(),
+                        Optional.empty()),
+                Optional.empty(),
+                schemaTableName,
+                new MergeParadigmAndTypes(RowChangeParadigm.DELETE_ROW_AND_INSERT_ROW, ImmutableList.of(), INTEGER));
     }
 
     public ExchangeNode gatheringExchange(ExchangeNode.Scope scope, PlanNode child)
@@ -845,7 +889,16 @@ public class PlanBuilder
         return new JoinNode(Optional.empty(), idAllocator.getNextId(), type, left, right, criteria, outputVariables, filter, leftHashVariable, rightHashVariable, distributionType, dynamicFilters);
     }
 
-    public PlanNode indexJoin(JoinType type, TableScanNode probe, TableScanNode index)
+    public PlanNode indexJoin(JoinType type, PlanNode probe, PlanNode index)
+    {
+        return indexJoin(type, probe, index, emptyList(), Optional.empty());
+    }
+
+    public PlanNode indexJoin(JoinType type,
+            PlanNode probe,
+            PlanNode index,
+            List<IndexJoinNode.EquiJoinClause> criteria,
+            Optional<RowExpression> filter)
     {
         return new IndexJoinNode(
                 Optional.empty(),
@@ -853,10 +906,11 @@ public class PlanBuilder
                 type,
                 probe,
                 index,
-                emptyList(),
+                criteria,
+                filter,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty());
+                index.getOutputVariables());
     }
 
     public CteProducerNode cteProducerNode(String ctename,
@@ -959,6 +1013,32 @@ public class PlanBuilder
                 Optional.of(hashVariable),
                 ImmutableSet.of(),
                 0);
+    }
+
+    public TableFunctionNode tableFunction(
+            String name,
+            List<VariableReferenceExpression> properOutputs,
+            List<PlanNode> sources,
+            List<TableFunctionNode.TableArgumentProperties> tableArgumentProperties,
+            List<List<String>> copartitioningLists)
+
+    {
+        return new TableFunctionNode(
+                idAllocator.getNextId(),
+                name,
+                ImmutableMap.of(),
+                properOutputs,
+                sources,
+                tableArgumentProperties,
+                copartitioningLists,
+                new TableFunctionHandle(new ConnectorId("connector_id"), new ConnectorTableFunctionHandle() {}, TestingTransactionHandle.create()));
+    }
+
+    public TableFunctionProcessorNode tableFunctionProcessor(Consumer<TableFunctionProcessorBuilder> consumer)
+    {
+        TableFunctionProcessorBuilder tableFunctionProcessorBuilder = new TableFunctionProcessorBuilder();
+        consumer.accept(tableFunctionProcessorBuilder);
+        return tableFunctionProcessorBuilder.build(idAllocator);
     }
 
     public RowNumberNode rowNumber(List<VariableReferenceExpression> partitionBy, Optional<Integer> maxRowCountPerPartition, VariableReferenceExpression rowNumberVariable, PlanNode source)
@@ -1077,5 +1157,24 @@ public class PlanBuilder
                 groupingColumns,
                 aggregationArguments,
                 groupIdSymbol);
+    }
+
+    public MaterializedViewScanNode materializedViewScan(
+            QualifiedObjectName materializedViewName,
+            PlanNode dataTablePlan,
+            PlanNode viewQueryPlan,
+            Map<VariableReferenceExpression, VariableReferenceExpression> dataTableMappings,
+            Map<VariableReferenceExpression, VariableReferenceExpression> viewQueryMappings,
+            VariableReferenceExpression... outputVariables)
+    {
+        return new MaterializedViewScanNode(
+                Optional.empty(),
+                idAllocator.getNextId(),
+                dataTablePlan,
+                viewQueryPlan,
+                materializedViewName,
+                dataTableMappings,
+                viewQueryMappings,
+                ImmutableList.copyOf(outputVariables));
     }
 }

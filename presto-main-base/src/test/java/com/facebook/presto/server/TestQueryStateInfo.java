@@ -13,23 +13,29 @@
  */
 package com.facebook.presto.server;
 
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.common.RuntimeStats;
 import com.facebook.presto.cost.StatsAndCosts;
+import com.facebook.presto.execution.ClusterOverloadConfig;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryState;
 import com.facebook.presto.execution.QueryStats;
 import com.facebook.presto.execution.resourceGroups.InternalResourceGroup;
+import com.facebook.presto.execution.resourceGroups.QueryPacingContext;
+import com.facebook.presto.execution.scheduler.clusterOverload.ClusterOverloadPolicy;
+import com.facebook.presto.execution.scheduler.clusterOverload.ClusterResourceChecker;
 import com.facebook.presto.metadata.InMemoryNodeManager;
+import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.spi.PrestoWarning;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.WarningCode;
+import com.facebook.presto.spi.analyzer.UpdateInfo;
 import com.facebook.presto.spi.memory.MemoryPoolId;
 import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.testng.annotations.Test;
 
@@ -38,6 +44,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.execution.QueryState.FINISHED;
 import static com.facebook.presto.execution.QueryState.QUEUED;
@@ -47,7 +54,6 @@ import static com.facebook.presto.server.QueryStateInfo.createQueryStateInfo;
 import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_GLOBAL_MEMORY_LIMIT;
 import static com.facebook.presto.spi.resourceGroups.SchedulingPolicy.WEIGHTED;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -57,7 +63,7 @@ public class TestQueryStateInfo
     @Test
     public void testQueryStateInfo()
     {
-        InternalResourceGroup.RootInternalResourceGroup root = new InternalResourceGroup.RootInternalResourceGroup("root", (group, export) -> {}, directExecutor(), ignored -> Optional.empty(), rg -> false, new InMemoryNodeManager());
+        InternalResourceGroup.RootInternalResourceGroup root = new InternalResourceGroup.RootInternalResourceGroup("root", (group, export) -> {}, directExecutor(), ignored -> Optional.empty(), rg -> false, new InMemoryNodeManager(), createClusterResourceChecker(), QueryPacingContext.NOOP);
         root.setSoftMemoryLimit(new DataSize(1, MEGABYTE));
         root.setMaxQueuedQueries(40);
         root.setHardConcurrencyLimit(0);
@@ -241,6 +247,14 @@ public class TestQueryStateInfo
                         18,
                         34,
                         19,
+                        100,
+                        17,
+                        18,
+                        19,
+                        100,
+                        17,
+                        18,
+                        19,
                         20.0,
                         43.0,
                         DataSize.valueOf("21GB"),
@@ -282,7 +296,7 @@ public class TestQueryStateInfo
                 ImmutableSet.of(),
                 Optional.empty(),
                 false,
-                "33",
+                new UpdateInfo("UPDATE TYPE", ""),
                 Optional.empty(),
                 null,
                 EXCEEDED_GLOBAL_MEMORY_LIMIT.toErrorCode(),
@@ -308,5 +322,30 @@ public class TestQueryStateInfo
                 ImmutableList.of(),
                 ImmutableMap.of(),
                 Optional.empty());
+    }
+
+    private ClusterResourceChecker createClusterResourceChecker()
+    {
+        // Create a mock cluster overload policy that never reports overload
+        ClusterOverloadPolicy mockPolicy = new ClusterOverloadPolicy()
+        {
+            @Override
+            public boolean isClusterOverloaded(InternalNodeManager nodeManager)
+            {
+                return false; // Never overloaded for tests
+            }
+
+            @Override
+            public String getName()
+            {
+                return "test-policy";
+            }
+        };
+
+        // Create a config with throttling disabled for tests
+        ClusterOverloadConfig config = new ClusterOverloadConfig()
+                .setClusterOverloadThrottlingEnabled(false);
+
+        return new ClusterResourceChecker(mockPolicy, config, new InMemoryNodeManager());
     }
 }

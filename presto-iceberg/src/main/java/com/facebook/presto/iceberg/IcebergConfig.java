@@ -15,28 +15,28 @@ package com.facebook.presto.iceberg;
 
 import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
+import com.facebook.airlift.configuration.LegacyConfig;
+import com.facebook.airlift.units.DataSize;
 import com.facebook.presto.hive.HiveCompressionCodec;
 import com.facebook.presto.spi.statistics.ColumnStatisticType;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
-import io.airlift.units.DataSize;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import org.apache.iceberg.hadoop.HadoopFileIO;
-
-import javax.validation.constraints.DecimalMax;
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Max;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
 
 import java.util.EnumSet;
 import java.util.List;
 
-import static com.facebook.presto.hive.HiveCompressionCodec.GZIP;
+import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
+import static com.facebook.airlift.units.DataSize.succinctDataSize;
+import static com.facebook.presto.hive.HiveCompressionCodec.ZSTD;
 import static com.facebook.presto.iceberg.CatalogType.HIVE;
 import static com.facebook.presto.iceberg.IcebergFileFormat.PARQUET;
 import static com.facebook.presto.iceberg.util.StatisticsUtil.decodeMergeFlags;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.airlift.units.DataSize.succinctDataSize;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS_DEFAULT;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH_DEFAULT;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES_DEFAULT;
@@ -47,7 +47,7 @@ import static org.apache.iceberg.TableProperties.METRICS_MAX_INFERRED_COLUMN_DEF
 public class IcebergConfig
 {
     private IcebergFileFormat fileFormat = PARQUET;
-    private HiveCompressionCodec compressionCodec = GZIP;
+    private HiveCompressionCodec compressionCodec = ZSTD;
     private CatalogType catalogType = HIVE;
     private String catalogWarehouse;
     private String catalogWarehouseDataDir;
@@ -60,6 +60,7 @@ public class IcebergConfig
     private double statisticSnapshotRecordDifferenceWeight;
     private boolean pushdownFilterEnabled;
     private boolean deleteAsJoinRewriteEnabled = true;
+    private int deleteAsJoinRewriteMaxDeleteColumns = 400;
     private int rowsForMetadataOptimizationThreshold = 1000;
     private int metadataPreviousVersionsMax = METADATA_PREVIOUS_VERSIONS_MAX_DEFAULT;
     private boolean metadataDeleteAfterCommit = METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT;
@@ -75,6 +76,7 @@ public class IcebergConfig
     private DataSize manifestCacheMaxChunkSize = succinctDataSize(2, MEGABYTE);
     private int splitManagerThreads = Runtime.getRuntime().availableProcessors();
     private DataSize maxStatisticsFileCacheSize = succinctDataSize(256, MEGABYTE);
+    private String materializedViewStoragePrefix = "__mv_storage__";
 
     @NotNull
     public FileFormat getFileFormat()
@@ -267,17 +269,37 @@ public class IcebergConfig
         return pushdownFilterEnabled;
     }
 
-    @Config("iceberg.delete-as-join-rewrite-enabled")
-    @ConfigDescription("When enabled, equality delete row filtering will be implemented by rewriting the query plan to join with the delete keys.")
+    @LegacyConfig(value = "iceberg.delete-as-join-rewrite-enabled")
+    @Config("deprecated.iceberg.delete-as-join-rewrite-enabled")
+    @ConfigDescription("When enabled, equality delete row filtering will be implemented by rewriting the query plan to join with the delete keys. " +
+            "Deprecated: Set 'iceberg.delete-as-join-rewrite-max-delete-columns' to 0 to control the enabling of this feature.  This will be removed in a future release.")
+    @Deprecated
     public IcebergConfig setDeleteAsJoinRewriteEnabled(boolean deleteAsJoinPushdownEnabled)
     {
         this.deleteAsJoinRewriteEnabled = deleteAsJoinPushdownEnabled;
         return this;
     }
 
+    @Deprecated
     public boolean isDeleteAsJoinRewriteEnabled()
     {
         return deleteAsJoinRewriteEnabled;
+    }
+
+    @Config("iceberg.delete-as-join-rewrite-max-delete-columns")
+    @ConfigDescription("The maximum number of columns that can be used in a delete as join rewrite. " +
+            "If the number of columns exceeds this value, the delete as join rewrite will not be applied.")
+    @Min(0)
+    @Max(400)
+    public IcebergConfig setDeleteAsJoinRewriteMaxDeleteColumns(int deleteAsJoinRewriteMaxDeleteColumns)
+    {
+        this.deleteAsJoinRewriteMaxDeleteColumns = deleteAsJoinRewriteMaxDeleteColumns;
+        return this;
+    }
+
+    public int getDeleteAsJoinRewriteMaxDeleteColumns()
+    {
+        return deleteAsJoinRewriteMaxDeleteColumns;
     }
 
     @Config("iceberg.rows-for-metadata-optimization-threshold")
@@ -456,6 +478,22 @@ public class IcebergConfig
     public IcebergConfig setStatisticsKllSketchKParameter(int kllSketchKParameter)
     {
         this.statisticsKllSketchKParameter = kllSketchKParameter;
+        return this;
+    }
+
+    @NotNull
+    public String getMaterializedViewStoragePrefix()
+    {
+        return materializedViewStoragePrefix;
+    }
+
+    @Config("iceberg.materialized-view-storage-prefix")
+    @ConfigDescription("Default prefix for generated materialized view storage table names. " +
+            "This is only used when the storage_table table property is not explicitly set. " +
+            "When a custom table name is provided, it takes precedence over this prefix.")
+    public IcebergConfig setMaterializedViewStoragePrefix(String materializedViewStoragePrefix)
+    {
+        this.materializedViewStoragePrefix = materializedViewStoragePrefix;
         return this;
     }
 }

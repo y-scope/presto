@@ -34,10 +34,11 @@ class PeriodicMemoryCheckerTest : public testing::Test {
         std::function<void()>&& periodicCb = nullptr,
         std::function<bool(const std::string&)>&& heapDumpCb = nullptr)
         : PeriodicMemoryChecker(config),
-          systemUsedMemoryBytes_(systemUsedMemoryBytes),
           mallocBytes_(mallocBytes),
           periodicCb_(std::move(periodicCb)),
-          heapDumpCb_(std::move(heapDumpCb)) {}
+          heapDumpCb_(std::move(heapDumpCb)) {
+      cachedSystemUsedMemoryBytes_ = systemUsedMemoryBytes;
+    }
 
     ~TestPeriodicMemoryChecker() override {}
 
@@ -46,9 +47,7 @@ class PeriodicMemoryCheckerTest : public testing::Test {
     }
 
    protected:
-    int64_t systemUsedMemoryBytes() override {
-      return systemUsedMemoryBytes_;
-    }
+    void loadSystemMemoryUsage() override {}
 
     int64_t mallocBytes() const override {
       return mallocBytes_;
@@ -70,7 +69,6 @@ class PeriodicMemoryCheckerTest : public testing::Test {
     void removeDumpFile(const std::string& filePath) const override {}
 
    private:
-    int64_t systemUsedMemoryBytes_{0};
     int64_t mallocBytes_{0};
     std::function<void()> periodicCb_;
     std::function<bool(const std::string&)> heapDumpCb_;
@@ -81,22 +79,27 @@ TEST_F(PeriodicMemoryCheckerTest, basic) {
   // Default config
   ASSERT_NO_THROW(TestPeriodicMemoryChecker(PeriodicMemoryChecker::Config{}));
 
-  ASSERT_NO_THROW(TestPeriodicMemoryChecker(PeriodicMemoryChecker::Config{
-      1'000, true, 1024, 32, true, 5, "/path/to/dir", "prefix", 5, 512}));
+  ASSERT_NO_THROW(TestPeriodicMemoryChecker(
+      PeriodicMemoryChecker::Config{
+          1'000, true, 1024, 32, true, 5, "/path/to/dir", "prefix", 5, 512}));
   VELOX_ASSERT_THROW(
-      TestPeriodicMemoryChecker(PeriodicMemoryChecker::Config{
-          1'000, true, 0, 32, true, 5, "/path/to/dir", "prefix", 5, 512}),
+      TestPeriodicMemoryChecker(
+          PeriodicMemoryChecker::Config{
+              1'000, true, 0, 32, true, 5, "/path/to/dir", "prefix", 5, 512}),
       "(0 vs. 0)");
   VELOX_ASSERT_THROW(
-      TestPeriodicMemoryChecker(PeriodicMemoryChecker::Config{
-          1'000, true, 1024, 32, true, 5, "", "prefix", 5, 512}),
+      TestPeriodicMemoryChecker(
+          PeriodicMemoryChecker::Config{
+              1'000, true, 1024, 32, true, 5, "", "prefix", 5, 512}),
       "heapDumpLogDir cannot be empty when heap dump is enabled.");
   VELOX_ASSERT_THROW(
-      TestPeriodicMemoryChecker(PeriodicMemoryChecker::Config{
-          1'000, true, 1024, 32, true, 5, "/path/to/dir", "", 5, 512}),
+      TestPeriodicMemoryChecker(
+          PeriodicMemoryChecker::Config{
+              1'000, true, 1024, 32, true, 5, "/path/to/dir", "", 5, 512}),
       "heapDumpFilePrefix cannot be empty when heap dump is enabled.");
-  TestPeriodicMemoryChecker memChecker(PeriodicMemoryChecker::Config{
-      1'000, false, 0, 0, false, 5, "/path/to/dir", "prefix", 5, 512});
+  TestPeriodicMemoryChecker memChecker(
+      PeriodicMemoryChecker::Config{
+          1'000, false, 0, 0, false, 5, "/path/to/dir", "prefix", 5, 512});
   ASSERT_NO_THROW(memChecker.start());
   VELOX_ASSERT_THROW(memChecker.start(), "start() called more than once");
   ASSERT_NO_THROW(memChecker.stop());
@@ -176,7 +179,7 @@ TEST_F(PeriodicMemoryCheckerTest, heapdump) {
 }
 
 TEST_F(PeriodicMemoryCheckerTest, pushbackMemory) {
-  memory::MemoryManagerOptions options;
+  memory::MemoryManager::Options options;
   options.allocatorCapacity = 32L << 20;
   memory::MemoryManager::testingSetInstance(options);
   auto asyncDataCache =
@@ -222,6 +225,6 @@ TEST_F(PeriodicMemoryCheckerTest, pushbackMemory) {
   // Shutdown global memory setups
   asyncDataCache->shutdown();
   cache::AsyncDataCache::setInstance(nullptr);
-  memory::MemoryManager::testingSetInstance(memory::MemoryManagerOptions{});
+  memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
 }
 } // namespace facebook::presto

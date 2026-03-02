@@ -13,10 +13,11 @@
  */
 package com.facebook.presto.iceberg.optimizer;
 
+import com.facebook.presto.common.RuntimeStats;
 import com.facebook.presto.common.Subfield;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.TypeManager;
-import com.facebook.presto.hive.HivePartition;
+import com.facebook.presto.hive.PartitionSet;
 import com.facebook.presto.hive.rule.BaseSubfieldExtractionRewriter;
 import com.facebook.presto.iceberg.IcebergAbstractMetadata;
 import com.facebook.presto.iceberg.IcebergColumnHandle;
@@ -155,12 +156,14 @@ public class IcebergFilterPushdown
             TupleDomain<ColumnHandle> partitionColumnPredicate = TupleDomain.withColumnDomains(Maps.filterKeys(
                     constraint.getSummary().getDomains().get(), Predicates.in(partitionColumns)));
 
-            List<HivePartition> partitions = getPartitions(
+            RuntimeStats runtimeStats = session.getRuntimeStats();
+            PartitionSet partitions = getPartitions(
                     typeManager,
                     tableHandle,
                     icebergTable,
                     constraint,
-                    partitionColumns);
+                    partitionColumns,
+                    runtimeStats);
 
             return new ConnectorPushdownFilterResult(
                     metadata.getTableLayout(
@@ -174,7 +177,7 @@ public class IcebergFilterPushdown
                                     .setRequestedColumns(requestedColumns)
                                     .setPushdownFilterEnabled(true)
                                     .setPartitionColumnPredicate(partitionColumnPredicate)
-                                    .setPartitions(Optional.ofNullable(partitions.size() == 0 ? null : partitions))
+                                    .setPartitions(Optional.ofNullable(partitions.isEmpty() ? null : partitions))
                                     .setTable((IcebergTableHandle) tableHandle)
                                     .build()),
                     remainingExpressions.getDynamicFilterExpression());

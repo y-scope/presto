@@ -14,6 +14,7 @@
 package com.facebook.presto.operator.scalar;
 
 import com.facebook.airlift.concurrent.ThreadLocalCache;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.common.NotSupportedException;
 import com.facebook.presto.common.function.SqlFunctionProperties;
 import com.facebook.presto.common.type.StandardTypes;
@@ -26,7 +27,6 @@ import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.type.TimestampOperators;
 import io.airlift.slice.Slice;
-import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeField;
 import org.joda.time.DateTimeZone;
@@ -38,8 +38,11 @@ import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 import org.joda.time.format.ISODateTimeFormat;
 
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.facebook.presto.common.type.DateTimeEncoding.packDateTimeWithZone;
 import static com.facebook.presto.common.type.DateTimeEncoding.unpackMillisUtc;
@@ -83,6 +86,7 @@ public final class DateTimeFunctions
     private static final DateTimeField MONTH_OF_YEAR = UTC_CHRONOLOGY.monthOfYear();
     private static final DateTimeField QUARTER = QUARTER_OF_YEAR.getField(UTC_CHRONOLOGY);
     private static final DateTimeField YEAR = UTC_CHRONOLOGY.year();
+    private static final Pattern PATTERN = Pattern.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*([a-zA-Z]+)\\s*$");
     private static final int MILLISECONDS_IN_SECOND = 1000;
     private static final int MILLISECONDS_IN_MINUTE = 60 * MILLISECONDS_IN_SECOND;
     private static final int MILLISECONDS_IN_HOUR = 60 * MILLISECONDS_IN_MINUTE;
@@ -113,13 +117,12 @@ public final class DateTimeFunctions
         // and we need to have UTC millis for packDateTimeWithZone
         long millis = UTC_CHRONOLOGY.millisOfDay().get(properties.getSessionStartTime());
 
-        if (!properties.isLegacyTimestamp()) {
-            // However, those UTC millis are pointing to the correct UTC timestamp
-            // Our TIME WITH TIME ZONE representation does use UTC 1970-01-01 representation
-            // So we have to hack here in order to get valid representation
-            // of TIME WITH TIME ZONE
-            millis -= valueToSessionTimeZoneOffsetDiff(properties.getSessionStartTime(), getDateTimeZone(properties.getTimeZoneKey()));
-        }
+        // However, those UTC millis are pointing to the correct UTC timestamp
+        // Our TIME WITH TIME ZONE representation does use UTC 1970-01-01 representation
+        // So we have to hack here in order to get valid representation
+        // of TIME WITH TIME ZONE
+        millis -= valueToSessionTimeZoneOffsetDiff(properties.getSessionStartTime(), getDateTimeZone(properties.getTimeZoneKey()));
+
         try {
             return packDateTimeWithZone(millis, properties.getTimeZoneKey());
         }
@@ -140,7 +143,8 @@ public final class DateTimeFunctions
     public static long localTime(SqlFunctionProperties properties)
     {
         if (properties.isLegacyTimestamp()) {
-            return UTC_CHRONOLOGY.millisOfDay().get(properties.getSessionStartTime());
+            long millis = UTC_CHRONOLOGY.millisOfDay().get(properties.getSessionStartTime());
+            return millis - valueToSessionTimeZoneOffsetDiff(properties.getSessionStartTime(), getDateTimeZone(properties.getTimeZoneKey()));
         }
         ISOChronology localChronology = getChronology(properties.getTimeZoneKey());
         return localChronology.millisOfDay().get(properties.getSessionStartTime());
@@ -1437,11 +1441,50 @@ public final class DateTimeFunctions
     @SqlType(StandardTypes.INTERVAL_DAY_TO_SECOND)
     public static long parseDuration(@SqlType("varchar(x)") Slice duration)
     {
-        try {
-            return Duration.valueOf(duration.toStringUtf8()).toMillis();
+        String durationStr = duration.toStringUtf8();
+
+        if (durationStr.isEmpty()) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "duration is empty");
         }
-        catch (IllegalArgumentException e) {
+
+        try {
+            Matcher matcher = PATTERN.matcher(durationStr);
+
+            if (!matcher.matches()) {
+                throw new PrestoException(INVALID_FUNCTION_ARGUMENT,
+                        "duration is not a valid data duration string: " + durationStr);
+            }
+
+            BigDecimal value = new BigDecimal(matcher.group(1));
+            TimeUnit timeUnit = Duration.valueOfTimeUnit(matcher.group(2));
+
+            return value.multiply(millisPerTimeUnit(timeUnit))
+                    .add(BigDecimal.valueOf(0.5)).longValue();
+        }
+        catch (IllegalArgumentException | ArithmeticException e) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, e);
+        }
+    }
+
+    private static BigDecimal millisPerTimeUnit(TimeUnit timeUnit)
+    {
+        switch (timeUnit) {
+            case NANOSECONDS:
+                return new BigDecimal("0.000001");
+            case MICROSECONDS:
+                return new BigDecimal("0.001");
+            case MILLISECONDS:
+                return BigDecimal.ONE;
+            case SECONDS:
+                return BigDecimal.valueOf(1000);
+            case MINUTES:
+                return BigDecimal.valueOf(60_000);
+            case HOURS:
+                return BigDecimal.valueOf(3_600_000);
+            case DAYS:
+                return BigDecimal.valueOf(86_400_000);
+            default:
+                throw new AssertionError("Unknown TimeUnit: " + timeUnit);
         }
     }
 

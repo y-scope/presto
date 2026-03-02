@@ -32,6 +32,7 @@ import com.facebook.presto.spi.plan.SemiJoinNode;
 import com.facebook.presto.spi.plan.SortNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.ConstantExpression;
 import com.facebook.presto.spi.relation.InputReferenceExpression;
@@ -44,7 +45,6 @@ import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.plan.InternalPlanVisitor;
 import com.facebook.presto.sql.planner.plan.OffsetNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -202,7 +202,7 @@ public class ReplaceConstantVariableReferencesWithConstants
                             if (newConstantMap.containsKey(variable) && !newConstantMap.get(variable).equals(constant)) {
                                 return new PlanNodeWithConstant(replaceChildren(node, ImmutableList.of(rewrittenChild.getPlanNode())), ImmutableMap.of());
                             }
-                            if (!constant.isNull()) {
+                            if (!constant.isNull() && variable.getType().equals(constant.getType())) {
                                 planChanged = true;
                                 newConstantMap.put(variable, constant);
                             }
@@ -235,7 +235,7 @@ public class ReplaceConstantVariableReferencesWithConstants
             for (Map.Entry<VariableReferenceExpression, RowExpression> entry : newProjectNode.getAssignments().getMap().entrySet()) {
                 if (entry.getValue() instanceof ConstantExpression && isSupportedType(entry.getKey()) && isSupportedType(entry.getValue())) {
                     ConstantExpression constantExpression = (ConstantExpression) entry.getValue();
-                    if (!constantExpression.isNull()) {
+                    if (!constantExpression.isNull() && entry.getKey().getType().equals(constantExpression.getType())) {
                         planChanged = true;
                         newConstantMap.put(entry.getKey(), constantExpression);
                     }

@@ -17,6 +17,8 @@ import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.analyzer.AnalyzerOptions;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
+import com.facebook.presto.spi.procedure.ProcedureRegistry;
 import com.facebook.presto.spi.security.AccessControl;
 import com.facebook.presto.sql.analyzer.BuiltInQueryPreparer;
 import com.facebook.presto.sql.analyzer.BuiltInQueryPreparer.BuiltInPreparedQuery;
@@ -61,9 +63,11 @@ final class ExplainRewrite
             Map<NodeRef<Parameter>, Expression> parameterLookup,
             AccessControl accessControl,
             WarningCollector warningCollector,
-            String query)
+            String query,
+            ViewDefinitionReferences viewDefinitionReferences)
     {
-        return (Statement) new Visitor(session, parser, queryExplainer, warningCollector, query).process(node, null);
+        return (Statement) new Visitor(session, parser, queryExplainer, metadata.getProcedureRegistry(), warningCollector, query, viewDefinitionReferences)
+                .process(node, null);
     }
 
     private static final class Visitor
@@ -74,19 +78,23 @@ final class ExplainRewrite
         private final Optional<QueryExplainer> queryExplainer;
         private final WarningCollector warningCollector;
         private final String query;
+        private final ViewDefinitionReferences viewDefinitionReferences;
 
         public Visitor(
                 Session session,
                 SqlParser parser,
                 Optional<QueryExplainer> queryExplainer,
+                ProcedureRegistry procedureRegistry,
                 WarningCollector warningCollector,
-                String query)
+                String query,
+                ViewDefinitionReferences viewDefinitionReferences)
         {
             this.session = requireNonNull(session, "session is null");
-            this.queryPreparer = new BuiltInQueryPreparer(requireNonNull(parser, "queryPreparer is null"));
+            this.queryPreparer = new BuiltInQueryPreparer(requireNonNull(parser, "queryPreparer is null"), procedureRegistry);
             this.queryExplainer = requireNonNull(queryExplainer, "queryExplainer is null");
             this.warningCollector = requireNonNull(warningCollector, "warningCollector is null");
             this.query = requireNonNull(query, "query is null");
+            this.viewDefinitionReferences = requireNonNull(viewDefinitionReferences, "viewDefinitionReferences is null");
         }
 
         @Override
@@ -135,13 +143,13 @@ final class ExplainRewrite
             String plan;
             switch (planFormat) {
                 case GRAPHVIZ:
-                    plan = queryExplainer.get().getGraphvizPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), warningCollector, query);
+                    plan = queryExplainer.get().getGraphvizPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), warningCollector, query, viewDefinitionReferences);
                     break;
                 case JSON:
-                    plan = queryExplainer.get().getJsonPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), warningCollector, query);
+                    plan = queryExplainer.get().getJsonPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), warningCollector, query, viewDefinitionReferences);
                     break;
                 case TEXT:
-                    plan = queryExplainer.get().getPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), node.isVerbose(), warningCollector, query);
+                    plan = queryExplainer.get().getPlan(session, preparedQuery.getStatement(), planType, preparedQuery.getParameters(), node.isVerbose(), warningCollector, query, viewDefinitionReferences);
                     break;
                 default:
                     throw new IllegalArgumentException("Invalid Explain Format: " + planFormat.toString());

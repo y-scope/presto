@@ -37,8 +37,7 @@ import com.facebook.presto.spi.statistics.ComputedStatistics;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
-
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Collection;
 import java.util.List;
@@ -51,6 +50,7 @@ import static com.facebook.presto.kafka.KafkaHandleResolver.convertColumnHandle;
 import static com.facebook.presto.kafka.KafkaHandleResolver.convertTableHandle;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
+import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -64,6 +64,7 @@ public class KafkaMetadata
     private final String connectorId;
     private final boolean hideInternalColumns;
     private final TableDescriptionSupplier tableDescriptionSupplier;
+    private final boolean caseSensitiveNameMatching;
 
     @Inject
     public KafkaMetadata(
@@ -76,6 +77,7 @@ public class KafkaMetadata
         requireNonNull(kafkaConnectorConfig, "kafkaConfig is null");
         this.hideInternalColumns = kafkaConnectorConfig.isHideInternalColumns();
         this.tableDescriptionSupplier = requireNonNull(tableDescriptionSupplier, "tableDescriptionSupplier is null");
+        this.caseSensitiveNameMatching = kafkaConnectorConfig.isCaseSensitiveNameMatching();
     }
 
     @Override
@@ -113,7 +115,7 @@ public class KafkaMetadata
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
-        return getTableMetadata(convertTableHandle(tableHandle).toSchemaTableName());
+        return getTableMetadata(session, convertTableHandle(tableHandle).toSchemaTableName());
     }
 
     @Override
@@ -183,7 +185,7 @@ public class KafkaMetadata
 
         for (SchemaTableName tableName : tableNames) {
             try {
-                columns.put(tableName, getTableMetadata(tableName).getColumns());
+                columns.put(tableName, getTableMetadata(session, tableName).getColumns());
             }
             catch (TableNotFoundException e) {
                 // Normally it would mean the table disappeared during listing operation
@@ -201,7 +203,11 @@ public class KafkaMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns)
+    public ConnectorTableLayoutResult getTableLayoutForConstraint(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            Constraint<ColumnHandle> constraint,
+            Optional<Set<ColumnHandle>> desiredColumns)
     {
         KafkaTableHandle handle = convertTableHandle(table);
         long startTimestamp = 0;
@@ -225,7 +231,7 @@ public class KafkaMetadata
         }
 
         ConnectorTableLayout layout = new ConnectorTableLayout(new KafkaTableLayoutHandle(handle, startTimestamp, endTimestamp));
-        return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
+        return new ConnectorTableLayoutResult(layout, constraint.getSummary());
     }
 
     @Override
@@ -234,7 +240,7 @@ public class KafkaMetadata
         return new ConnectorTableLayout(handle);
     }
 
-    private ConnectorTableMetadata getTableMetadata(SchemaTableName schemaTableName)
+    private ConnectorTableMetadata getTableMetadata(ConnectorSession session, SchemaTableName schemaTableName)
     {
         KafkaTopicDescription table = getRequiredTopicDescription(schemaTableName);
 
@@ -244,7 +250,7 @@ public class KafkaMetadata
             List<KafkaTopicFieldDescription> fields = key.getFields();
             if (fields != null) {
                 for (KafkaTopicFieldDescription fieldDescription : fields) {
-                    builder.add(fieldDescription.getColumnMetadata());
+                    builder.add(fieldDescription.getColumnMetadata(normalizeIdentifier(session, fieldDescription.getName())));
                 }
             }
         });
@@ -253,13 +259,13 @@ public class KafkaMetadata
             List<KafkaTopicFieldDescription> fields = message.getFields();
             if (fields != null) {
                 for (KafkaTopicFieldDescription fieldDescription : fields) {
-                    builder.add(fieldDescription.getColumnMetadata());
+                    builder.add(fieldDescription.getColumnMetadata(normalizeIdentifier(session, fieldDescription.getName())));
                 }
             }
         });
 
         for (KafkaInternalFieldDescription fieldDescription : KafkaInternalFieldDescription.values()) {
-            builder.add(fieldDescription.getColumnMetadata(hideInternalColumns));
+            builder.add(fieldDescription.getColumnMetadata(hideInternalColumns, normalizeIdentifier(session, fieldDescription.getColumnName())));
         }
 
         return new ConnectorTableMetadata(schemaTableName, builder.build());
@@ -301,5 +307,10 @@ public class KafkaMetadata
     private Optional<KafkaTopicDescription> getTopicDescription(SchemaTableName schemaTableName)
     {
         return tableDescriptionSupplier.getTopicDescription(schemaTableName);
+    }
+    @Override
+    public String normalizeIdentifier(ConnectorSession session, String identifier)
+    {
+        return caseSensitiveNameMatching ? identifier : identifier.toLowerCase(ROOT);
     }
 }

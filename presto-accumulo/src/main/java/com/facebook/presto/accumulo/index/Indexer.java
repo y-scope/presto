@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.accumulo.index;
 
+import com.facebook.airlift.concurrent.NotThreadSafe;
 import com.facebook.presto.accumulo.Types;
 import com.facebook.presto.accumulo.iterators.MaxByteArrayCombiner;
 import com.facebook.presto.accumulo.iterators.MinByteArrayCombiner;
@@ -45,11 +46,9 @@ import org.apache.accumulo.core.iterators.TypedValueCombiner;
 import org.apache.accumulo.core.iterators.user.SummingCombiner;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.core.security.ColumnVisibility;
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.io.Text;
-
-import javax.annotation.concurrent.NotThreadSafe;
 
 import java.io.Closeable;
 import java.nio.ByteBuffer;

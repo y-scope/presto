@@ -23,6 +23,7 @@ import com.facebook.presto.common.type.RealType;
 import com.facebook.presto.common.type.SmallintType;
 import com.facebook.presto.common.type.SqlTime;
 import com.facebook.presto.common.type.SqlTimestamp;
+import com.facebook.presto.common.type.SqlTimestampWithTimeZone;
 import com.facebook.presto.common.type.TinyintType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.Metadata;
@@ -32,6 +33,7 @@ import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.TableMetadata;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.analyzer.ViewDefinitionReferences;
 import com.facebook.presto.spi.plan.FilterNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.security.AccessControl;
@@ -82,7 +84,9 @@ import static com.facebook.presto.common.type.SqlTimestamp.MICROSECONDS_PER_MILL
 import static com.facebook.presto.common.type.StandardTypes.DOUBLE;
 import static com.facebook.presto.common.type.StandardTypes.VARCHAR;
 import static com.facebook.presto.common.type.TimeType.TIME;
+import static com.facebook.presto.common.type.TimeZoneKey.UTC_KEY;
 import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
+import static com.facebook.presto.common.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
 import static com.facebook.presto.sql.QueryUtil.aliased;
 import static com.facebook.presto.sql.QueryUtil.selectAll;
@@ -113,9 +117,10 @@ public class ShowStatsRewrite
             Map<NodeRef<Parameter>, Expression> parameterLookup,
             AccessControl accessControl,
             WarningCollector warningCollector,
-            String query)
+            String query,
+            ViewDefinitionReferences viewDefinitionReferences)
     {
-        return (Statement) new Visitor(metadata, session, parameters, queryExplainer, warningCollector, query).process(node, null);
+        return (Statement) new Visitor(metadata, session, parameters, queryExplainer, warningCollector, query, viewDefinitionReferences).process(node, null);
     }
 
     private static class Visitor
@@ -127,8 +132,9 @@ public class ShowStatsRewrite
         private final Optional<QueryExplainer> queryExplainer;
         private final WarningCollector warningCollector;
         private final String sqlString;
+        private final ViewDefinitionReferences viewDefinitionReferences;
 
-        public Visitor(Metadata metadata, Session session, List<Expression> parameters, Optional<QueryExplainer> queryExplainer, WarningCollector warningCollector, String sqlString)
+        public Visitor(Metadata metadata, Session session, List<Expression> parameters, Optional<QueryExplainer> queryExplainer, WarningCollector warningCollector, String sqlString, ViewDefinitionReferences viewDefinitionReferences)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");
             this.session = requireNonNull(session, "session is null");
@@ -136,6 +142,7 @@ public class ShowStatsRewrite
             this.queryExplainer = requireNonNull(queryExplainer, "queryExplainer is null");
             this.warningCollector = requireNonNull(warningCollector, "warningCollector is null");
             this.sqlString = requireNonNull(sqlString, "sqlString is null");
+            this.viewDefinitionReferences = requireNonNull(viewDefinitionReferences, "viewDefinitionReferences is null");
         }
 
         @Override
@@ -146,7 +153,7 @@ public class ShowStatsRewrite
             if (node.getRelation() instanceof TableSubquery) {
                 Query query = ((TableSubquery) node.getRelation()).getQuery();
                 QuerySpecification specification = (QuerySpecification) query.getQueryBody();
-                Plan plan = queryExplainer.get().getLogicalPlan(session, new Query(Optional.empty(), specification, Optional.empty(), Optional.empty(), Optional.empty()), parameters, warningCollector, sqlString);
+                Plan plan = queryExplainer.get().getLogicalPlan(session, new Query(Optional.empty(), specification, Optional.empty(), Optional.empty(), Optional.empty()), parameters, warningCollector, sqlString, viewDefinitionReferences);
                 Set<String> columns = validateShowStatsSubquery(node, query, specification, plan);
                 Table table = (Table) specification.getFrom().get();
                 Constraint<ColumnHandle> constraint = getConstraint(plan);
@@ -255,7 +262,7 @@ public class ShowStatsRewrite
 
         private TableHandle getTableHandle(ShowStats node, QualifiedName table)
         {
-            QualifiedObjectName qualifiedTableName = createQualifiedObjectName(session, node, table);
+            QualifiedObjectName qualifiedTableName = createQualifiedObjectName(session, node, table, metadata);
             return metadata.getMetadataResolver(session).getTableHandle(qualifiedTableName)
                     .orElseThrow(() -> new SemanticException(MISSING_TABLE, node, "Table %s not found", table));
         }
@@ -380,6 +387,9 @@ public class ShowStatsRewrite
             }
             if (type.equals(TIME)) {
                 return new StringLiteral(new SqlTime(round(value)).toString());
+            }
+            if (type.equals(TIMESTAMP_WITH_TIME_ZONE)) {
+                return new StringLiteral(new SqlTimestampWithTimeZone(round(value) / MICROSECONDS_PER_MILLISECOND, UTC_KEY).toString());
             }
             throw new IllegalArgumentException("Unexpected type: " + type);
         }

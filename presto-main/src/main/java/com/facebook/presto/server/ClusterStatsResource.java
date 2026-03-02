@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.server;
 
+import com.facebook.airlift.units.Duration;
 import com.facebook.drift.annotations.ThriftConstructor;
 import com.facebook.drift.annotations.ThriftField;
 import com.facebook.drift.annotations.ThriftStruct;
@@ -28,23 +29,21 @@ import com.facebook.presto.spi.NodeState;
 import com.facebook.presto.ttl.clusterttlprovidermanagers.ClusterTtlProviderManager;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.airlift.units.Duration;
-
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.container.AsyncResponse;
-import javax.ws.rs.container.Suspended;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.container.AsyncResponse;
+import jakarta.ws.rs.container.Suspended;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 
 import java.net.URI;
 import java.util.Iterator;
@@ -59,10 +58,10 @@ import static com.facebook.presto.server.security.RoleType.USER;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Suppliers.memoizeWithExpiration;
 import static com.google.common.net.HttpHeaders.X_FORWARDED_PROTO;
+import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static javax.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 
 @Path("/v1/cluster")
 @RolesAllowed({ADMIN, USER})
@@ -77,6 +76,7 @@ public class ClusterStatsResource
     private final InternalResourceGroupManager internalResourceGroupManager;
     private final ClusterTtlProviderManager clusterTtlProviderManager;
     private final Supplier<ClusterStats> clusterStatsSupplier;
+    private final String clusterTag;
 
     @Inject
     public ClusterStatsResource(
@@ -97,7 +97,9 @@ public class ClusterStatsResource
         this.proxyHelper = requireNonNull(proxyHelper, "internalNodeManager is null");
         this.internalResourceGroupManager = requireNonNull(internalResourceGroupManager, "internalResourceGroupManager is null");
         this.clusterTtlProviderManager = requireNonNull(clusterTtlProviderManager, "clusterTtlProvider is null");
-        Duration expirationDuration = requireNonNull(serverConfig, "serverConfig is null").getClusterStatsExpirationDuration();
+        ServerConfig config = requireNonNull(serverConfig, "serverConfig is null");
+        this.clusterTag = config.getClusterTag();
+        Duration expirationDuration = config.getClusterStatsExpirationDuration();
         this.clusterStatsSupplier = expirationDuration.getValue() > 0 ? memoizeWithExpiration(this::calculateClusterStats, expirationDuration.toMillis(), MILLISECONDS) : this::calculateClusterStats;
     }
 
@@ -171,7 +173,8 @@ public class ClusterStatsResource
                 totalInputRows,
                 totalInputBytes,
                 totalCpuTimeSecs,
-                internalResourceGroupManager.getQueriesQueuedOnInternal());
+                internalResourceGroupManager.getQueriesQueuedOnInternal(),
+                clusterTag);
     }
 
     @GET
@@ -239,6 +242,8 @@ public class ClusterStatsResource
         private final long totalCpuTimeSecs;
         private final long adjustedQueueSize;
 
+        private final String clusterTag;
+
         @JsonCreator
         @ThriftConstructor
         public ClusterStats(
@@ -252,7 +257,8 @@ public class ClusterStatsResource
                 @JsonProperty("totalInputRows") long totalInputRows,
                 @JsonProperty("totalInputBytes") long totalInputBytes,
                 @JsonProperty("totalCpuTimeSecs") long totalCpuTimeSecs,
-                @JsonProperty("adjustedQueueSize") long adjustedQueueSize)
+                @JsonProperty("adjustedQueueSize") long adjustedQueueSize,
+                @JsonProperty("clusterTag") String clusterTag)
         {
             this.runningQueries = runningQueries;
             this.blockedQueries = blockedQueries;
@@ -265,6 +271,7 @@ public class ClusterStatsResource
             this.totalInputBytes = totalInputBytes;
             this.totalCpuTimeSecs = totalCpuTimeSecs;
             this.adjustedQueueSize = adjustedQueueSize;
+            this.clusterTag = clusterTag;
         }
 
         @JsonProperty
@@ -342,6 +349,13 @@ public class ClusterStatsResource
         public long getAdjustedQueueSize()
         {
             return adjustedQueueSize;
+        }
+
+        @JsonProperty
+        @ThriftField(12)
+        public String getClusterTag()
+        {
+            return clusterTag;
         }
     }
 }

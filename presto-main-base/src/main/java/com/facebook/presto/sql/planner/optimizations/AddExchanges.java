@@ -18,7 +18,9 @@ import com.facebook.presto.common.type.Type;
 import com.facebook.presto.connector.system.GlobalSystemConnector;
 import com.facebook.presto.execution.QueryManagerConfig.ExchangeMaterializationStrategy;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorId;
+import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.GroupingProperty;
 import com.facebook.presto.spi.LocalProperty;
 import com.facebook.presto.spi.PrestoException;
@@ -32,12 +34,14 @@ import com.facebook.presto.spi.plan.DeleteNode;
 import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.EquiJoinClause;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.InputDistribution;
 import com.facebook.presto.spi.plan.JoinDistributionType;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MetadataDeleteNode;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.Partitioning;
 import com.facebook.presto.spi.plan.PartitioningHandle;
@@ -53,30 +57,36 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.plan.WindowNode;
+import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.spi.statistics.TableStatistics;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationPartitioningMergingStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartialMergePushdownStrategy;
 import com.facebook.presto.sql.planner.PartitioningProviderManager;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.optimizations.PreferredProperties.PartitioningProperties;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.ChildReplacer;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode.Scope;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.InternalPlanVisitor;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
-import com.facebook.presto.sql.planner.plan.UnnestNode;
+import com.facebook.presto.sql.planner.plan.UpdateNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -96,9 +106,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
 
 import static com.facebook.presto.SystemSessionProperties.getAggregationPartitioningMergingStrategy;
@@ -106,6 +119,10 @@ import static com.facebook.presto.SystemSessionProperties.getExchangeMaterializa
 import static com.facebook.presto.SystemSessionProperties.getHashPartitionCount;
 import static com.facebook.presto.SystemSessionProperties.getPartialMergePushdownStrategy;
 import static com.facebook.presto.SystemSessionProperties.getPartitioningProviderCatalog;
+import static com.facebook.presto.SystemSessionProperties.getRemoteFunctionFixedParallelismTaskCount;
+import static com.facebook.presto.SystemSessionProperties.getRemoteFunctionNamesForFixedParallelism;
+import static com.facebook.presto.SystemSessionProperties.getTableScanShuffleParallelismThreshold;
+import static com.facebook.presto.SystemSessionProperties.getTableScanShuffleStrategy;
 import static com.facebook.presto.SystemSessionProperties.getTaskPartitionedWriterCount;
 import static com.facebook.presto.SystemSessionProperties.isAddPartialNodeForRowNumberWithLimit;
 import static com.facebook.presto.SystemSessionProperties.isColocatedJoinEnabled;
@@ -125,6 +142,9 @@ import static com.facebook.presto.operator.aggregation.AggregationUtils.hasSingl
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.plan.ExchangeEncoding.COLUMNAR;
 import static com.facebook.presto.spi.plan.LimitNode.Step.PARTIAL;
+import static com.facebook.presto.sql.analyzer.FeaturesConfig.ShuffleForTableScanStrategy.ALWAYS_ENABLED;
+import static com.facebook.presto.sql.analyzer.FeaturesConfig.ShuffleForTableScanStrategy.COST_BASED;
+import static com.facebook.presto.sql.analyzer.FeaturesConfig.ShuffleForTableScanStrategy.DISABLED;
 import static com.facebook.presto.sql.planner.FragmentTableScanCounter.getNumberOfTableScans;
 import static com.facebook.presto.sql.planner.FragmentTableScanCounter.hasMultipleTableScans;
 import static com.facebook.presto.sql.planner.PlannerUtils.containsSystemTableScan;
@@ -207,6 +227,7 @@ public class AddExchanges
         private final ExchangeMaterializationStrategy exchangeMaterializationStrategy;
         private final PartitioningProviderManager partitioningProviderManager;
         private final boolean nativeExecution;
+        private boolean isDeleteOrUpdateQuery;
 
         public Rewriter(
                 PlanNodeIdAllocator idAllocator,
@@ -243,8 +264,31 @@ public class AddExchanges
         {
             Map<VariableReferenceExpression, VariableReferenceExpression> identities = computeIdentityTranslations(node.getAssignments());
             PreferredProperties translatedPreferred = preferredProperties.translate(symbol -> Optional.ofNullable(identities.get(symbol)));
+            PlanWithProperties planWithProperties = planChild(node, translatedPreferred);
 
-            return rebaseAndDeriveProperties(node, planChild(node, translatedPreferred));
+            if (node.getLocality().equals(ProjectNode.Locality.REMOTE)) {
+                String functionNameRegex = getRemoteFunctionNamesForFixedParallelism(session);
+                if (!functionNameRegex.isEmpty()) {
+                    Pattern pattern;
+                    try {
+                        pattern = Pattern.compile(functionNameRegex);
+                    }
+                    catch (PatternSyntaxException e) {
+                        return rebaseAndDeriveProperties(node, planWithProperties);
+                    }
+                    if (node.getAssignments().getExpressions().stream().filter(x -> x instanceof CallExpression)
+                            .anyMatch(x -> pattern.matcher(((CallExpression) x).getFunctionHandle().getName()).matches())) {
+                        int taskCount = getRemoteFunctionFixedParallelismTaskCount(session);
+                        checkState(taskCount > 0, "taskCount should be larger than 0");
+                        PlanNode newNode = roundRobinExchange(idAllocator.getNextId(), REMOTE_STREAMING, planWithProperties.getNode(), taskCount);
+                        newNode = ChildReplacer.replaceChildren(node, ImmutableList.of(newNode));
+                        newNode = roundRobinExchange(idAllocator.getNextId(), REMOTE_STREAMING, newNode);
+                        return new PlanWithProperties(newNode, derivePropertiesRecursively(newNode));
+                    }
+                }
+            }
+
+            return rebaseAndDeriveProperties(node, planWithProperties);
         }
 
         @Override
@@ -310,7 +354,8 @@ public class AddExchanges
                         child.getProperties());
             }
             else if (hasMixedGroupingSets
-                    || !isStreamPartitionedOn(child.getProperties(), partitioningRequirement) && !isNodePartitionedOn(child.getProperties(), partitioningRequirement)) {
+                    || !isStreamPartitionedOn(child.getProperties(), partitioningRequirement) && !isNodePartitionedOn(child.getProperties(), partitioningRequirement)
+                    && !isNodePartitionedOnAdditionalProperty(child.getProperties(), partitioningRequirement) && !isStreamPartitionedOnAdditionalProperty(child.getProperties(), partitioningRequirement)) {
                 child = withDerivedProperties(
                         partitionedExchange(
                                 idAllocator.getNextId(),
@@ -402,6 +447,64 @@ public class AddExchanges
                                     child.getNode(),
                                     createPartitioning(node.getPartitionBy()),
                                     node.getHashVariable()),
+                            child.getProperties());
+                }
+            }
+
+            return rebaseAndDeriveProperties(node, child);
+        }
+
+        @Override
+        public PlanWithProperties visitTableFunction(TableFunctionNode node, PreferredProperties preferredProperties)
+        {
+            throw new IllegalStateException(format("Unexpected node: TableFunctionNode (%s)", node.getName()));
+        }
+
+        @Override
+        public PlanWithProperties visitTableFunctionProcessor(TableFunctionProcessorNode node, PreferredProperties preferredProperties)
+        {
+            if (!node.getSource().isPresent()) {
+                return new PlanWithProperties(node, deriveProperties(node, ImmutableList.of()));
+            }
+
+            if (!node.getSpecification().isPresent()) {
+                // node.getSpecification.isEmpty() indicates that there were no sources or a single source with row semantics.
+                // The case of no sources was addressed above.
+                // The case of a single source with row semantics is addressed here. A single source with row semantics can be distributed arbitrarily.
+                PlanWithProperties child = planChild(node, PreferredProperties.any());
+                return rebaseAndDeriveProperties(node, child);
+            }
+
+            List<VariableReferenceExpression> partitionBy = node.getSpecification().orElseThrow(NoSuchElementException::new).getPartitionBy();
+            List<LocalProperty<VariableReferenceExpression>> desiredProperties = new ArrayList<>();
+            if (!partitionBy.isEmpty()) {
+                desiredProperties.add(new GroupingProperty<>(partitionBy));
+            }
+            node.getSpecification().orElseThrow(NoSuchElementException::new)
+                    .getOrderingScheme()
+                    .ifPresent(orderingScheme ->
+                            orderingScheme.getOrderByVariables().stream()
+                                    .map(variable -> new SortingProperty<>(variable, orderingScheme.getOrdering(variable)))
+                                    .forEach(desiredProperties::add));
+
+            PlanWithProperties child = planChild(node, PreferredProperties.partitionedWithLocal(ImmutableSet.copyOf(partitionBy), desiredProperties));
+
+            // TODO do not gather if already gathered
+            if (!node.isPruneWhenEmpty()) {
+                child = withDerivedProperties(
+                        gatheringExchange(idAllocator.getNextId(), REMOTE_STREAMING, child.getNode()),
+                        child.getProperties());
+            }
+            else if (!isStreamPartitionedOn(child.getProperties(), partitionBy) &&
+                    !isNodePartitionedOn(child.getProperties(), partitionBy)) {
+                if (partitionBy.isEmpty()) {
+                    child = withDerivedProperties(
+                            gatheringExchange(idAllocator.getNextId(), REMOTE_STREAMING, child.getNode()),
+                            child.getProperties());
+                }
+                else {
+                    child = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE_STREAMING, child.getNode(), Partitioning.create(FIXED_HASH_DISTRIBUTION, partitionBy), node.getHashSymbol()),
                             child.getProperties());
                 }
             }
@@ -541,8 +644,16 @@ public class AddExchanges
         }
 
         @Override
+        public PlanWithProperties visitUpdate(UpdateNode node, PreferredProperties context)
+        {
+            isDeleteOrUpdateQuery = true;
+            return visitPlan(node, context);
+        }
+
+        @Override
         public PlanWithProperties visitDelete(DeleteNode node, PreferredProperties preferredProperties)
         {
+            isDeleteOrUpdateQuery = true;
             if (!node.getInputDistribution().isPresent()) {
                 return visitPlan(node, preferredProperties);
             }
@@ -733,12 +844,43 @@ public class AddExchanges
         }
 
         @Override
+        public PlanWithProperties visitMetadataDelete(MetadataDeleteNode node, PreferredProperties preferredProperties)
+        {
+            // MetadataDeleteNode is a leaf node that runs on coordinator
+            return new PlanWithProperties(node);
+        }
+
+        @Override
+        public PlanWithProperties visitCallDistributedProcedure(CallDistributedProcedureNode node, PreferredProperties preferredProperties)
+        {
+            Optional<PartitioningScheme> partitioningScheme = node.getPartitioningScheme();
+            boolean isSingleWriterPerPartitionRequired = partitioningScheme.isPresent();
+            return getTableWriterPlanWithProperties(node, preferredProperties, partitioningScheme, isSingleWriterPerPartitionRequired);
+        }
+
+        @Override
+        public PlanWithProperties visitMergeWriter(MergeWriterNode node, PreferredProperties preferredProperties)
+        {
+            return getTableWriterPlanWithProperties(node, preferredProperties, Optional.empty(), false);
+        }
+
+        @Override
         public PlanWithProperties visitTableWriter(TableWriterNode node, PreferredProperties preferredProperties)
         {
-            PlanWithProperties source = accept(node.getSource(), preferredProperties);
+            return getTableWriterPlanWithProperties(node, preferredProperties, node.getTablePartitioningScheme(), node.isSingleWriterPerPartitionRequired());
+        }
 
-            Optional<PartitioningScheme> shufflePartitioningScheme = node.getTablePartitioningScheme();
-            if (!node.isSingleWriterPerPartitionRequired()) {
+        private PlanWithProperties getTableWriterPlanWithProperties(
+                PlanNode node,
+                PreferredProperties preferredProperties,
+                Optional<PartitioningScheme> nodeTablePartitioningScheme,
+                boolean isSingleWriterPerPartitionRequired)
+        {
+            checkArgument(node instanceof TableWriterNode || node instanceof CallDistributedProcedureNode || node instanceof MergeWriterNode);
+            PlanWithProperties source = accept(node.getSources().get(0), preferredProperties);
+
+            Optional<PartitioningScheme> shufflePartitioningScheme = nodeTablePartitioningScheme;
+            if (!isSingleWriterPerPartitionRequired) {
                 // prefer scale writers if single writer per partition is not required
                 // TODO: take into account partitioning scheme in scale writer tasks implementation
                 if (scaleWriters) {
@@ -752,15 +894,16 @@ public class AddExchanges
                 }
             }
 
+            PlanWithProperties newSource = source;
             if (shufflePartitioningScheme.isPresent() &&
                     // TODO: Deprecate compatible table partitioning
-                    !source.getProperties().isCompatibleTablePartitioningWith(shufflePartitioningScheme.get().getPartitioning(), false, metadata, session) &&
-                    !(source.getProperties().isRefinedPartitioningOver(shufflePartitioningScheme.get().getPartitioning(), false, metadata, session) &&
-                            canPushdownPartialMerge(source.getNode(), partialMergePushdownStrategy))) {
+                    !newSource.getProperties().isCompatibleTablePartitioningWith(shufflePartitioningScheme.get().getPartitioning(), false, metadata, session) &&
+                    !(newSource.getProperties().isRefinedPartitioningOver(shufflePartitioningScheme.get().getPartitioning(), false, metadata, session) &&
+                            canPushdownPartialMerge(newSource.getNode(), partialMergePushdownStrategy))) {
                 PartitioningScheme exchangePartitioningScheme = shufflePartitioningScheme.get();
-                if (node.getTablePartitioningScheme().isPresent() && isPrestoSparkAssignBucketToPartitionForPartitionedTableWriteEnabled(session)) {
+                if (nodeTablePartitioningScheme.isPresent() && isPrestoSparkAssignBucketToPartitionForPartitionedTableWriteEnabled(session)) {
                     int writerThreadsPerNode = getTaskPartitionedWriterCount(session);
-                    int bucketCount = getBucketCount(node.getTablePartitioningScheme().get().getPartitioning().getHandle());
+                    int bucketCount = getBucketCount(nodeTablePartitioningScheme.get().getPartitioning().getHandle());
                     int[] bucketToPartition = new int[bucketCount];
                     for (int i = 0; i < bucketCount; i++) {
                         bucketToPartition[i] = i / writerThreadsPerNode;
@@ -768,15 +911,15 @@ public class AddExchanges
                     exchangePartitioningScheme = exchangePartitioningScheme.withBucketToPartition(Optional.of(bucketToPartition));
                 }
 
-                source = withDerivedProperties(
+                newSource = withDerivedProperties(
                         partitionedExchange(
                                 idAllocator.getNextId(),
                                 REMOTE_STREAMING,
-                                source.getNode(),
+                                newSource.getNode(),
                                 exchangePartitioningScheme),
-                        source.getProperties());
+                        newSource.getProperties());
             }
-            return rebaseAndDeriveProperties(node, source);
+            return rebaseAndDeriveProperties(node, newSource);
         }
 
         private int getBucketCount(PartitioningHandle partitioning)
@@ -802,6 +945,18 @@ public class AddExchanges
             // An additional exchange makes sure the data flows through a native worker in case it need to be partitioned for downstream processing
             if (nativeExecution && containsSystemTableScan(plan)) {
                 plan = gatheringExchange(idAllocator.getNextId(), REMOTE_STREAMING, plan);
+            }
+            else if (!getTableScanShuffleStrategy(session).equals(DISABLED) && !isDeleteOrUpdateQuery) {
+                if (getTableScanShuffleStrategy(session).equals(ALWAYS_ENABLED)) {
+                    plan = roundRobinExchange(idAllocator.getNextId(), REMOTE_STREAMING, plan);
+                }
+                else if (getTableScanShuffleStrategy(session).equals(COST_BASED)) {
+                    Constraint<ColumnHandle> constraint = new Constraint<>(node.getCurrentConstraint());
+                    TableStatistics tableStatistics = metadata.getTableStatistics(session, node.getTable(), ImmutableList.copyOf(node.getAssignments().values()), constraint);
+                    if (!tableStatistics.getParallelismFactor().isUnknown() && tableStatistics.getParallelismFactor().getValue() < getTableScanShuffleParallelismThreshold(session)) {
+                        plan = roundRobinExchange(idAllocator.getNextId(), REMOTE_STREAMING, plan);
+                    }
+                }
             }
             // TODO: Support selecting layout with best local property once connector can participate in query optimization.
             return new PlanWithProperties(plan, derivePropertiesRecursively(plan));
@@ -1616,9 +1771,19 @@ public class AddExchanges
             return properties.isNodePartitionedOn(columns, isExactPartitioningPreferred(session));
         }
 
+        private boolean isNodePartitionedOnAdditionalProperty(ActualProperties properties, Collection<VariableReferenceExpression> columns)
+        {
+            return properties.isNodePartitionedOnAdditionalProperty(columns, isExactPartitioningPreferred(session));
+        }
+
         private boolean isStreamPartitionedOn(ActualProperties properties, Collection<VariableReferenceExpression> columns)
         {
             return properties.isStreamPartitionedOn(columns, isExactPartitioningPreferred(session));
+        }
+
+        private boolean isStreamPartitionedOnAdditionalProperty(ActualProperties properties, Collection<VariableReferenceExpression> columns)
+        {
+            return properties.isStreamPartitionedOnAdditionalProperty(columns, isExactPartitioningPreferred(session));
         }
 
         private boolean shouldAggregationMergePartitionPreferences(AggregationPartitioningMergingStrategy aggregationPartitioningMergingStrategy)

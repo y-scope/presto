@@ -109,7 +109,7 @@ public interface QueryRunner
 
     void loadFunctionNamespaceManager(String functionNamespaceManagerName, String catalogName, Map<String, String> properties);
 
-    default void loadSessionPropertyProvider(String sessionPropertyProviderName)
+    default void loadSessionPropertyProvider(String sessionPropertyProviderName, Map<String, String> properties)
     {
         throw new UnsupportedOperationException();
     }
@@ -117,6 +117,16 @@ public interface QueryRunner
     Lock getExclusiveLock();
 
     default void loadTypeManager(String typeManagerName)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default void loadPlanCheckerProviderManager(String planCheckerProviderName, Map<String, String> properties)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default void triggerConflictCheckWithBuiltInFunctions()
     {
         throw new UnsupportedOperationException();
     }

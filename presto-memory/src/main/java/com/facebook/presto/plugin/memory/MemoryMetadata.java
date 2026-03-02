@@ -28,6 +28,8 @@ import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.ConnectorViewDefinition;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.HostAddress;
+import com.facebook.presto.spi.MaterializedViewDefinition;
+import com.facebook.presto.spi.MaterializedViewStatus;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeManager;
 import com.facebook.presto.spi.PrestoException;
@@ -39,11 +41,11 @@ import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
 import com.facebook.presto.spi.statistics.ComputedStatistics;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.ThreadSafe;
 import io.airlift.slice.Slice;
-
-import javax.annotation.concurrent.ThreadSafe;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -64,6 +66,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
+import static java.lang.System.currentTimeMillis;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
@@ -82,6 +85,12 @@ public class MemoryMetadata
     private final Map<Long, MemoryTableHandle> tables = new HashMap<>();
     private final Map<Long, Map<HostAddress, MemoryDataFragment>> tableDataFragments = new HashMap<>();
     private final Map<SchemaTableName, String> views = new HashMap<>();
+
+    private final Map<SchemaTableName, MaterializedViewDefinition> materializedViews = new HashMap<>();
+    private final Map<SchemaTableName, Long> tableVersions = new HashMap<>();
+    private final Map<SchemaTableName, Map<SchemaTableName, Long>> mvRefreshVersions = new HashMap<>();
+    private final Map<SchemaTableName, SchemaTableName> storageTableToMaterializedView = new HashMap<>();
+    private final Map<SchemaTableName, Long> mvLastRefreshTimes = new HashMap<>();
 
     @Inject
     public MemoryMetadata(NodeManager nodeManager, MemoryConnectorId connectorId)
@@ -169,17 +178,33 @@ public class MemoryMetadata
     {
         return tables.values().stream()
                 .filter(table -> prefix.matches(table.toSchemaTableName()))
-                .collect(toMap(MemoryTableHandle::toSchemaTableName, handle -> handle.toTableMetadata().getColumns()));
+                .collect(toImmutableMap(MemoryTableHandle::toSchemaTableName, handle -> toTableMetadata(handle, session).getColumns()));
+    }
+
+    public ConnectorTableMetadata toTableMetadata(MemoryTableHandle memoryTableHandle, ConnectorSession session)
+    {
+        List<ColumnMetadata> columns = memoryTableHandle.getColumnHandles().stream()
+                .map(column -> column.toColumnMetadata(normalizeIdentifier(session, column.getName())))
+                .collect(toImmutableList());
+
+        return new ConnectorTableMetadata(memoryTableHandle.toSchemaTableName(), columns);
     }
 
     @Override
     public synchronized void dropTable(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         MemoryTableHandle handle = (MemoryTableHandle) tableHandle;
-        Long tableId = tableIds.remove(handle.toSchemaTableName());
+        SchemaTableName tableName = handle.toSchemaTableName();
+
+        if (storageTableToMaterializedView.containsKey(tableName)) {
+            throw new PrestoException(NOT_FOUND, format("Cannot drop table [%s] because it is a materialized view storage table. Use DROP MATERIALIZED VIEW instead.", tableName));
+        }
+
+        Long tableId = tableIds.remove(tableName);
         if (tableId != null) {
             tables.remove(tableId);
             tableDataFragments.remove(tableId);
+            tableVersions.remove(tableName);
         }
     }
 
@@ -189,6 +214,11 @@ public class MemoryMetadata
         checkSchemaExists(newTableName.getSchemaName());
         checkTableNotExists(newTableName);
         MemoryTableHandle oldTableHandle = (MemoryTableHandle) tableHandle;
+        SchemaTableName oldTableName = oldTableHandle.toSchemaTableName();
+
+        if (storageTableToMaterializedView.containsKey(oldTableName)) {
+            throw new PrestoException(NOT_FOUND, format("Cannot rename table [%s] because it is a materialized view storage table", oldTableName));
+        }
         MemoryTableHandle newTableHandle = new MemoryTableHandle(
                 oldTableHandle.getConnectorId(),
                 newTableName.getSchemaName(),
@@ -254,6 +284,8 @@ public class MemoryMetadata
         MemoryOutputTableHandle memoryOutputHandle = (MemoryOutputTableHandle) tableHandle;
 
         updateRowsOnHosts(memoryOutputHandle.getTable(), fragments);
+        incrementTableVersion(memoryOutputHandle.getTable().toSchemaTableName());
+
         return Optional.empty();
     }
 
@@ -271,6 +303,8 @@ public class MemoryMetadata
         MemoryInsertTableHandle memoryInsertHandle = (MemoryInsertTableHandle) insertHandle;
 
         updateRowsOnHosts(memoryInsertHandle.getTable(), fragments);
+        incrementTableVersion(memoryInsertHandle.getTable().toSchemaTableName());
+
         return Optional.empty();
     }
 
@@ -347,8 +381,13 @@ public class MemoryMetadata
         }
     }
 
+    private void incrementTableVersion(SchemaTableName tableName)
+    {
+        tableVersions.put(tableName, tableVersions.getOrDefault(tableName, 0L) + 1);
+    }
+
     @Override
-    public synchronized List<ConnectorTableLayoutResult> getTableLayouts(
+    public synchronized ConnectorTableLayoutResult getTableLayoutForConstraint(
             ConnectorSession session,
             ConnectorTableHandle handle,
             Constraint<ColumnHandle> constraint,
@@ -367,7 +406,7 @@ public class MemoryMetadata
                 tableDataFragments.get(memoryTableHandle.getTableId()).values());
 
         MemoryTableLayoutHandle layoutHandle = new MemoryTableLayoutHandle(memoryTableHandle, expectedFragments);
-        return ImmutableList.of(new ConnectorTableLayoutResult(getTableLayout(session, layoutHandle), constraint.getSummary()));
+        return new ConnectorTableLayoutResult(getTableLayout(session, layoutHandle), constraint.getSummary());
     }
 
     @Override
@@ -381,5 +420,144 @@ public class MemoryMetadata
                 Optional.empty(),
                 Optional.empty(),
                 ImmutableList.of());
+    }
+
+    @Override
+    public synchronized void createMaterializedView(
+            ConnectorSession session,
+            ConnectorTableMetadata viewMetadata,
+            MaterializedViewDefinition viewDefinition,
+            boolean ignoreExisting)
+    {
+        SchemaTableName viewName = viewMetadata.getTable();
+        checkSchemaExists(viewName.getSchemaName());
+
+        if (materializedViews.containsKey(viewName)) {
+            if (ignoreExisting) {
+                return;
+            }
+            throw new PrestoException(ALREADY_EXISTS, "Materialized view already exists: " + viewName);
+        }
+
+        if (getTableHandle(session, viewName) != null) {
+            throw new PrestoException(ALREADY_EXISTS, "Table already exists: " + viewName);
+        }
+
+        if (views.containsKey(viewName)) {
+            throw new PrestoException(ALREADY_EXISTS, "View already exists: " + viewName);
+        }
+
+        SchemaTableName storageTableName = new SchemaTableName(
+                viewDefinition.getSchema(),
+                viewDefinition.getTable());
+
+        ConnectorTableMetadata storageTableMetadata = new ConnectorTableMetadata(
+                storageTableName,
+                viewMetadata.getColumns(),
+                viewMetadata.getProperties(),
+                viewMetadata.getComment());
+
+        createTable(session, storageTableMetadata, false);
+
+        materializedViews.put(viewName, viewDefinition);
+        Map<SchemaTableName, Long> baseTableVersionSnapshot = new HashMap<>();
+        for (SchemaTableName baseTable : viewDefinition.getBaseTables()) {
+            baseTableVersionSnapshot.put(baseTable, 0L);
+        }
+        mvRefreshVersions.put(viewName, baseTableVersionSnapshot);
+        storageTableToMaterializedView.put(storageTableName, viewName);
+    }
+
+    @Override
+    public synchronized Optional<MaterializedViewDefinition> getMaterializedView(ConnectorSession session, SchemaTableName viewName)
+    {
+        return Optional.ofNullable(materializedViews.get(viewName));
+    }
+
+    @Override
+    public synchronized void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
+    {
+        MaterializedViewDefinition removed = materializedViews.remove(viewName);
+        if (removed == null) {
+            throw new PrestoException(NOT_FOUND, "Materialized view not found: " + viewName);
+        }
+        mvRefreshVersions.remove(viewName);
+
+        SchemaTableName storageTableName = new SchemaTableName(
+                removed.getSchema(),
+                removed.getTable());
+        storageTableToMaterializedView.remove(storageTableName);
+
+        ConnectorTableHandle storageTableHandle = getTableHandle(session, storageTableName);
+        if (storageTableHandle != null) {
+            dropTable(session, storageTableHandle);
+        }
+    }
+
+    @Override
+    public synchronized MaterializedViewStatus getMaterializedViewStatus(
+            ConnectorSession session,
+            SchemaTableName materializedViewName,
+            TupleDomain<String> baseQueryDomain)
+    {
+        MaterializedViewDefinition mvDefinition = materializedViews.get(materializedViewName);
+        if (mvDefinition == null) {
+            throw new PrestoException(NOT_FOUND, "Materialized view not found: " + materializedViewName);
+        }
+
+        Map<SchemaTableName, Long> baseTableVersionSnapshot = mvRefreshVersions.getOrDefault(materializedViewName, ImmutableMap.of());
+        Optional<Long> lastFreshTime = Optional.ofNullable(mvLastRefreshTimes.get(materializedViewName));
+
+        for (SchemaTableName baseTable : mvDefinition.getBaseTables()) {
+            long currentVersion = tableVersions.getOrDefault(baseTable, 0L);
+            long refreshedVersion = baseTableVersionSnapshot.getOrDefault(baseTable, 0L);
+            if (currentVersion != refreshedVersion) {
+                return new MaterializedViewStatus(
+                        MaterializedViewStatus.MaterializedViewState.NOT_MATERIALIZED,
+                        ImmutableMap.of(),
+                        lastFreshTime);
+            }
+        }
+
+        return new MaterializedViewStatus(
+                MaterializedViewStatus.MaterializedViewState.FULLY_MATERIALIZED,
+                ImmutableMap.of(),
+                lastFreshTime);
+    }
+
+    @Override
+    public synchronized ConnectorInsertTableHandle beginRefreshMaterializedView(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle)
+    {
+        MemoryTableHandle memoryTableHandle = (MemoryTableHandle) tableHandle;
+        tableDataFragments.put(memoryTableHandle.getTableId(), new HashMap<>());
+        return new MemoryInsertTableHandle(memoryTableHandle, ImmutableSet.copyOf(tableIds.values()), true);
+    }
+
+    @Override
+    public synchronized Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(
+            ConnectorSession session,
+            ConnectorInsertTableHandle insertHandle,
+            Collection<Slice> fragments,
+            Collection<ComputedStatistics> computedStatistics)
+    {
+        Optional<ConnectorOutputMetadata> result = finishInsert(session, insertHandle, fragments, computedStatistics);
+
+        MemoryInsertTableHandle memoryInsertHandle = (MemoryInsertTableHandle) insertHandle;
+        SchemaTableName storageTableName = memoryInsertHandle.getTable().toSchemaTableName();
+
+        SchemaTableName materializedViewName = storageTableToMaterializedView.get(storageTableName);
+        checkState(materializedViewName != null, "No materialized view found for storage table: %s", storageTableName);
+
+        MaterializedViewDefinition mvDefinition = materializedViews.get(materializedViewName);
+        Map<SchemaTableName, Long> baseTableVersionSnapshot = new HashMap<>();
+        for (SchemaTableName baseTable : mvDefinition.getBaseTables()) {
+            baseTableVersionSnapshot.put(baseTable, tableVersions.getOrDefault(baseTable, 0L));
+        }
+        mvRefreshVersions.put(materializedViewName, baseTableVersionSnapshot);
+        mvLastRefreshTimes.put(materializedViewName, currentTimeMillis());
+
+        return result;
     }
 }

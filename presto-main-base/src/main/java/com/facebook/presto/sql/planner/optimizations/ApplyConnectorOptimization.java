@@ -17,6 +17,7 @@ import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.plan.AggregationNode;
@@ -27,11 +28,13 @@ import com.facebook.presto.spi.plan.DeleteNode;
 import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.ExceptNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.IndexSourceNode;
 import com.facebook.presto.spi.plan.IntersectNode;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
+import com.facebook.presto.spi.plan.MaterializedViewScanNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
@@ -42,6 +45,7 @@ import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.UnionNode;
+import com.facebook.presto.spi.plan.UnnestNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.google.common.base.Supplier;
@@ -53,11 +57,13 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 
+import static com.facebook.presto.SystemSessionProperties.isEmptyConnectorOptimizerEnabled;
 import static com.facebook.presto.SystemSessionProperties.isIncludeValuesNodeInConnectorOptimizer;
 import static com.facebook.presto.common.RuntimeUnit.NANO;
 import static com.facebook.presto.sql.OptimizerRuntimeTrackUtil.getOptimizerNameForLog;
@@ -85,17 +91,20 @@ public class ApplyConnectorOptimization
             ProjectNode.class,
             AggregationNode.class,
             MarkDistinctNode.class,
+            MaterializedViewScanNode.class,
             UnionNode.class,
             IntersectNode.class,
             ExceptNode.class,
             SemiJoinNode.class,
             JoinNode.class,
+            IndexJoinNode.class,
+            UnnestNode.class,
             TableWriterNode.class,
             TableFinishNode.class,
             DeleteNode.class);
 
     // for a leaf node that does not belong to any connector (e.g., ValuesNode)
-    private static final ConnectorId EMPTY_CONNECTOR_ID = new ConnectorId("$internal$" + ApplyConnectorOptimization.class + "_CONNECTOR");
+    private static final ConnectorId EMPTY_CONNECTOR_ID = new ConnectorId("$internal$ApplyConnectorOptimization_EMPTY_CONNECTOR");
 
     private final Supplier<Map<ConnectorId, Set<ConnectorPlanOptimizer>>> connectorOptimizersSupplier;
 
@@ -122,6 +131,7 @@ public class ApplyConnectorOptimization
         // retrieve all the connectors
         ImmutableSet.Builder<ConnectorId> connectorIds = ImmutableSet.builder();
         getAllConnectorIds(plan, connectorIds);
+        Set<ConnectorId> connectorIdSet = connectorIds.build();
 
         // for each connector, retrieve the set of subplans to optimize
         // TODO: what if a new connector is added by an existing one
@@ -129,79 +139,118 @@ public class ApplyConnectorOptimization
         // create a UNION_ALL to federate data sources from both C1 and C2 (regardless of the classloader issue).
         // For such case, it is dangerous to re-calculate the "max closure" given the fixpoint property will be broken.
         // In order to preserve the fixpoint, we will "pretend" the newly added C2 table scan is part of C1's job to maintain.
-        for (ConnectorId connectorId : connectorIds.build()) {
-            Set<ConnectorPlanOptimizer> optimizers = connectorOptimizers.get(connectorId);
-            if (optimizers == null) {
+        for (ConnectorId connectorId : connectorIdSet) {
+            Set<ConnectorPlanOptimizer> optimizers;
+            if (isEmptyConnectorOptimizerEnabled(session) && connectorIdSet.stream()
+                    .allMatch(x -> x.equals(EMPTY_CONNECTOR_ID)) && session.getCatalog().isPresent()) {
+                ConnectorId queryConnectorId = new ConnectorId(session.getCatalog().get());
+                optimizers = connectorOptimizers.get(queryConnectorId) == null ? null
+                        : connectorOptimizers.get(queryConnectorId).stream()
+                        .filter(x -> x.getSupportedConnectorIds().size() == 1
+                                && x.getSupportedConnectorIds().get(0).equals(EMPTY_CONNECTOR_ID))
+                        .collect(
+                                toImmutableSet());
+            }
+            else {
+                optimizers = connectorOptimizers.get(connectorId);
+            }
+            if (optimizers == null || optimizers.isEmpty()) {
                 continue;
             }
 
-            ImmutableMap.Builder<PlanNode, ConnectorPlanNodeContext> contextMapBuilder = ImmutableMap.builder();
-            buildConnectorPlanNodeContext(plan, null, contextMapBuilder);
-            Map<PlanNode, ConnectorPlanNodeContext> contextMap = contextMapBuilder.build();
+            ImmutableMap.Builder<List<ConnectorId>, Set<ConnectorPlanOptimizer>> optimizersWithConnectorRange = ImmutableMap.builder();
+            List<ConnectorId> currentConnectors = null;
+            ImmutableSet.Builder<ConnectorPlanOptimizer> currentGroup = null;
+            for (ConnectorPlanOptimizer optimizer : optimizers) {
+                List<ConnectorId> supportedConnectors = optimizer.getSupportedConnectorIds().isEmpty()
+                        ? ImmutableList.of(connectorId)
+                        : optimizer.getSupportedConnectorIds();
 
-            // keep track of changed nodes; the keys are original nodes and the values are the new nodes
-            Map<PlanNode, PlanNode> updates = new HashMap<>();
-
-            // process connector optimizers
-            for (PlanNode node : contextMap.keySet()) {
-                // For a subtree with root `node` to be a max closure, the following conditions must hold:
-                //    * The subtree with root `node` is a closure.
-                //    * `node` has no parent, or the subtree with root as `node`'s parent is not a closure.
-                ConnectorPlanNodeContext context = contextMap.get(node);
-                if (!context.isClosure(connectorId, session) ||
-                        !context.getParent().isPresent() ||
-                        contextMap.get(context.getParent().get()).isClosure(connectorId, session)) {
-                    continue;
+                if (!supportedConnectors.equals(currentConnectors)) {
+                    if (currentGroup != null) {
+                        optimizersWithConnectorRange.put(currentConnectors, currentGroup.build());
+                    }
+                    currentConnectors = supportedConnectors;
+                    currentGroup = ImmutableSet.builder();
                 }
+                currentGroup.add(optimizer);
+            }
+            optimizersWithConnectorRange.put(currentConnectors, currentGroup.build());
 
-                PlanNode newNode = node;
+            for (Map.Entry<List<ConnectorId>, Set<ConnectorPlanOptimizer>> entry : optimizersWithConnectorRange.build().entrySet()) {
+                // keep track of changed nodes; the keys are original nodes and the values are the new nodes
+                Map<PlanNode, PlanNode> updates = new HashMap<>();
 
-                // the returned node is still a max closure (only if there is no new connector added, which does happen but ignored here)
-                for (ConnectorPlanOptimizer optimizer : optimizers) {
-                    long start = System.nanoTime();
-                    newNode = optimizer.optimize(newNode, session.toConnectorSession(connectorId), variableAllocator, idAllocator);
-                    if (enableVerboseRuntimeStats || trackOptimizerRuntime(session, optimizer)) {
-                        session.getRuntimeStats().addMetricValue(String.format("optimizer%sTimeNanos", getOptimizerNameForLog(optimizer)), NANO, System.nanoTime() - start);
+                ImmutableMap.Builder<PlanNode, ConnectorPlanNodeContext> contextMapBuilder = ImmutableMap.builder();
+                buildConnectorPlanNodeContext(plan, null, contextMapBuilder);
+                Map<PlanNode, ConnectorPlanNodeContext> contextMap = contextMapBuilder.build();
+
+                // process connector optimizers
+                for (PlanNode node : contextMap.keySet()) {
+                    // For a subtree with root `node` to be a max closure, the following conditions must hold:
+                    //    * The subtree with root `node` is a closure.
+                    //    * `node` has no parent, or the subtree with root as `node`'s parent is not a closure.
+                    ConnectorPlanNodeContext context = contextMap.get(node);
+                    if (!context.isClosure(connectorId, session, entry.getKey()) ||
+                            !context.getParent().isPresent() ||
+                            contextMap.get(context.getParent().get()).isClosure(connectorId, session, entry.getKey())) {
+                        continue;
+                    }
+
+                    PlanNode newNode = node;
+
+                    // the returned node is still a max closure (only if there is no new connector added, which does happen but ignored here)
+                    for (ConnectorPlanOptimizer optimizer : entry.getValue()) {
+                        long start = System.nanoTime();
+                        ConnectorSession connectorSession = session.toConnectorSession(connectorId);
+                        if (isEmptyConnectorOptimizerEnabled(session) && connectorId.equals(EMPTY_CONNECTOR_ID) && session.getCatalog().isPresent()) {
+                            connectorSession = session.toConnectorSession(new ConnectorId(session.getCatalog().get()));
+                        }
+                        checkState(connectorSession.getConnectorId().isPresent());
+                        newNode = optimizer.optimize(newNode, connectorSession, variableAllocator, idAllocator);
+                        if (enableVerboseRuntimeStats || trackOptimizerRuntime(session, optimizer)) {
+                            session.getRuntimeStats().addMetricValue(String.format("optimizer%sTimeNanos", getOptimizerNameForLog(optimizer)), NANO, System.nanoTime() - start);
+                        }
+                    }
+
+                    if (node != newNode) {
+                        // the optimizer has allocated a new PlanNode
+                        checkState(
+                                containsAll(ImmutableSet.copyOf(newNode.getOutputVariables()), node.getOutputVariables()),
+                                "the connector optimizer from %s returns a node that does not cover all output before optimization",
+                                connectorId);
+
+                        updates.put(node, newNode);
                     }
                 }
+                // up to this point, we have a set of updated nodes; need to recursively update their parents
 
-                if (node != newNode) {
-                    // the optimizer has allocated a new PlanNode
-                    checkState(
-                            containsAll(ImmutableSet.copyOf(newNode.getOutputVariables()), node.getOutputVariables()),
-                            "the connector optimizer from %s returns a node that does not cover all output before optimization",
-                            connectorId);
+                // alter the plan with a bottom-up approach (but does not have to be strict bottom-up to guarantee the correctness of the algorithm)
+                // use "original nodes" to keep track of the plan structure and "updates" to keep track of the new nodes
+                Queue<PlanNode> originalNodes = new LinkedList<>(updates.keySet());
+                while (!originalNodes.isEmpty()) {
+                    PlanNode originalNode = originalNodes.poll();
 
-                    updates.put(node, newNode);
+                    if (!contextMap.get(originalNode).getParent().isPresent()) {
+                        // originalNode must be the root; update the plan
+                        plan = updates.get(originalNode);
+                        continue;
+                    }
+
+                    PlanNode originalParent = contextMap.get(originalNode).getParent().get();
+
+                    // need to create a new parent given the child has changed; the new parent needs to point to the new child.
+                    // if a node has been updated, it will occur in `updates`; otherwise, just use the original node
+                    ImmutableList.Builder<PlanNode> newChildren = ImmutableList.builder();
+                    originalParent.getSources().forEach(child -> newChildren.add(updates.getOrDefault(child, child)));
+                    PlanNode newParent = originalParent.replaceChildren(newChildren.build());
+
+                    // mark the new parent as updated
+                    updates.put(originalParent, newParent);
+
+                    // enqueue the parent node in order to recursively update its ancestors
+                    originalNodes.add(originalParent);
                 }
-            }
-            // up to this point, we have a set of updated nodes; need to recursively update their parents
-
-            // alter the plan with a bottom-up approach (but does not have to be strict bottom-up to guarantee the correctness of the algorithm)
-            // use "original nodes" to keep track of the plan structure and "updates" to keep track of the new nodes
-            Queue<PlanNode> originalNodes = new LinkedList<>(updates.keySet());
-            while (!originalNodes.isEmpty()) {
-                PlanNode originalNode = originalNodes.poll();
-
-                if (!contextMap.get(originalNode).getParent().isPresent()) {
-                    // originalNode must be the root; update the plan
-                    plan = updates.get(originalNode);
-                    continue;
-                }
-
-                PlanNode originalParent = contextMap.get(originalNode).getParent().get();
-
-                // need to create a new parent given the child has changed; the new parent needs to point to the new child.
-                // if a node has been updated, it will occur in `updates`; otherwise, just use the original node
-                ImmutableList.Builder<PlanNode> newChildren = ImmutableList.builder();
-                originalParent.getSources().forEach(child -> newChildren.add(updates.getOrDefault(child, child)));
-                PlanNode newParent = originalParent.replaceChildren(newChildren.build());
-
-                // mark the new parent as updated
-                updates.put(originalParent, newParent);
-
-                // enqueue the parent node in order to recursively update its ancestors
-                originalNodes.add(originalParent);
             }
         }
 
@@ -304,17 +353,19 @@ public class ApplyConnectorOptimization
             return reachablePlanNodeTypes;
         }
 
-        boolean isClosure(ConnectorId connectorId, Session session)
+        boolean isClosure(ConnectorId connectorId, Session session, List<ConnectorId> supportedConnectorId)
         {
+            if (isEmptyConnectorOptimizerEnabled(session) && reachableConnectors.stream().allMatch(x -> x.equals(EMPTY_CONNECTOR_ID)) && supportedConnectorId.size() == 1 && supportedConnectorId.get(0).equals(EMPTY_CONNECTOR_ID)) {
+                return containsAll(CONNECTOR_ACCESSIBLE_PLAN_NODES, reachablePlanNodeTypes);
+            }
             // check if all children can reach the only connector
             boolean includeValuesNode = isIncludeValuesNodeInConnectorOptimizer(session);
             Set<ConnectorId> connectorIds = includeValuesNode ? reachableConnectors.stream().filter(x -> !x.equals(EMPTY_CONNECTOR_ID)).collect(toImmutableSet()) : reachableConnectors;
-            if (connectorIds.size() != 1 || !connectorIds.contains(connectorId)) {
-                return false;
+            if (connectorIds.contains(connectorId) && new HashSet<>(supportedConnectorId).containsAll(connectorIds) && supportedConnectorId.size() == connectorIds.size()) {
+                // check if all children are accessible by connectors
+                return containsAll(CONNECTOR_ACCESSIBLE_PLAN_NODES, reachablePlanNodeTypes);
             }
-
-            // check if all children are accessible by connectors
-            return containsAll(CONNECTOR_ACCESSIBLE_PLAN_NODES, reachablePlanNodeTypes);
+            return false;
         }
     }
 

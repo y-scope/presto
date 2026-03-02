@@ -16,6 +16,7 @@ package com.facebook.presto.spark.execution;
 import com.facebook.airlift.json.Codec;
 import com.facebook.airlift.json.JsonCodec;
 import com.facebook.airlift.log.Logger;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.Session;
 import com.facebook.presto.cost.FragmentStatsProvider;
 import com.facebook.presto.cost.HistoryBasedPlanStatisticsTracker;
@@ -67,7 +68,6 @@ import com.facebook.presto.sql.planner.sanity.PlanCheckerProviderManager;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
-import io.airlift.units.Duration;
 import org.apache.spark.MapOutputStatistics;
 import org.apache.spark.SimpleFutureAction;
 import org.apache.spark.SparkException;
@@ -162,7 +162,8 @@ public class PrestoSparkAdaptiveQueryExecution
             PrestoSparkMetadataStorage metadataStorage,
             Optional<String> queryStatusInfoOutputLocation,
             Optional<String> queryDataOutputLocation,
-            TempStorage tempStorage,
+            TempStorage broadcastJoinTempStorage,
+            TempStorage nativeTempStorage,
             NodeMemoryConfig nodeMemoryConfig,
             FeaturesConfig featuresConfig,
             QueryManagerConfig queryManagerConfig,
@@ -205,7 +206,8 @@ public class PrestoSparkAdaptiveQueryExecution
                 metadataStorage,
                 queryStatusInfoOutputLocation,
                 queryDataOutputLocation,
-                tempStorage,
+                broadcastJoinTempStorage,
+                nativeTempStorage,
                 nodeMemoryConfig,
                 featuresConfig,
                 queryManagerConfig,
@@ -240,7 +242,8 @@ public class PrestoSparkAdaptiveQueryExecution
                 this.queryManagerConfig,
                 this.session,
                 this.warningCollector,
-                noExchange);
+                noExchange,
+                true);
     }
 
     @Override

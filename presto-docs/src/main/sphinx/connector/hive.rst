@@ -37,6 +37,37 @@ The following file types are supported for the Hive connector:
 * JSON
 * Text
 
+
+Hive Metastore
+--------------
+
+The Hive Metastore is a central metadata repository that the Hive connector uses to access table definitions, partition information, 
+and other structural details about your Hive tables.
+
+The Hive Metastore:
+
+* Stores metadata about tables, columns, partitions, and storage locations
+* Enables schema-on-read functionality
+* Supports multiple metastore backends (Apache Hive Metastore Service, AWS Glue)
+
+See the `Metastore <https://hive.apache.org/development/desingdocs/design/#metastore>`_ design documentation for more details.
+
+
+Additional Resources for Metastore Configuration
+------------------------------------------------
+
+* `Metastore Configuration Properties`_ 
+* `How to invalidate metastore cache?`_
+* :ref:`installation/deployment:File-Based Metastore`
+* :doc:`/connector/hive-security`
+* `AWS Glue Catalog Configuration Properties`_
+
+Additional authentication-related configuration properties are covered in
+:ref:`connector/hive-security:Hive Metastore Thrift Service Authentication` and
+:ref:`connector/hive-security:HDFS Authentication`.
+
+
+
 Configuration
 -------------
 
@@ -103,10 +134,8 @@ Accessing Hadoop clusters protected with Kerberos authentication
 Kerberos authentication is supported for both HDFS and the Hive metastore.
 However, Kerberos authentication by ticket cache is not yet supported.
 
-The properties that apply to Hive connector security are listed in the
-`Hive Configuration Properties`_ table. Please see the
-:doc:`/connector/hive-security` section for a more detailed discussion of the
-security options in the Hive connector.
+For authentication-related configuration of the Hive Metastore Thrift service and HDFS,
+see :doc:`/connector/hive-security`.
 
 File-Based Metastore
 ^^^^^^^^^^^^^^^^^^^^
@@ -117,98 +146,138 @@ filesystem directory as a Hive Metastore. See :ref:`installation/deployment:File
 Hive Configuration Properties
 -----------------------------
 
-================================================== ============================================================ ============
-Property Name                                      Description                                                  Default
-================================================== ============================================================ ============
-``hive.metastore.uri``                             The URI(s) of the Hive metastore to connect to using the
-                                                   Thrift protocol. If multiple URIs are provided, the first
-                                                   URI is used by default and the rest of the URIs are
-                                                   fallback metastores. This property is required.
-                                                   Example: ``thrift://192.0.2.3:9083`` or
-                                                   ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083``
+======================================================== ============================================================ ============
+Property Name                                            Description                                                  Default
+======================================================== ============================================================ ============
+``hive.metastore.uri``                                   The URI(s) of the Hive metastore to connect to using the
+                                                         Thrift protocol. If multiple URIs are provided, the first
+                                                         URI is used by default and the rest of the URIs are
+                                                         fallback metastores. This property is required.
+                                                         Example: ``thrift://192.0.2.3:9083`` or
+                                                         ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083``
 
-``hive.metastore.username``                        The username Presto will use to access the Hive metastore.
+``hive.metastore.username``                              The username Presto will use to access the Hive metastore.
 
-``hive.config.resources``                          An optional comma-separated list of HDFS
-                                                   configuration files. These files must exist on the
-                                                   machines running Presto. Only specify this if
-                                                   absolutely necessary to access HDFS.
-                                                   Example: ``/etc/hdfs-site.xml``
+``hive.config.resources``                                An optional comma-separated list of HDFS
+                                                         configuration files. These files must exist on the
+                                                         machines running Presto. Only specify this if
+                                                         absolutely necessary to access HDFS.
+                                                         Example: ``/etc/hdfs-site.xml``
 
-``hive.storage-format``                            The default file format used when creating new tables.       ``ORC``
+``hive.storage-format``                                  The default file format used when creating new tables.       ``ORC``
 
-``hive.compression-codec``                         The compression codec to use when writing files.             ``GZIP``
+``hive.compression-codec``                               The compression codec to use when writing files.             ``GZIP``
 
-``hive.force-local-scheduling``                    Force splits to be scheduled on the same node as the Hadoop  ``false``
-                                                   DataNode process serving the split data.  This is useful for
-                                                   installations where Presto is collocated with every
-                                                   DataNode.
+``hive.force-local-scheduling``                          Force splits to be scheduled on the same node as the Hadoop  ``false``
+                                                         DataNode process serving the split data. This is useful for
+                                                         installations where Presto is collocated with every
+                                                         DataNode.
 
-``hive.order-based-execution-enabled``             Enable order-based execution. When it's enabled, hive files  ``false``
-                                                   become non-splittable and the table ordering properties
-                                                   would be exposed to plan optimizer
+``hive.order-based-execution-enabled``                   Enable order-based execution. When enabled, Hive files       ``false``
+                                                         become non-splittable and the table ordering properties
+                                                         would be exposed to plan optimizer.
 
-``hive.respect-table-format``                      Should new partitions be written using the existing table    ``true``
-                                                   format or the default Presto format?
+``hive.respect-table-format``                            Should new partitions be written using the existing table    ``true``
+                                                         format or the default Presto format?
 
-``hive.immutable-partitions``                      Can new data be inserted into existing partitions?           ``false``
+``hive.immutable-partitions``                            Can new data be inserted into existing partitions?           ``false``
 
-``hive.create-empty-bucket-files``                 Should empty files be created for buckets that have no data? ``true``
+``hive.create-empty-bucket-files``                       Should empty files be created for buckets that have no data? ``true``
 
-``hive.max-partitions-per-writers``                Maximum number of partitions per writer.                     100
+``hive.max-partitions-per-writers``                      Maximum number of partitions per writer.                     100
 
-``hive.max-partitions-per-scan``                   Maximum number of partitions for a single table scan.        100,000
+``hive.max-partitions-per-scan``                         Maximum number of partitions for a single table scan.        100,000
 
-``hive.dynamic-split-sizes-enabled``               Enable dynamic sizing of splits based on data scanned by     ``false``
-                                                   the query.
+``hive.dynamic-split-sizes-enabled``                     Enable dynamic sizing of splits based on data scanned by     ``false``
+                                                         the query.
 
-``hive.metastore.authentication.type``             Hive metastore authentication type.                          ``NONE``
-                                                   Possible values are ``NONE`` or ``KERBEROS``.
+``hive.non-managed-table-writes-enabled``                Enable writes to non-managed (external) Hive tables.         ``false``
 
-``hive.metastore.service.principal``               The Kerberos principal of the Hive metastore service.
+``hive.non-managed-table-creates-enabled``               Enable creating non-managed (external) Hive tables.          ``true``
 
-``hive.metastore.client.principal``                The Kerberos principal that Presto will use when connecting
-                                                   to the Hive metastore service.
+``hive.collect-column-statistics-on-write``              Enables automatic column level statistics collection         ``false``
+                                                         on write. See `Table Statistics <#table-statistics>`__ for
+                                                         details.
 
-``hive.metastore.client.keytab``                   Hive metastore client keytab location.
+``hive.s3select-pushdown.enabled``                       Enable query pushdown to AWS S3 Select service.              ``false``
 
-``hive.hdfs.authentication.type``                  HDFS authentication type.                                    ``NONE``
-                                                   Possible values are ``NONE`` or ``KERBEROS``.
+``hive.s3select-pushdown.max-connections``               Maximum number of simultaneously open connections to S3 for    500
+                                                         S3SelectPushdown.
 
-``hive.hdfs.impersonation.enabled``                Enable HDFS end user impersonation.                          ``false``
+``hive.metastore.load-balancing-enabled``                Enable load balancing between multiple Metastore instances    ``false``
 
-``hive.hdfs.presto.principal``                     The Kerberos principal that Presto will use when connecting
-                                                   to HDFS.
+``hive.skip-empty-files``                                Enable skipping empty files. Otherwise, it will produce an   ``false``
+                                                         error iterating through empty files.
 
-``hive.hdfs.presto.keytab``                        HDFS client keytab location.
+``hive.file-status-cache.max-retained-size``             Maximum size in bytes of the directory listing cache          ``0KB``
 
-``hive.security``                                  See :doc:`hive-security`.
+``hive.metastore.catalog.name``                          Specifies the catalog name to be passed to the metastore.
 
-``security.config-file``                           Path of config file to use when ``hive.security=file``.
-                                                   See :ref:`hive-file-based-authorization` for details.
+``hive.experimental.symlink.optimized-reader.enabled``   Experimental: Enable optimized SymlinkTextInputFormat reader ``true``
 
-``hive.non-managed-table-writes-enabled``          Enable writes to non-managed (external) Hive tables.         ``false``
+``hive.copy-on-first-write-configuration-enabled``       Optimize the number of configuration copies by enabling       ``false``
+                                                         copy-on-write technique.
 
-``hive.non-managed-table-creates-enabled``         Enable creating non-managed (external) Hive tables.          ``true``
+                                                         CopyOnFirstWriteConfiguration acts as a wrapper around the
+                                                         standard Hadoop Configuration object, extending its
+                                                         behaviour by introducing an additional layer of
+                                                         indirection. However, many third-party libraries that
+                                                         integrate with Presto rely directly on the Configuration
+                                                         copy `constructor`_. Since this constructor does not
+                                                         recognise or account for the wrapped nature of
+                                                         CopyOnFirstWriteConfiguration, it can result in silent
+                                                         failures where critical configuration properties are not
+                                                         correctly propagated.
+                                                         
+ ``hive.orc.use-column-names``                           Enable accessing ORC columns by name in the ORC file         ``false``
+                                                         metadata, instead of their ordinal position. Also toggleable 
+                                                         through the ``hive.orc_use_column_names`` session property.
+======================================================== ============================================================ ============
 
-``hive.collect-column-statistics-on-write``        Enables automatic column level statistics collection         ``false``
-                                                   on write. See `Table Statistics <#table-statistics>`__ for
-                                                   details.
+.. _constructor: https://github.com/apache/hadoop/blob/02a9190af5f8264e25966a80c8f9ea9bb6677899/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/conf/Configuration.java#L844-L875
 
-``hive.s3select-pushdown.enabled``                 Enable query pushdown to AWS S3 Select service.              ``false``
+Avro Configuration Properties
+-----------------------------
 
-``hive.s3select-pushdown.max-connections``         Maximum number of simultaneously open connections to S3 for    500
-                                                   S3SelectPushdown.
+When querying or creating Avro-formatted tables with the Hive connector, you may need to supply or override the Avro schema. In addition, Hive Metastore, especially Hive 3.x, must be configured to read storage schemas for Avro tables.
 
-``hive.metastore.load-balancing-enabled``          Enable load balancing between multiple Metastore instances
+Table Properties
+^^^^^^^^^^^^^^^^
 
-``hive.skip-empty-files``                          Enable skipping empty files. Otherwise, it will produce an   ``false``
-                                                   error iterating through empty files.
+These properties can be used when creating or querying Avro tables in Presto:
 
- ``hive.file-status-cache.max-retained-size``      Maximum size in bytes of the directory listing cache          ``0KB``
+======================================================== ============================================================================== ======================================================================================
+Property Name                                            Description                                                                    Default
+======================================================== ============================================================================== ======================================================================================
+``avro_schema_url``                                      URL or path (HDFS, S3, HTTP, or others) to the Avro schema file for             None (must be specified if Metastore does not provide or you need to
+                                                         reading an Avro-formatted table. If specified, Presto will fetch                override schema)
+                                                         and use this schema instead of relying on any schema in the
+                                                         Metastore.
 
- ``hive.metastore.catalog.name``                   Specifies the catalog name to be passed to the metastore.
-================================================== ============================================================ ============
+``skip_header_line_count``                               Number of header lines to skip when reading CSV or TEXTFILE tables.             None (ignored if not set). Must be non-negative. Only valid for
+                                                         When set to ``1``, a header row will be written when creating new               CSV and TEXTFILE formats. Values greater than ``1`` are not
+                                                         CSV or TEXTFILE tables.                                                         supported for ``CREATE TABLE AS`` or ``INSERT`` operations.
+
+``skip_footer_line_count``                               Number of footer lines to skip when reading CSV or TEXTFILE tables.             None (ignored if not set). Must be non-negative. Only valid for
+                                                         Cannot be used when inserting into a table.                                     CSV and TEXTFILE formats. This property is not
+                                                                                                                                         supported for ``CREATE TABLE AS`` or ``INSERT`` operations.
+======================================================== ============================================================================== ======================================================================================
+
+Hive Metastore Configuration for Avro
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To support Avro tables with schema properties when using Hive 3.x, you must configure the Hive Metastore service:
+
+Add the ``metastore.storage.schema.reader.impl`` property to ``hive-site.xml`` where the metastore service is running:
+
+.. code-block:: xml
+
+    <property>
+      <name>metastore.storage.schema.reader.impl</name>
+      <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
+    </property>
+
+You must restart the metastore service for this configuration to take effect. This setting allows the metastore to read storage schemas for Avro tables and avoids ``Storage schema reading not supported`` errors.
 
 Metastore Configuration Properties
 ----------------------------------
@@ -220,14 +289,28 @@ Property Name                                                         Descriptio
 ======================================================== ============================================================= ============
 ``hive.metastore-timeout``                               Timeout for Hive metastore requests.                           ``10s``
 
-``hive.metastore-cache-ttl``                             Duration how long cached metastore data should be considered   ``0s``
+``hive.metastore.cache.enabled-caches``                  Comma-separated list of metastore cache types to enable.        NONE
+                                                         The value should be a valid <CACHE_TYPE>.
+
+``hive.metastore.cache.disabled-caches``                 Comma-separated list of metastore cache types to disable.       NONE
+                                                         The value should be a valid <CACHE_TYPE>.
+
+``hive.metastore.cache.ttl.default``                     Duration how long cached metastore data should be considered   ``0s``
                                                          valid.
+
+``hive.metastore.cache.ttl-by-type``                     Per-cache time-to-live (TTL) overrides for Hive metastore       NONE
+                                                         caches. The value is a comma-separated list of
+                                                         <CACHE_TYPE>:<DURATION> pairs.
 
 ``hive.metastore-cache-maximum-size``                    Hive metastore cache maximum size.                              10000
 
-``hive.metastore-refresh-interval``                      Asynchronously refresh cached metastore data after access      ``0s``
+``hive.metastore.cache.refresh-interval.default``        Asynchronously refresh cached metastore data after access      ``0s``
                                                          if it is older than this but is not yet expired, allowing
                                                          subsequent accesses to see fresh data.
+
+``hive.metastore.cache.refresh-interval-by-type``        Per-cache refresh interval overrides for Hive metastore         NONE
+                                                         caches. The value is a comma-separated list of
+                                                         <CACHE_TYPE>:<DURATION> pairs.
 
 ``hive.metastore-refresh-max-threads``                   Maximum threads used to refresh cached metastore data.          100
 
@@ -245,6 +328,26 @@ Property Name                                                         Descriptio
 ``hive.metastore.thrift.client.tls.truststore-password`` Password for the trust store.                                   NONE
 
 ======================================================== ============================================================= ============
+
+.. note::
+
+  The supported values for ``CACHE_TYPE`` when enabling Hive Metastore Cache are:
+
+  * ``ALL``: Represents all supported Hive metastore cache types.
+  * ``DATABASE``: Caches metadata for individual Hive databases.
+  * ``DATABASE_NAMES``: Caches the list of all database names in the metastore.
+  * ``TABLE``: Caches metadata for individual Hive tables.
+  * ``TABLE_NAMES``: Caches the list of table names within a database.
+  * ``TABLE_STATISTICS``: Caches column-level statistics for Hive tables.
+  * ``TABLE_CONSTRAINTS``: Caches table constraint metadata such as primary and unique keys.
+  * ``PARTITION``: Caches metadata for individual Hive partitions.
+  * ``PARTITION_STATISTICS``: Caches column-level statistics for individual partitions.
+  * ``PARTITION_FILTER``: Caches partition name lookups based on partition filter predicates.
+  * ``PARTITION_NAMES``: Caches the list of partition names for a table.
+  * ``VIEW_NAMES``: Caches the list of view names within a database.
+  * ``TABLE_PRIVILEGES``: Caches table-level privilege information for users and roles.
+  * ``ROLES``: Caches the list of available Hive roles.
+  * ``ROLE_GRANTS``: Caches role grant mappings for principals.
 
 AWS Glue Catalog Configuration Properties
 -----------------------------------------
@@ -953,11 +1056,15 @@ Hive catalog is called ``web``::
 
     CALL web.system.example_procedure()
 
-The following procedures are available:
+Create Empty Partition
+^^^^^^^^^^^^^^^^^^^^^^
 
 * ``system.create_empty_partition(schema_name, table_name, partition_columns, partition_values)``
 
   Create an empty partition in the specified table.
+
+Sync Partition Metadata
+^^^^^^^^^^^^^^^^^^^^^^^
 
 * ``system.sync_partition_metadata(schema_name, table_name, mode, case_sensitive)``
 
@@ -972,13 +1079,22 @@ The following procedures are available:
   file system paths to use lowercase (e.g. ``col_x=SomeValue``). Partitions on the file system
   not conforming to this convention are ignored, unless the argument is set to ``false``.
 
-* ``system.invalidate_directory_list_cache()``
+Invalidate Directory List Cache
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-  Flush full directory list cache.
+Invalidating directory list cache is useful when the files are added or deleted in the cache directory path and you want to make the changes visible to Presto immediately.
+There are a couple of ways for invalidating this cache:
 
-* ``system.invalidate_directory_list_cache(directory_path)``
+* The Hive connector exposes a procedure over JMX (``com.facebook.presto.hive.CachingDirectoryLister#flushCache``) to invalidate the directory list cache. You can call this procedure to invalidate the directory list cache by connecting via jconsole or jmxterm. This procedure flushes all the cache entries.
 
-  Invalidate directory list cache for specified directory_path.
+* The Hive connector exposes ``system.invalidate_directory_list_cache`` procedure which gives the flexibility to invalidate the list cache completely or partially as per the requirement and can be invoked in various ways.
+
+  * ``system.invalidate_directory_list_cache()`` : Flush full directory list cache.
+
+  * ``system.invalidate_directory_list_cache(directory_path)`` : Invalidate directory list cache for specified directory_path.
+
+Invalidate Metastore Cache
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * ``system.invalidate_metastore_cache()``
 
@@ -996,8 +1112,10 @@ The following procedures are available:
 
   Invalidate all metastore cache entries linked to a specific partition.
 
-Note: To enable ``system.invalidate_metastore_cache`` procedure, please refer to the properties that
-apply to Hive Metastore and are listed in the `Metastore Configuration Properties`_ table.
+  .. note::
+
+    To enable ``system.invalidate_metastore_cache`` procedure, ``hive.invalidate-metastore-cache-procedure-enabled`` must be set to ``true``.
+    See the properties in `Metastore Configuration Properties`_ table for more information.
 
 Extra Hidden Columns
 --------------------
@@ -1012,22 +1130,12 @@ columns as a part of the query like any other columns of the table.
 How to invalidate metastore cache?
 ----------------------------------
 
-The Hive connector exposes a procedure over JMX (``com.facebook.presto.hive.metastore.CachingHiveMetastore#flushCache``) to invalidate the metastore cache.
-You can call this procedure to invalidate the metastore cache by connecting via jconsole or jmxterm.
+Invalidating metastore cache is useful when the Hive metastore is updated outside of Presto and you want to make the changes visible to Presto immediately.
+There are a couple of ways for invalidating this cache and are listed below -
 
-This is useful when the Hive metastore is updated outside of Presto and you want to make the changes visible to Presto immediately.
+* The Hive connector exposes a procedure over JMX (``com.facebook.presto.hive.metastore.InMemoryCachingHiveMetastore#invalidateAll``) to invalidate the metastore cache. You can call this procedure to invalidate the metastore cache by connecting via jconsole or jmxterm. However, this procedure flushes the cache for all the tables in all the schemas.
 
-Currently, this procedure flushes the cache for all the tables in all the schemas. This is a known limitation and will be enhanced in the future.
-
-How to invalidate directory list cache?
----------------------------------------
-
-The Hive connector exposes a procedure over JMX (``com.facebook.presto.hive.HiveDirectoryLister#flushCache``) to invalidate the directory list cache.
-You can call this procedure to invalidate the directory list cache by connecting via jconsole or jmxterm.
-
-This is useful when the files are added or deleted in the cache directory path and you want to make the changes visible to Presto immediately.
-
-Currently, this procedure flushes all the cache entries. This is a known limitation and will be enhanced in the future.
+* The Hive connector exposes ``system.invalidate_metastore_cache`` procedure which enables users to invalidate the metastore cache completely or partially as per the requirement and can be invoked with various arguments. See `Invalidate Metastore Cache`_ for more information.
 
 Examples
 --------

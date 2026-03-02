@@ -14,8 +14,8 @@
 #include <gtest/gtest.h>
 
 #include "presto_cpp/main/common/tests/test_json.h"
-#include "presto_cpp/main/connectors/PrestoToVeloxConnector.h"
-#include "presto_cpp/main/operators/LocalPersistentShuffle.h"
+#include "presto_cpp/main/connectors/HivePrestoToVeloxConnector.h"
+#include "presto_cpp/main/operators/LocalShuffle.h"
 #include "presto_cpp/main/operators/PartitionAndSerialize.h"
 #include "presto_cpp/main/operators/ShuffleRead.h"
 #include "presto_cpp/main/operators/ShuffleWrite.h"
@@ -79,7 +79,7 @@ std::shared_ptr<const core::PlanNode> assertToBatchVeloxQueryPlan(
 class PlanConverterTest : public ::testing::Test {
  protected:
   static void SetUpTestCase() {
-    memory::MemoryManager::testingSetInstance(memory::MemoryManagerOptions{});
+    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
   }
 
   void SetUp() override {
@@ -139,10 +139,10 @@ TEST_F(PlanConverterTest, partitionedOutput) {
   // Test fragment's partitioning scheme.
   ASSERT_EQ(
       partitionedOutput->partitionFunctionSpec().toString(),
-      "HASH(\"1 elements starting at 0 {cluster_label_v2}\", expr_181)");
+      "HASH(\"{cluster_label_v2}\", expr_181)");
   auto keys = partitionedOutput->keys();
   ASSERT_EQ(keys.size(), 2);
-  ASSERT_EQ(keys[0]->toString(), "1 elements starting at 0 {cluster_label_v2}");
+  ASSERT_EQ(keys[0]->toString(), "{cluster_label_v2}");
   ASSERT_EQ(keys[1]->toString(), "\"expr_181\"");
   ASSERT_EQ(partitionedOutput->serdeKind(), VectorSerde::Kind::kCompactRow);
 }

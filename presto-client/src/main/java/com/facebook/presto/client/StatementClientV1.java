@@ -14,23 +14,23 @@
 package com.facebook.presto.client;
 
 import com.facebook.airlift.json.JsonCodec;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.client.OkHttpUtil.NullCallback;
 import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.spi.security.SelectedRole;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.units.Duration;
+import com.google.errorprone.annotations.ThreadSafe;
+import jakarta.annotation.Nullable;
 import okhttp3.Headers;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
-
-import javax.annotation.Nullable;
-import javax.annotation.concurrent.ThreadSafe;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -115,7 +115,7 @@ class StatementClientV1
     private final Map<String, String> addedSessionFunctions = new ConcurrentHashMap<>();
     private final Set<String> removedSessionFunctions = newConcurrentHashSet();
     private final boolean validateNextUriSource;
-
+    private final Map<String, List<String>> responseHeaders;
     private final AtomicReference<State> state = new AtomicReference<>(State.RUNNING);
 
     public StatementClientV1(OkHttpClient httpClient, ClientSession session, String query)
@@ -141,6 +141,7 @@ class StatementClientV1
         }
 
         processResponse(response.getHeaders(), response.getValue());
+        this.responseHeaders = toHeaderMap(response.getHeaders());
     }
 
     private Request buildQueryRequest(ClientSession session, String query)
@@ -215,6 +216,11 @@ class StatementClientV1
         }
 
         return builder.build();
+    }
+
+    public Map<String, List<String>> getResponseHeaders()
+    {
+        return responseHeaders;
     }
 
     @Override
@@ -439,6 +445,15 @@ class StatementClientV1
         throw new RuntimeException(format("Next URI host and port %s are different than current %s", nextUri.getHost(), infoUri.getHost()));
     }
 
+    private static Map<String, List<String>> toHeaderMap(Headers headers)
+    {
+        ImmutableMap.Builder<String, List<String>> builder = ImmutableMap.builder();
+        for (String name : headers.names()) {
+            builder.put(name, ImmutableList.copyOf(headers.values(name)));
+        }
+        return builder.build();
+    }
+
     private void processResponse(Headers headers, QueryResults results)
     {
         setCatalog.set(headers.get(PRESTO_SET_CATALOG));
@@ -499,7 +514,7 @@ class StatementClientV1
         if (!response.hasValue()) {
             if (response.getStatusCode() == HTTP_UNAUTHORIZED) {
                 return new ClientException("Authentication failed" +
-                        Optional.ofNullable(response.getStatusMessage())
+                        Optional.ofNullable(response.getResponseBody())
                                 .map(message -> ": " + message)
                                 .orElse(""));
             }

@@ -71,13 +71,36 @@ ArrowFlightConnector::initClientOpts(
     clientOpts->tls_root_certs = cert;
   }
 
+  auto clientCertPath = config->clientSslCertificate();
+  if (clientCertPath.has_value()) {
+    std::ifstream certFile(clientCertPath.value());
+    VELOX_CHECK(
+        certFile.is_open(),
+        "Could not open client certificate at {}",
+        clientCertPath.value());
+    clientOpts->cert_chain.assign(
+        (std::istreambuf_iterator<char>(certFile)),
+        (std::istreambuf_iterator<char>()));
+  }
+
+  auto clientKeyPath = config->clientSslKey();
+  if (clientKeyPath.has_value()) {
+    std::ifstream keyFile(clientKeyPath.value());
+    VELOX_CHECK(
+        keyFile.is_open(),
+        "Could not open client key at {}",
+        clientKeyPath.value());
+    clientOpts->private_key.assign(
+        (std::istreambuf_iterator<char>(keyFile)),
+        (std::istreambuf_iterator<char>()));
+  }
+
   return clientOpts;
 }
 
 ArrowFlightDataSource::ArrowFlightDataSource(
     const velox::RowTypePtr& outputType,
-    const std::unordered_map<std::string, std::shared_ptr<ColumnHandle>>&
-        columnHandles,
+    const velox::connector::ColumnHandleMap& columnHandles,
     std::shared_ptr<Authenticator> authenticator,
     const ConnectorQueryCtx* connectorQueryCtx,
     const std::shared_ptr<ArrowFlightConfig>& flightConfig,
@@ -103,7 +126,7 @@ ArrowFlightDataSource::ArrowFlightDataSource(
         columnName);
 
     auto handle =
-        std::dynamic_pointer_cast<ArrowFlightColumnHandle>(it->second);
+        std::dynamic_pointer_cast<const ArrowFlightColumnHandle>(it->second);
     VELOX_CHECK_NOT_NULL(
         handle,
         "handle for column '{}' is not an ArrowFlightColumnHandle",
@@ -164,7 +187,7 @@ std::optional<velox::RowVectorPtr> ArrowFlightDataSource::next(
   auto output = projectOutputColumns(chunk.data);
 
   completedRows_ += output->size();
-  completedBytes_ += output->inMemoryBytes();
+  completedBytes_ += output->estimateFlatSize();
   return output;
 }
 
@@ -195,10 +218,8 @@ velox::RowVectorPtr ArrowFlightDataSource::projectOutputColumns(
 std::unique_ptr<velox::connector::DataSource>
 ArrowFlightConnector::createDataSource(
     const velox::RowTypePtr& outputType,
-    const std::shared_ptr<velox::connector::ConnectorTableHandle>& tableHandle,
-    const std::unordered_map<
-        std::string,
-        std::shared_ptr<velox::connector::ColumnHandle>>& columnHandles,
+    const velox::connector::ConnectorTableHandlePtr& tableHandle,
+    const velox::connector::ColumnHandleMap& columnHandles,
     velox::connector::ConnectorQueryCtx* connectorQueryCtx) {
   return std::make_unique<ArrowFlightDataSource>(
       outputType,

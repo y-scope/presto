@@ -27,11 +27,9 @@ import java.util.Set;
 public interface QueryAnalysis
 {
     /**
-     * Returns the update type of the query.
-     *
-     * @return a String representing the type of update (e.g., "INSERT", "CREATE TABLE", "DELETE", etc)
+     * Returns a UpdateInfo {@link UpdateInfo} information of update operation
      */
-    String getUpdateType();
+    UpdateInfo getUpdateInfo();
 
     /**
      * Returns the expanded query, which might have been enhanced after analyzing materialized view.
@@ -47,6 +45,11 @@ public interface QueryAnalysis
      * Returns access control references for ACL checks
      */
     AccessControlReferences getAccessControlReferences();
+
+    /**
+     * Returns all view definitions accessed in the query
+     */
+    ViewDefinitionReferences getViewDefinitionReferences();
 
     /**
      * Returns whether the QueryAnalysis represents an "EXPLAIN ANALYZE" query.

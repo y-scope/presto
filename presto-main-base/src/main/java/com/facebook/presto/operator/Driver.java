@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.airlift.log.Logger;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.common.Page;
 import com.facebook.presto.execution.FragmentResultCacheContext;
 import com.facebook.presto.execution.ScheduledSplit;
@@ -30,9 +31,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
-import io.airlift.units.Duration;
-
-import javax.annotation.concurrent.GuardedBy;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -82,6 +81,7 @@ public class Driver
     private final Optional<SourceOperator> sourceOperator;
     private final Optional<DeleteOperator> deleteOperator;
     private final Optional<UpdateOperator> updateOperator;
+    private final Optional<MergeWriterOperator> mergeOperator;
 
     // This variable acts as a staging area. When new splits (encapsulated in TaskSource) are
     // provided to a Driver, the Driver will not process them right away. Instead, the splits are
@@ -142,6 +142,7 @@ public class Driver
         Optional<SourceOperator> sourceOperator = Optional.empty();
         Optional<DeleteOperator> deleteOperator = Optional.empty();
         Optional<UpdateOperator> updateOperator = Optional.empty();
+        Optional<MergeWriterOperator> mergeOperator = Optional.empty();
         for (Operator operator : operators) {
             if (operator instanceof SourceOperator) {
                 checkArgument(!sourceOperator.isPresent(), "There must be at most one SourceOperator");
@@ -155,10 +156,15 @@ public class Driver
                 checkArgument(!updateOperator.isPresent(), "There must be at most one UpdateOperator");
                 updateOperator = Optional.of((UpdateOperator) operator);
             }
+            else if (operator instanceof MergeWriterOperator) {
+                checkArgument(!mergeOperator.isPresent(), "There must be at most one MergeWriterOperator");
+                mergeOperator = Optional.of((MergeWriterOperator) operator);
+            }
         }
         this.sourceOperator = sourceOperator;
         this.deleteOperator = deleteOperator;
         this.updateOperator = updateOperator;
+        this.mergeOperator = mergeOperator;
 
         currentTaskSource = sourceOperator.map(operator -> new TaskSource(operator.getSourceId(), ImmutableSet.of(), false)).orElse(null);
         // initially the driverBlockedFuture is not blocked (it is completed)
@@ -290,6 +296,7 @@ public class Driver
             Supplier<Optional<UpdatablePageSource>> pageSource = sourceOperator.addSplit(newSplit);
             deleteOperator.ifPresent(deleteOperator -> deleteOperator.setPageSource(pageSource));
             updateOperator.ifPresent(updateOperator -> updateOperator.setPageSource(pageSource));
+            mergeOperator.ifPresent(mergeOperator -> mergeOperator.setPageSource(pageSource));
         }
 
         // set no more splits

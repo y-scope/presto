@@ -105,6 +105,16 @@ public class StreamPreferredProperties
         return fixedParallelism();
     }
 
+    public static StreamPreferredProperties partitionedOn(Collection<VariableReferenceExpression> partitionSymbols)
+    {
+        if (partitionSymbols.isEmpty()) {
+            return singleStream();
+        }
+
+        // Prefer partitioning on given partitioning symbols. Partition hash can be evaluated in any order.
+        return new StreamPreferredProperties(Optional.of(FIXED), false, Optional.of(ImmutableSet.copyOf(partitionSymbols)), false);
+    }
+
     public static StreamPreferredProperties exactlyPartitionedOn(Collection<VariableReferenceExpression> partitionVariables)
     {
         if (partitionVariables.isEmpty()) {
@@ -188,9 +198,11 @@ public class StreamPreferredProperties
         // is there a preference for a specific partitioning scheme?
         if (partitioningColumns.isPresent()) {
             if (exactColumnOrder) {
-                return actualProperties.isExactlyPartitionedOn(partitioningColumns.get());
+                return actualProperties.isExactlyPartitionedOn(partitioningColumns.get())
+                        || actualProperties.getStreamPropertiesFromUniqueColumn().isPresent() && actualProperties.getStreamPropertiesFromUniqueColumn().get().isExactlyPartitionedOn(partitioningColumns.get());
             }
-            return actualProperties.isPartitionedOn(partitioningColumns.get());
+            return actualProperties.isPartitionedOn(partitioningColumns.get())
+                    || actualProperties.getStreamPropertiesFromUniqueColumn().isPresent() && actualProperties.getStreamPropertiesFromUniqueColumn().get().isPartitionedOn(partitioningColumns.get());
         }
 
         return true;

@@ -17,18 +17,16 @@ import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
 import com.facebook.airlift.configuration.DefunctConfig;
 import com.facebook.airlift.configuration.LegacyConfig;
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.DataSize.Unit;
+import com.facebook.airlift.units.Duration;
+import com.facebook.airlift.units.MaxDuration;
+import com.facebook.airlift.units.MinDuration;
 import com.facebook.presto.memory.HighMemoryTaskKillerStrategy;
-import com.facebook.presto.util.PowerOfTwo;
-import io.airlift.units.DataSize;
-import io.airlift.units.DataSize.Unit;
-import io.airlift.units.Duration;
-import io.airlift.units.MaxDuration;
-import io.airlift.units.MinDuration;
-
-import javax.validation.constraints.DecimalMax;
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.util.concurrent.TimeUnit;
@@ -101,7 +99,6 @@ public class TaskManagerConfig
     private double highMemoryTaskKillerGCReclaimMemoryThreshold = 0.01;
     private Duration highMemoryTaskKillerFrequentFullGCDurationThreshold = new Duration(1, SECONDS);
     private double highMemoryTaskKillerHeapMemoryThreshold = 0.9;
-    private boolean enableEventLoop;
     private Duration slowMethodThresholdOnEventLoop = new Duration(0, SECONDS);
 
     public long getSlowMethodThresholdOnEventLoop()
@@ -114,18 +111,6 @@ public class TaskManagerConfig
     {
         this.slowMethodThresholdOnEventLoop = slowMethodThresholdOnEventLoop;
         return this;
-    }
-
-    @Config("task.enable-event-loop")
-    public TaskManagerConfig setEventLoopEnabled(boolean enableEventLoop)
-    {
-        this.enableEventLoop = enableEventLoop;
-        return this;
-    }
-
-    public boolean isEventLoopEnabled()
-    {
-        return enableEventLoop;
     }
 
     @MinDuration("1ms")
@@ -486,7 +471,6 @@ public class TaskManagerConfig
     }
 
     @Min(1)
-    @PowerOfTwo
     public int getTaskConcurrency()
     {
         return taskConcurrency;

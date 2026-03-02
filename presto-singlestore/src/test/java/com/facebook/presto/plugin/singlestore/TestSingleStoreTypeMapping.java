@@ -95,12 +95,12 @@ public class TestSingleStoreTypeMapping
     public void testPrestoCreatedParameterizedVarchar()
     {
         DataTypeTest.create()
-                .addRoundTrip(stringDataType("varchar(10)", createVarcharType(255 / 3)), "text_a")//utf-8
-                .addRoundTrip(stringDataType("varchar(255)", createVarcharType(255 / 3)), "text_b")
-                .addRoundTrip(stringDataType("varchar(256)", createVarcharType(65535 / 3)), "text_c")
-                .addRoundTrip(stringDataType("varchar(65535)", createVarcharType(65535 / 3)), "text_d")
-                .addRoundTrip(stringDataType("varchar(65536)", createVarcharType(16777215 / 3)), "text_e")
-                .addRoundTrip(stringDataType("varchar(16777215)", createVarcharType(16777215 / 3)), "text_f")
+                .addRoundTrip(stringDataType("varchar(10)", createVarcharType(10)), "text_a")//utf-8
+                .addRoundTrip(stringDataType("varchar(255)", createVarcharType(255)), "text_b")
+                .addRoundTrip(stringDataType("varchar(21844)", createVarcharType(21844)), "text_c")
+                .addRoundTrip(stringDataType("varchar(21846)", createVarcharType(5592405)), "text_d")
+                .addRoundTrip(stringDataType("varchar(65536)", createVarcharType(5592405)), "text_e")
+                .addRoundTrip(stringDataType("varchar(16777215)", createVarcharType(1431655765)), "text_f")
                 .execute(getQueryRunner(), prestoCreateAsSelect("presto_test_parameterized_varchar"));
     }
 
@@ -214,8 +214,8 @@ public class TestSingleStoreTypeMapping
     {
         ZoneId jvmZone = ZoneId.systemDefault();
         checkState(jvmZone.getId().equals("America/Bahia_Banderas"), "This test assumes certain JVM time zone");
-        LocalDate dateOfLocalTimeChangeForwardAtMidnightInJvmZone = LocalDate.of(1970, 1, 1);
-        verify(jvmZone.getRules().getValidOffsets(dateOfLocalTimeChangeForwardAtMidnightInJvmZone.atStartOfDay()).isEmpty());
+        LocalDate dateOfLocalTimeChangeForwardAtHour2InJvmZone = LocalDate.of(2012, 4, 1);
+        verify(jvmZone.getRules().getValidOffsets(dateOfLocalTimeChangeForwardAtHour2InJvmZone.atTime(2, 1)).isEmpty());
 
         ZoneId someZone = ZoneId.of("Europe/Vilnius");
         LocalDate dateOfLocalTimeChangeForwardAtMidnightInSomeZone = LocalDate.of(1983, 4, 1);
@@ -229,7 +229,7 @@ public class TestSingleStoreTypeMapping
                 .addRoundTrip(singleStoreDateDataType(), LocalDate.of(1970, 2, 3))
                 .addRoundTrip(singleStoreDateDataType(), LocalDate.of(2017, 7, 1)) // summer on northern hemisphere (possible DST)
                 .addRoundTrip(singleStoreDateDataType(), LocalDate.of(2017, 1, 1)) // winter on northern hemisphere (possible DST on southern hemisphere)
-                .addRoundTrip(singleStoreDateDataType(), dateOfLocalTimeChangeForwardAtMidnightInJvmZone)
+                .addRoundTrip(singleStoreDateDataType(), dateOfLocalTimeChangeForwardAtHour2InJvmZone)
                 .addRoundTrip(singleStoreDateDataType(), dateOfLocalTimeChangeForwardAtMidnightInSomeZone)
                 .addRoundTrip(singleStoreDateDataType(), dateOfLocalTimeChangeBackwardAtMidnightInSomeZone);
 

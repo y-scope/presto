@@ -18,19 +18,6 @@
 
 using namespace facebook::velox;
 
-namespace {
-
-facebook::presto::protocol::PlanConversionFailureInfo copyFailureInfo(
-    const facebook::presto::protocol::ExecutionFailureInfo& failure) {
-  facebook::presto::protocol::PlanConversionFailureInfo failureCopy;
-  failureCopy.type = failure.type;
-  failureCopy.message = failure.message;
-  failureCopy.stack = failure.stack;
-  failureCopy.errorCode = failure.errorCode;
-  return failureCopy;
-}
-} // namespace
-
 namespace facebook::presto {
 
 protocol::PlanConversionResponse prestoToVeloxPlanConversion(
@@ -50,25 +37,15 @@ protocol::PlanConversionResponse prestoToVeloxPlanConversion(
     auto tableWriteInfo = std::make_shared<protocol::TableWriteInfo>();
 
     // Attempt to convert the plan fragment to a Velox plan.
-    if (auto writeNode =
-            std::dynamic_pointer_cast<const protocol::TableWriterNode>(
-                planFragment.root)) {
-      // TableWriteInfo is not yet built at the planning stage, so we can not
-      // fully convert a TableWriteNode and skip that node of the fragment.
-      auto writeSourceNode =
-          converter.toVeloxQueryPlan(writeNode->source, tableWriteInfo, taskId);
-      planValidator->validatePlanFragment(core::PlanFragment(writeSourceNode));
-    } else {
-      auto veloxPlan =
-          converter.toVeloxQueryPlan(planFragment, tableWriteInfo, taskId);
-      planValidator->validatePlanFragment(veloxPlan);
-    }
+    auto veloxPlan =
+        converter.toVeloxQueryPlan(planFragment, tableWriteInfo, taskId);
+    planValidator->validatePlanFragment(veloxPlan);
   } catch (const VeloxException& e) {
     response.failures.emplace_back(
-        copyFailureInfo(VeloxToPrestoExceptionTranslator::translate(e)));
+        toNativeSidecarFailureInfo(translateToPrestoException(e)));
   } catch (const std::exception& e) {
     response.failures.emplace_back(
-        copyFailureInfo(VeloxToPrestoExceptionTranslator::translate(e)));
+        toNativeSidecarFailureInfo(translateToPrestoException(e)));
   }
 
   return response;

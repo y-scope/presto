@@ -15,9 +15,12 @@ package com.facebook.presto.iceberg;
 
 import com.facebook.presto.common.Page;
 import com.facebook.presto.common.block.Block;
+import com.facebook.presto.common.block.BlockBuilder;
 import com.facebook.presto.common.block.ColumnarRow;
 import com.facebook.presto.common.block.RowBlock;
+import com.facebook.presto.common.block.RunLengthEncodedBlock;
 import com.facebook.presto.hive.HivePartitionKey;
+import com.facebook.presto.iceberg.delete.DeleteFilter;
 import com.facebook.presto.iceberg.delete.IcebergDeletePageSink;
 import com.facebook.presto.iceberg.delete.RowPredicate;
 import com.facebook.presto.spi.ConnectorPageSource;
@@ -25,8 +28,10 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.UpdatablePageSource;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.Pair;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -34,14 +39,19 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static com.facebook.presto.common.block.ColumnarRow.toColumnarRow;
+import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_BAD_DATA;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_MISSING_COLUMN;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
@@ -64,12 +74,14 @@ public class IcebergUpdateablePageSource
     private final Supplier<IcebergDeletePageSink> deleteSinkSupplier;
     private IcebergDeletePageSink positionDeleteSink;
     private final Supplier<Optional<RowPredicate>> deletePredicate;
+    private final Supplier<List<DeleteFilter>> deleteFilters;
 
     private final List<IcebergColumnHandle> columns;
     /**
      * Columns actually updated in the query
      */
     private final List<IcebergColumnHandle> updatedColumns;
+    private final List<IcebergColumnHandle> delegateColumns;
     private final Schema tableSchema;
     private final Supplier<IcebergPageSink> updatedRowPageSinkSupplier;
     private IcebergPageSink updatedRowPageSink;
@@ -83,6 +95,8 @@ public class IcebergUpdateablePageSource
     // Maps the Iceberg field ids of modified columns to their indexes in the updatedColumns columnValueAndRowIdChannels array
     private final Map<ColumnIdentity, Integer> columnIdentityToUpdatedColumnIndex = new HashMap<>();
     private final int[] outputColumnToDelegateMapping;
+    private final int isDeletedColumnId;
+    private final int deleteFilePathColumnId;
 
     public IcebergUpdateablePageSource(
             Schema tableSchema,
@@ -95,30 +109,33 @@ public class IcebergUpdateablePageSource
             List<IcebergColumnHandle> delegateColumns,
             Supplier<IcebergDeletePageSink> deleteSinkSupplier,
             Supplier<Optional<RowPredicate>> deletePredicate,
+            Supplier<List<DeleteFilter>> deleteFilters,
             Supplier<IcebergPageSink> updatedRowPageSinkSupplier,
             // the columns that this page source is supposed to update
             List<IcebergColumnHandle> updatedColumns,
-            Optional<IcebergColumnHandle> updateRowIdColumn)
+            Optional<IcebergColumnHandle> rowIdColumn)
     {
         requireNonNull(partitionKeys, "partitionKeys is null");
         this.tableSchema = requireNonNull(tableSchema, "tableSchema is null");
         this.columns = requireNonNull(outputColumns, "columns is null");
         this.delegate = requireNonNull(delegate, "delegate is null");
+        this.delegateColumns = requireNonNull(delegateColumns, "delegateColumns is null");
         // information for deletes
         this.deleteSinkSupplier = deleteSinkSupplier;
         this.deletePredicate = requireNonNull(deletePredicate, "deletePredicate is null");
+        this.deleteFilters = requireNonNull(deleteFilters, "deleteFilters is null");
         // information for updates
         this.updatedRowPageSinkSupplier = requireNonNull(updatedRowPageSinkSupplier, "updatedRowPageSinkSupplier is null");
         this.updatedColumns = requireNonNull(updatedColumns, "updatedColumns is null");
         this.outputColumnToDelegateMapping = new int[columns.size()];
-        this.updateRowIdColumnIndex = updateRowIdColumn.map(columns::indexOf).orElse(-1);
-        this.updateRowIdChildColumnIndexes = updateRowIdColumn
+        this.updateRowIdColumnIndex = rowIdColumn.map(columns::indexOf).orElse(-1);
+        this.updateRowIdChildColumnIndexes = rowIdColumn
                 .map(column -> new int[column.getColumnIdentity().getChildren().size()])
                 .orElse(new int[0]);
         Map<ColumnIdentity, Integer> columnToIndex = IntStream.range(0, delegateColumns.size())
                 .boxed()
                 .collect(toImmutableMap(index -> delegateColumns.get(index).getColumnIdentity(), identity()));
-        updateRowIdColumn.ifPresent(column -> {
+        rowIdColumn.ifPresent(column -> {
             List<ColumnIdentity> rowIdFields = column.getColumnIdentity().getChildren();
             for (int i = 0; i < rowIdFields.size(); i++) {
                 ColumnIdentity columnIdentity = rowIdFields.get(i);
@@ -134,17 +151,20 @@ public class IcebergUpdateablePageSource
             }
         }
         for (int i = 0; i < outputColumnToDelegateMapping.length; i++) {
-            if (outputColumns.get(i).isUpdateRowIdColumn()) {
+            IcebergColumnHandle outputColumn = outputColumns.get(i);
+            if (outputColumn.isUpdateRowIdColumn() || outputColumn.isMergeTargetTableRowIdColumn()) {
                 continue;
             }
 
-            if (!columnToIndex.containsKey(outputColumns.get(i).getColumnIdentity())) {
-                throw new PrestoException(ICEBERG_MISSING_COLUMN, format("Column %s not found in delegate column map", outputColumns.get(i)));
+            if (!columnToIndex.containsKey(outputColumn.getColumnIdentity())) {
+                throw new PrestoException(ICEBERG_MISSING_COLUMN, format("Column %s not found in delegate column map", outputColumn));
             }
             else {
-                outputColumnToDelegateMapping[i] = columnToIndex.get(outputColumns.get(i).getColumnIdentity());
+                outputColumnToDelegateMapping[i] = columnToIndex.get(outputColumn.getColumnIdentity());
             }
         }
+        this.isDeletedColumnId = getDelegateColumnId(IcebergColumnHandle::isDeletedColumn);
+        this.deleteFilePathColumnId = getDelegateColumnId(IcebergColumnHandle::isDeleteFilePathColumn);
     }
 
     @Override
@@ -179,7 +199,7 @@ public class IcebergUpdateablePageSource
      * {@link IcebergPartitionInsertingPageSource}.
      * 2. Using the newly retrieved page, apply any necessary delete filters.
      * 3. Finally, take the necessary channels from the page with the delete filters applied and
-     * nest them into the updateRowId channel in {@link #setUpdateRowIdBlock(Page)}
+     * nest them into the updateRowId channel in {@link #setRowIdBlock(Page)}
      */
     @Override
     public Page getNextPage()
@@ -191,11 +211,26 @@ public class IcebergUpdateablePageSource
             }
 
             Optional<RowPredicate> deleteFilterPredicate = deletePredicate.get();
-            if (deleteFilterPredicate.isPresent()) {
+            if (isDeletedColumnId != -1 || deleteFilePathColumnId != -1) {
+                if (isDeletedColumnId != -1) {
+                    if (deleteFilterPredicate.isPresent()) {
+                        // Instead of filtering rows, we mark whether the row is deleted in the $deleted column
+                        dataPage = deleteFilterPredicate.get().markDeleted(dataPage, isDeletedColumnId);
+                    }
+                    else {
+                        Block allFalseBlock = RunLengthEncodedBlock.create(BOOLEAN, false, dataPage.getPositionCount());
+                        dataPage = dataPage.replaceColumn(isDeletedColumnId, allFalseBlock);
+                    }
+                }
+                if (deleteFilePathColumnId != -1) {
+                    dataPage = markDeleteFilePath(dataPage, deleteFilePathColumnId);
+                }
+            }
+            else if (deleteFilterPredicate.isPresent()) {
                 dataPage = deleteFilterPredicate.get().filterPage(dataPage);
             }
 
-            return setUpdateRowIdBlock(dataPage);
+            return setRowIdBlock(dataPage);
         }
         catch (RuntimeException e) {
             closeWithSuppression(e);
@@ -213,6 +248,14 @@ public class IcebergUpdateablePageSource
         positionDeleteSink.appendPage(new Page(rowIds));
     }
 
+    /**
+     * @param page This page contains the following channels:
+     * <ul>
+     *   <li>One channel for the row ID, which includes the position number of this row within the file and the values of the unmodified columns.</li>
+     *   <li>One additional channel for each updated column. These channels contain the new values for the updated columns.</li>
+     * </ul>
+     * @param columnValueAndRowIdChannels Channel numbers of the column values and the row ID's channel number at the end of the list.
+     */
     @Override
     public void updateRows(Page page, List<Integer> columnValueAndRowIdChannels)
     {
@@ -234,6 +277,7 @@ public class IcebergUpdateablePageSource
         Set<ColumnIdentity> updatedColumnFieldIds = columnIdentityToUpdatedColumnIndex.keySet();
         List<Types.NestedField> tableColumns = tableSchema.columns();
         Block[] fullPage = new Block[tableColumns.size()];
+        // Build a page that will contain the values of the updated rows. The rows stored in the "fullPage" include both updated and non-updated field values.
         for (int targetChannel = 0; targetChannel < tableColumns.size(); targetChannel++) {
             Types.NestedField column = tableColumns.get(targetChannel);
             ColumnIdentity columnIdentity = ColumnIdentity.createColumnIdentity(column);
@@ -275,18 +319,20 @@ public class IcebergUpdateablePageSource
     }
 
     /**
-     * The $row_id column used for updates is a composite column of at least one other column in the Page.
+     * The $row_id column used for updates and merge is a composite column of at least one other column in the Page.
      * The indexes of the columns needed for the $row_id are in the updateRowIdChildColumnIndexes array.
      *
      * @param page The raw Page from the Parquet/ORC reader.
      * @return A Page where the $row_id channel has been populated.
      */
-    private Page setUpdateRowIdBlock(Page page)
+    private Page setRowIdBlock(Page page)
     {
         Block[] fullPage = new Block[columns.size()];
         Block[] rowIdFields;
         Consumer<Integer> loopFunc;
-        if (updateRowIdColumnIndex == -1 || updatedColumns.isEmpty()) {
+        boolean isMergeTargetTable = columns.stream().anyMatch(IcebergColumnHandle::isMergeTargetTableRowIdColumn);
+
+        if ((updateRowIdColumnIndex == -1 || updatedColumns.isEmpty()) && !isMergeTargetTable) {
             loopFunc = (channel) -> fullPage[channel] = page.getBlock(outputColumnToDelegateMapping[channel]);
         }
         else {
@@ -309,6 +355,87 @@ public class IcebergUpdateablePageSource
         }
 
         return new Page(page.getPositionCount(), fullPage);
+    }
+
+    private int getDelegateColumnId(Predicate<IcebergColumnHandle> columnPredicate)
+    {
+        int targetColumnId = -1;
+        for (int i = 0; i < columns.size(); i++) {
+            if (columnPredicate.test(columns.get(i))) {
+                targetColumnId = i;
+                break;
+            }
+        }
+        if (targetColumnId == -1) {
+            return -1;
+        }
+        return outputColumnToDelegateMapping[targetColumnId];
+    }
+
+    private Page markDeleteFilePath(Page page, int deleteFilePathDelegateColumnId)
+    {
+        List<Pair<DeleteFilter, RowPredicate>> filterPredicates = deleteFilters.get().stream()
+                .map(filter -> Pair.of(filter, filter.createPredicate(delegateColumns)))
+                .collect(Collectors.toList());
+
+        int positionCount = page.getPositionCount();
+        if (positionCount == 0) {
+            return page;
+        }
+
+        boolean allSameValues = true;
+        Optional<String> firstValue = getDeleteFilePath(page, 0, filterPredicates);
+        BlockBuilder blockBuilder = null;
+        // Build the varchar block with the deleted file path or null if the row isn't deleted
+        for (int position = 1; position < positionCount; position++) {
+            Optional<String> deleteFilePath = getDeleteFilePath(page, position, filterPredicates);
+            if (allSameValues && !Objects.equals(firstValue.orElse(null), deleteFilePath.orElse(null))) {
+                blockBuilder = VARCHAR.createBlockBuilder(null, positionCount);
+                for (int idx = 0; idx < position; idx++) {
+                    writeStringOrNull(blockBuilder, firstValue);
+                }
+                writeStringOrNull(blockBuilder, deleteFilePath);
+                allSameValues = false;
+            }
+            else if (!allSameValues) {
+                writeStringOrNull(blockBuilder, deleteFilePath);
+            }
+        }
+
+        Block block;
+        if (blockBuilder != null) {
+            block = blockBuilder.build();
+        }
+        else {
+            Slice slice = firstValue.map(Slices::utf8Slice).orElse(null);
+            block = RunLengthEncodedBlock.create(VARCHAR, slice, positionCount);
+        }
+
+        return page.replaceColumn(deleteFilePathDelegateColumnId, block);
+    }
+
+    private void writeStringOrNull(BlockBuilder blockBuilder, Optional<String> toWrite)
+    {
+        if (toWrite.isPresent()) {
+            VARCHAR.writeString(blockBuilder, toWrite.get());
+        }
+        else {
+            blockBuilder.appendNull();
+        }
+    }
+
+    private Optional<String> getDeleteFilePath(Page page, int position, List<Pair<DeleteFilter, RowPredicate>> filterPredicates)
+    {
+        for (Pair<DeleteFilter, RowPredicate> pair : filterPredicates) {
+            boolean deleted = !pair.second().test(page, position);
+            if (deleted) {
+                String path = pair.first().getDeleteFilePath().orElse(null);
+                if (path != null) {
+                    return Optional.of(path);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     @Override

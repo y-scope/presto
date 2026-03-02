@@ -17,21 +17,20 @@ import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
 import com.facebook.airlift.configuration.DefunctConfig;
 import com.facebook.airlift.configuration.LegacyConfig;
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
+import com.facebook.airlift.units.MinDataSize;
+import com.facebook.airlift.units.MinDuration;
 import com.facebook.presto.connector.system.GlobalSystemConnector;
 import com.facebook.presto.spi.api.Experimental;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
-import io.airlift.units.MinDataSize;
-import io.airlift.units.MinDuration;
-
-import javax.validation.constraints.Max;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.concurrent.TimeUnit;
 
-import static io.airlift.units.DataSize.Unit.PETABYTE;
-import static io.airlift.units.DataSize.Unit.TERABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.PETABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.TERABYTE;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
 @DefunctConfig({
@@ -74,6 +73,7 @@ public class QueryManagerConfig
 
     private String queryExecutionPolicy = "all-at-once";
     private Duration queryMaxRunTime = new Duration(100, TimeUnit.DAYS);
+    private Duration queryMaxQueuedTime = new Duration(100, TimeUnit.DAYS);
     private Duration queryMaxExecutionTime = new Duration(100, TimeUnit.DAYS);
     private Duration queryMaxCpuTime = new Duration(1_000_000_000, TimeUnit.DAYS);
 
@@ -101,6 +101,10 @@ public class QueryManagerConfig
     private int rateLimiterCacheWindowMinutes = 5;
 
     private int minColumnarEncodingChannelsToPreferRowWiseEncoding = 1000;
+
+    private int maxQueryAdmissionsPerSecond = Integer.MAX_VALUE;
+
+    private int minRunningQueriesForPacing = 30;
 
     @Min(1)
     public int getScheduleSplitBatchSize()
@@ -432,6 +436,19 @@ public class QueryManagerConfig
     }
 
     @NotNull
+    public Duration getQueryMaxQueuedTime()
+    {
+        return queryMaxQueuedTime;
+    }
+
+    @Config("query.max-queued-time")
+    public QueryManagerConfig setQueryMaxQueuedTime(Duration queryMaxQueuedTime)
+    {
+        this.queryMaxQueuedTime = queryMaxQueuedTime;
+        return this;
+    }
+
+    @NotNull
     public Duration getQueryMaxExecutionTime()
     {
         return queryMaxExecutionTime;
@@ -750,6 +767,34 @@ public class QueryManagerConfig
     public QueryManagerConfig setMinColumnarEncodingChannelsToPreferRowWiseEncoding(int minColumnarEncodingChannelsToPreferRowWiseEncoding)
     {
         this.minColumnarEncodingChannelsToPreferRowWiseEncoding = minColumnarEncodingChannelsToPreferRowWiseEncoding;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxQueryAdmissionsPerSecond()
+    {
+        return maxQueryAdmissionsPerSecond;
+    }
+
+    @Config("query-manager.query-pacing.max-queries-per-second")
+    @ConfigDescription("Maximum number of queries that can be admitted per second globally for admission pacing. Default is unlimited (Integer.MAX_VALUE). Set to a lower value (e.g., 1) to pace query admissions to one per second.")
+    public QueryManagerConfig setMaxQueryAdmissionsPerSecond(int maxQueryAdmissionsPerSecond)
+    {
+        this.maxQueryAdmissionsPerSecond = maxQueryAdmissionsPerSecond;
+        return this;
+    }
+
+    @Min(0)
+    public int getMinRunningQueriesForPacing()
+    {
+        return minRunningQueriesForPacing;
+    }
+
+    @Config("query-manager.query-pacing.min-running-queries")
+    @ConfigDescription("Minimum number of running queries before admission pacing is applied. Default is 30. Set to a higher value to only pace when cluster is busy.")
+    public QueryManagerConfig setMinRunningQueriesForPacing(int minRunningQueriesForPacing)
+    {
+        this.minRunningQueriesForPacing = minRunningQueriesForPacing;
         return this;
     }
 

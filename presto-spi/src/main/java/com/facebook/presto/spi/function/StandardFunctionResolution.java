@@ -60,11 +60,17 @@ public interface StandardFunctionResolution
 
     boolean isCastFunction(FunctionHandle functionHandle);
 
+    FunctionHandle lookupCast(String castType, Type fromType, Type toType);
+
     boolean isCountFunction(FunctionHandle functionHandle);
+
+    boolean isCountIfFunction(FunctionHandle functionHandle);
 
     FunctionHandle countFunction();
 
     FunctionHandle countFunction(Type valueType);
+
+    FunctionHandle arbitraryFunction(Type valueType);
 
     boolean isMaxFunction(FunctionHandle functionHandle);
 
@@ -87,4 +93,6 @@ public interface StandardFunctionResolution
     FunctionHandle approximateSetFunction(Type valueType);
 
     FunctionHandle lookupBuiltInFunction(String functionName, List<Type> inputTypes);
+
+    FunctionHandle lookupFunction(String catalog, String schema, String functionName, List<Type> inputTypes);
 }

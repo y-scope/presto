@@ -25,6 +25,8 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.WarningCollector;
+import com.facebook.presto.spi.plan.MetadataDeleteNode;
+import com.facebook.presto.spi.plan.OrderingScheme;
 import com.facebook.presto.spi.plan.OutputNode;
 import com.facebook.presto.spi.plan.Partitioning;
 import com.facebook.presto.spi.plan.PartitioningHandle;
@@ -40,13 +42,17 @@ import com.facebook.presto.spi.plan.TableWriterNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
-import com.facebook.presto.sql.planner.plan.MetadataDeleteNode;
+import com.facebook.presto.sql.planner.plan.MergeProcessorNode;
+import com.facebook.presto.sql.planner.plan.MergeWriterNode;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.sanity.PlanChecker;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -158,6 +164,7 @@ public abstract class BasePlanFragmenter
                 properties.getPartitioningHandle(),
                 schedulingOrder,
                 properties.getPartitioningScheme(),
+                properties.getOutputOrderingScheme(),
                 StageExecutionDescriptor.ungroupedExecution(),
                 outputTableWriterFragment,
                 Optional.of(statsAndCosts.getForSubplan(root)),
@@ -264,9 +271,46 @@ public abstract class BasePlanFragmenter
     }
 
     @Override
+    public PlanNode visitMergeWriter(MergeWriterNode node, RewriteContext<FragmentProperties> context)
+    {
+        return context.defaultRewrite(node, context.get());
+    }
+
+    @Override
+    public PlanNode visitMergeProcessor(MergeProcessorNode node, RewriteContext<FragmentProperties> context)
+    {
+        return context.defaultRewrite(node, context.get());
+    }
+
+    @Override
+    public PlanNode visitCallDistributedProcedure(CallDistributedProcedureNode node, RewriteContext<FragmentProperties> context)
+    {
+        if (node.getPartitioningScheme().isPresent()) {
+            context.get().setDistribution(node.getPartitioningScheme().get().getPartitioning().getHandle(), metadata, session);
+        }
+        return context.defaultRewrite(node, context.get());
+    }
+
+    @Override
     public PlanNode visitValues(ValuesNode node, RewriteContext<FragmentProperties> context)
     {
         context.get().setSingleNodeDistribution();
+        return context.defaultRewrite(node, context.get());
+    }
+
+    @Override
+    public PlanNode visitTableFunction(TableFunctionNode node, RewriteContext<FragmentProperties> context)
+    {
+        throw new IllegalStateException(format("Unexpected node: TableFunctionNode (%s)", node.getName()));
+    }
+
+    @Override
+    public PlanNode visitTableFunctionProcessor(TableFunctionProcessorNode node, RewriteContext<FragmentProperties> context)
+    {
+        if (!node.getSource().isPresent()) {
+            // context is mutable. The leaf node should set the PartitioningHandle.
+            context.get().addSourceDistribution(node.getId(), SOURCE_DISTRIBUTION, metadata, session);
+        }
         return context.defaultRewrite(node, context.get());
     }
 
@@ -283,7 +327,7 @@ public abstract class BasePlanFragmenter
             case REMOTE_STREAMING:
                 return createRemoteStreamingExchange(exchange, context);
             case REMOTE_MATERIALIZED:
-                return createRemoteMaterializedExchange(exchange, context);
+                return createRemoteMaterializedExchange(metadata, session, exchange, context);
             default:
                 throw new IllegalArgumentException("Unexpected exchange scope: " + exchange.getScope());
         }
@@ -300,7 +344,17 @@ public abstract class BasePlanFragmenter
 
         ImmutableList.Builder<SubPlan> builder = ImmutableList.builder();
         for (int sourceIndex = 0; sourceIndex < exchange.getSources().size(); sourceIndex++) {
-            FragmentProperties childProperties = new FragmentProperties(translateOutputLayout(partitioningScheme, exchange.getInputs().get(sourceIndex)));
+            PartitioningScheme childPartitioningScheme = translateOutputLayout(partitioningScheme, exchange.getInputs().get(sourceIndex));
+            FragmentProperties childProperties = new FragmentProperties(childPartitioningScheme);
+
+            // If the exchange has ordering requirements, translate them for the child fragment
+            Optional<OrderingScheme> childOutputOrderingScheme = Optional.empty();
+            if (exchange.getOrderingScheme().isPresent()) {
+                childOutputOrderingScheme = exchange.getOrderingScheme();
+            }
+
+            // Set the output ordering scheme for the child fragment
+            childProperties.setOutputOrderingScheme(childOutputOrderingScheme);
             builder.add(buildSubPlan(exchange.getSources().get(sourceIndex), childProperties, context));
         }
 
@@ -334,7 +388,7 @@ public abstract class BasePlanFragmenter
         }
     }
 
-    private PlanNode createRemoteMaterializedExchange(ExchangeNode exchange, RewriteContext<FragmentProperties> context)
+    private PlanNode createRemoteMaterializedExchange(Metadata metadata, Session session, ExchangeNode exchange, RewriteContext<FragmentProperties> context)
     {
         checkArgument(exchange.getType() == REPARTITION, "Unexpected exchange type: %s", exchange.getType());
         checkArgument(exchange.getScope() == REMOTE_MATERIALIZED, "Unexpected exchange scope: %s", exchange.getScope());
@@ -352,7 +406,8 @@ public abstract class BasePlanFragmenter
 
         Partitioning partitioning = partitioningScheme.getPartitioning();
         PartitioningVariableAssignments partitioningVariableAssignments = assignPartitioningVariables(variableAllocator, partitioning);
-        Map<VariableReferenceExpression, ColumnMetadata> variableToColumnMap = assignTemporaryTableColumnNames(exchange.getOutputVariables(), partitioningVariableAssignments.getConstants().keySet());
+        Map<VariableReferenceExpression, ColumnMetadata> variableToColumnMap = assignTemporaryTableColumnNames(metadata,
+                session, connectorId.getCatalogName(), exchange.getOutputVariables(), partitioningVariableAssignments.getConstants().keySet());
         List<VariableReferenceExpression> partitioningVariables = partitioningVariableAssignments.getVariables();
         List<String> partitionColumns = partitioningVariables.stream()
                 .map(variable -> variableToColumnMap.get(variable).getName())
@@ -434,9 +489,22 @@ public abstract class BasePlanFragmenter
         private Optional<PartitioningHandle> partitioningHandle = Optional.empty();
         private final Set<PlanNodeId> partitionedSources = new HashSet<>();
 
+        // Output ordering scheme for the fragment - this gets transferred to the PlanFragment
+        private Optional<OrderingScheme> outputOrderingScheme = Optional.empty();
+
         public FragmentProperties(PartitioningScheme partitioningScheme)
         {
             this.partitioningScheme = partitioningScheme;
+        }
+
+        public void setOutputOrderingScheme(Optional<OrderingScheme> outputOrderingScheme)
+        {
+            this.outputOrderingScheme = requireNonNull(outputOrderingScheme, "outputOrderingScheme is null");
+        }
+
+        public Optional<OrderingScheme> getOutputOrderingScheme()
+        {
+            return outputOrderingScheme;
         }
 
         public List<SubPlan> getChildren()

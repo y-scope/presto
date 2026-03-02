@@ -33,16 +33,28 @@ public class NativeSidecarPluginQueryRunner
         Logging.initialize();
 
         // Create tables before launching distributed runner.
-        QueryRunner javaQueryRunner = PrestoNativeQueryRunnerUtils.createJavaQueryRunner(false);
+        QueryRunner javaQueryRunner = PrestoNativeQueryRunnerUtils.javaHiveQueryRunnerBuilder()
+                .setAddStorageFormatToPath(false)
+                .build();
         NativeQueryRunnerUtils.createAllTables(javaQueryRunner);
         javaQueryRunner.close();
 
         // Launch distributed runner.
-        DistributedQueryRunner queryRunner = (DistributedQueryRunner) PrestoNativeQueryRunnerUtils.createQueryRunner(false, true, false, false);
-        setupNativeSidecarPlugin(queryRunner);
+        DistributedQueryRunner queryRunner = getQueryRunner();
         Thread.sleep(10);
         Logger log = Logger.get(DistributedQueryRunner.class);
         log.info("======== SERVER STARTED ========");
         log.info("\n====\n%s\n====", queryRunner.getCoordinator().getBaseUrl());
+    }
+
+    public static DistributedQueryRunner getQueryRunner()
+            throws Exception
+    {
+        // Launch distributed runner.
+        DistributedQueryRunner queryRunner = (DistributedQueryRunner) PrestoNativeQueryRunnerUtils.nativeHiveQueryRunnerBuilder()
+                .setCoordinatorSidecarEnabled(true)
+                .build();
+        setupNativeSidecarPlugin(queryRunner);
+        return queryRunner;
     }
 }

@@ -59,12 +59,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import static com.facebook.presto.SystemSessionProperties.estimateSizeUsingVariablesForHBO;
 import static com.facebook.presto.SystemSessionProperties.getHistoryBasedOptimizerTimeoutLimit;
+import static com.facebook.presto.SystemSessionProperties.getQueryTypesEnabledForHBO;
 import static com.facebook.presto.SystemSessionProperties.trackHistoryBasedPlanStatisticsEnabled;
 import static com.facebook.presto.SystemSessionProperties.trackHistoryStatsFromFailedQuery;
 import static com.facebook.presto.SystemSessionProperties.trackPartialAggregationHistory;
-import static com.facebook.presto.common.resourceGroups.QueryType.INSERT;
-import static com.facebook.presto.common.resourceGroups.QueryType.SELECT;
 import static com.facebook.presto.cost.HistoricalPlanStatisticsUtil.updatePlanStatistics;
 import static com.facebook.presto.cost.HistoryBasedPlanStatisticsManager.historyBasedPlanCanonicalizationStrategyList;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SCALED_WRITER_DISTRIBUTION;
@@ -78,7 +78,6 @@ import static java.util.Objects.requireNonNull;
 public class HistoryBasedPlanStatisticsTracker
 {
     private static final Logger LOG = Logger.get(HistoryBasedPlanStatisticsTracker.class);
-    private static final Set<QueryType> ALLOWED_QUERY_TYPES = ImmutableSet.of(SELECT, INSERT);
 
     private final Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider;
     private final HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager;
@@ -139,7 +138,8 @@ public class HistoryBasedPlanStatisticsTracker
         }
 
         // Only update statistics for SELECT/INSERT queries
-        if (!queryInfo.getQueryType().isPresent() || !ALLOWED_QUERY_TYPES.contains(queryInfo.getQueryType().get())) {
+        List<QueryType> queryTypesEnabled = getQueryTypesEnabledForHBO(session);
+        if (!queryInfo.getQueryType().isPresent() || !queryTypesEnabled.contains(queryInfo.getQueryType().get())) {
             return ImmutableMap.of();
         }
 
@@ -242,7 +242,7 @@ public class HistoryBasedPlanStatisticsTracker
                         PlanStatisticsWithSourceInfo planStatsWithSourceInfo = new PlanStatisticsWithSourceInfo(
                                 planNode.getId(),
                                 newPlanNodeStats,
-                                new HistoryBasedSourceInfo(Optional.of(hash), Optional.of(inputTableStatistics), Optional.of(historicalPlanStatisticsEntryInfo)));
+                                new HistoryBasedSourceInfo(Optional.of(hash), Optional.of(inputTableStatistics), Optional.of(historicalPlanStatisticsEntryInfo), estimateSizeUsingVariablesForHBO(session)));
                         planStatisticsMap.put(planNodeWithHash, planStatsWithSourceInfo);
 
                         if (isAggregation(planNode, AggregationNode.Step.FINAL) && ((AggregationNode) planNode).getAggregationId().isPresent() && trackPartialAggregationHistory(session)) {

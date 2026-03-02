@@ -46,6 +46,12 @@ public class OperatorInfoUnion
     private short id;
 
     @ThriftConstructor
+    public OperatorInfoUnion()
+    {
+        this.id = 0;
+    }
+
+    @ThriftConstructor
     public OperatorInfoUnion(ExchangeClientStatus exchangeClientStatus)
     {
         this.exchangeClientStatus = exchangeClientStatus;
@@ -251,7 +257,7 @@ public class OperatorInfoUnion
             return infoUnion.getTableWriterMergeInfo();
         }
         else {
-            throw new IllegalArgumentException("OperatorInfoUnion is of an unknown type: " + infoUnion.getClass().getName());
+            return null;
         }
     }
 }

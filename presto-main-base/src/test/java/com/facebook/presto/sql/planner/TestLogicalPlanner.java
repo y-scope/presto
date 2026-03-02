@@ -15,22 +15,38 @@ package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.common.block.SortOrder;
+import com.facebook.presto.execution.TestingPageSourceProvider;
 import com.facebook.presto.functionNamespace.FunctionNamespaceManagerPlugin;
 import com.facebook.presto.functionNamespace.json.JsonFileBasedFunctionNamespaceManagerFactory;
+import com.facebook.presto.spi.ConnectorHandleResolver;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorContext;
+import com.facebook.presto.spi.connector.ConnectorFactory;
+import com.facebook.presto.spi.connector.ConnectorMetadata;
+import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
+import com.facebook.presto.spi.connector.ConnectorSplitManager;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.DistinctLimitNode;
 import com.facebook.presto.spi.plan.FilterNode;
+import com.facebook.presto.spi.plan.IndexJoinNode;
 import com.facebook.presto.spi.plan.JoinNode;
 import com.facebook.presto.spi.plan.LimitNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.plan.SemiJoinNode;
 import com.facebook.presto.spi.plan.SortNode;
+import com.facebook.presto.spi.plan.TableFinishNode;
 import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.TopNNode;
 import com.facebook.presto.spi.plan.ValuesNode;
+import com.facebook.presto.spi.procedure.BaseProcedure;
+import com.facebook.presto.spi.procedure.DistributedProcedure;
+import com.facebook.presto.spi.procedure.DistributedProcedure.Argument;
+import com.facebook.presto.spi.procedure.TableDataRewriteDistributedProcedure;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.spi.transaction.IsolationLevel;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
 import com.facebook.presto.sql.planner.assertions.ExpressionMatcher;
@@ -39,13 +55,17 @@ import com.facebook.presto.sql.planner.assertions.RowNumberSymbolMatcher;
 import com.facebook.presto.sql.planner.optimizations.AddLocalExchanges;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
+import com.facebook.presto.sql.planner.plan.CallDistributedProcedureNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
-import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.testing.QueryRunner;
+import com.facebook.presto.testing.TestProcedureRegistry;
+import com.facebook.presto.testing.TestingHandleResolver;
+import com.facebook.presto.testing.TestingMetadata;
+import com.facebook.presto.testing.TestingSplitManager;
 import com.facebook.presto.tests.QueryTemplate;
 import com.facebook.presto.util.MorePredicates;
 import com.google.common.collect.ImmutableList;
@@ -53,10 +73,15 @@ import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.SystemSessionProperties.DISTRIBUTED_SORT;
 import static com.facebook.presto.SystemSessionProperties.ENFORCE_FIXED_DISTRIBUTION_FOR_OUTPUT_OPERATOR;
@@ -66,8 +91,10 @@ import static com.facebook.presto.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE
 import static com.facebook.presto.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
 import static com.facebook.presto.SystemSessionProperties.LEAF_NODE_LIMIT_ENABLED;
 import static com.facebook.presto.SystemSessionProperties.MAX_LEAF_NODES_IN_PLAN;
+import static com.facebook.presto.SystemSessionProperties.NATIVE_EXECUTION_ENABLED;
 import static com.facebook.presto.SystemSessionProperties.OFFSET_CLAUSE_ENABLED;
 import static com.facebook.presto.SystemSessionProperties.OPTIMIZE_HASH_GENERATION;
+import static com.facebook.presto.SystemSessionProperties.PREFER_SORT_MERGE_JOIN;
 import static com.facebook.presto.SystemSessionProperties.PUSH_REMOTE_EXCHANGE_THROUGH_GROUP_ID;
 import static com.facebook.presto.SystemSessionProperties.REMOVE_CROSS_JOIN_WITH_CONSTANT_SINGLE_ROW_INPUT;
 import static com.facebook.presto.SystemSessionProperties.SIMPLIFY_PLAN_WITH_EMPTY_INPUT;
@@ -76,6 +103,7 @@ import static com.facebook.presto.SystemSessionProperties.getMaxLeafNodesInPlan;
 import static com.facebook.presto.common.block.SortOrder.ASC_NULLS_LAST;
 import static com.facebook.presto.common.predicate.Domain.singleValue;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
+import static com.facebook.presto.common.type.StandardTypes.VARCHAR;
 import static com.facebook.presto.common.type.VarcharType.createVarcharType;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_LIMIT_CLAUSE;
 import static com.facebook.presto.spi.plan.AggregationNode.Step.FINAL;
@@ -86,6 +114,8 @@ import static com.facebook.presto.spi.plan.JoinDistributionType.REPLICATED;
 import static com.facebook.presto.spi.plan.JoinType.INNER;
 import static com.facebook.presto.spi.plan.JoinType.LEFT;
 import static com.facebook.presto.spi.plan.JoinType.RIGHT;
+import static com.facebook.presto.spi.procedure.TableDataRewriteDistributedProcedure.SCHEMA;
+import static com.facebook.presto.spi.procedure.TableDataRewriteDistributedProcedure.TABLE_NAME;
 import static com.facebook.presto.sql.Optimizer.PlanStage.OPTIMIZED;
 import static com.facebook.presto.sql.Optimizer.PlanStage.OPTIMIZED_AND_VALIDATED;
 import static com.facebook.presto.sql.TestExpressionInterpreter.AVG_UDAF_CPP;
@@ -108,6 +138,7 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.groupi
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.join;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.limit;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.markDistinct;
+import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.mergeJoin;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.output;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
@@ -129,6 +160,7 @@ import static com.facebook.presto.sql.planner.plan.ExchangeNode.Scope.REMOTE_STR
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.GATHER;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.REPARTITION;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.REPLICATE;
+import static com.facebook.presto.sql.tree.SortItem.NullOrdering.FIRST;
 import static com.facebook.presto.sql.tree.SortItem.NullOrdering.LAST;
 import static com.facebook.presto.sql.tree.SortItem.Ordering.ASCENDING;
 import static com.facebook.presto.sql.tree.SortItem.Ordering.DESCENDING;
@@ -151,8 +183,107 @@ public class TestLogicalPlanner
     public void setup()
     {
         setupJsonFunctionNamespaceManager(this.getQueryRunner());
+
+        // Register catalog `test` with a distributed procedure `distributed_fun`
+        this.getQueryRunner().createCatalog("test",
+                new ConnectorFactory()
+                {
+                    @Override
+                    public String getName()
+                    {
+                        return "test";
+                    }
+
+                    @Override
+                    public ConnectorHandleResolver getHandleResolver()
+                    {
+                        return new TestingHandleResolver();
+                    }
+
+                    @Override
+                    public Connector create(String catalogName, Map<String, String> config, ConnectorContext context)
+                    {
+                        List<Argument> arguments = new ArrayList<>();
+                        arguments.add(new Argument(SCHEMA, VARCHAR));
+                        arguments.add(new Argument(TABLE_NAME, VARCHAR));
+                        Set<BaseProcedure<?>> procedures = new HashSet<>();
+                        procedures.add(new TableDataRewriteDistributedProcedure("system", "distributed_fun",
+                                arguments,
+                                (session, transactionContext, procedureHandle, fragments, sortOrderIndex) -> null,
+                                (session, transactionContext, procedureHandle, fragments) -> {},
+                                ignored -> new TestProcedureRegistry.TestProcedureContext()));
+
+                        return new Connector()
+                        {
+                            private final ConnectorMetadata metadata = new TestingMetadata();
+
+                            @Override
+                            public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly)
+                            {
+                                return new ConnectorTransactionHandle()
+                                {};
+                            }
+
+                            @Override
+                            public ConnectorPageSourceProvider getPageSourceProvider()
+                            {
+                                return new TestingPageSourceProvider();
+                            }
+
+                            @Override
+                            public ConnectorMetadata getMetadata(ConnectorTransactionHandle transaction)
+                            {
+                                return metadata;
+                            }
+
+                            @Override
+                            public ConnectorSplitManager getSplitManager()
+                            {
+                                return new TestingSplitManager(ImmutableList.of());
+                            }
+
+                            @Override
+                            public Set<DistributedProcedure> getDistributedProcedures()
+                            {
+                                return procedures.stream().filter(DistributedProcedure.class::isInstance)
+                                        .map(DistributedProcedure.class::cast)
+                                        .collect(Collectors.toSet());
+                            }
+                        };
+                    }
+                }, ImmutableMap.of());
     }
 
+    @Test
+    public void testCallDistributedProcedure()
+    {
+        Session session = getQueryRunner().getDefaultSession();
+
+        // Call non-existed distributed procedure
+        assertPlanFailedWithException("call test.system.no_fun('a', 'b')", session,
+                format("Distributed procedure not registered: test.system.no_fun", "test", "system", "no_fun"));
+
+        // Call distributed procedure on non-existed target table
+        assertPlanFailedWithException("call test.system.distributed_fun('tiny', 'notable')", session,
+                format("Table %s.%s.%s does not exist", session.getCatalog().get(), "tiny", "notable"));
+
+        // Call distributed procedure on partitioned target table
+        assertDistributedPlan("call test.system.distributed_fun('tiny', 'orders')",
+                anyTree(node(TableFinishNode.class,
+                        exchange(REMOTE_STREAMING, GATHER,
+                                node(CallDistributedProcedureNode.class,
+                                        exchange(LOCAL, GATHER,
+                                                tableScan("orders")))))));
+
+        // Call distributed procedure on unPartitioned target table
+        assertDistributedPlan("call test.system.distributed_fun('tiny', 'customer')",
+                anyTree(node(TableFinishNode.class,
+                        exchange(REMOTE_STREAMING, GATHER,
+                                node(CallDistributedProcedureNode.class,
+                                        exchange(LOCAL, GATHER,
+                                                exchange(REMOTE_STREAMING, REPARTITION,
+                                                        tableScan("customer"))))))));
+    }
     @Test
     public void testAnalyze()
     {
@@ -524,6 +655,60 @@ public class TestLogicalPlanner
                                         tableScan("orders", ImmutableMap.of("ORDERS_OK", "orderkey"))),
                                 anyTree(
                                         tableScan("lineitem", ImmutableMap.of("LINEITEM_OK", "orderkey"))))));
+    }
+
+    @Test
+    public void testSortMergeJoin()
+    {
+        Session preferSortMergeJoin = Session.builder(noJoinReordering())
+                .setSystemProperty(NATIVE_EXECUTION_ENABLED, "true")
+                .setSystemProperty(PREFER_SORT_MERGE_JOIN, "true")
+                .setSystemProperty(DISTRIBUTED_SORT, "false")
+                .build();
+
+        // Both sides are not sorted.
+        assertPlan("SELECT o.orderkey FROM orders o INNER JOIN lineitem l ON o.custkey = l.partkey",
+                preferSortMergeJoin,
+                anyTree(
+                        mergeJoin(INNER, ImmutableList.of(equiJoinClause("ORDERS_CK", "LINEITEM_PK")), Optional.empty(),
+                                sort(
+                                        ImmutableList.of(sort("ORDERS_CK", ASCENDING, FIRST)),
+                                        exchange(LOCAL, GATHER, ImmutableList.of(),
+                                                tableScan("orders", ImmutableMap.of("ORDERS_CK", "custkey")))),
+                                sort(
+                                        ImmutableList.of(sort("LINEITEM_PK", ASCENDING, FIRST)),
+                                        exchange(LOCAL, GATHER, ImmutableList.of(),
+                                                tableScan("lineitem", ImmutableMap.of("LINEITEM_PK", "partkey")))))));
+
+        // Left side is sorted.
+        assertPlan("SELECT o.orderkey FROM orders o INNER JOIN lineitem l ON o.orderkey = l.partkey",
+                preferSortMergeJoin,
+                anyTree(
+                        mergeJoin(INNER, ImmutableList.of(equiJoinClause("ORDERS_OK", "LINEITEM_PK")), Optional.empty(),
+                                        tableScan("orders", ImmutableMap.of("ORDERS_OK", "orderkey")),
+                                sort(
+                                        ImmutableList.of(sort("LINEITEM_PK", ASCENDING, FIRST)),
+                                        exchange(LOCAL, GATHER, ImmutableList.of(),
+                                                tableScan("lineitem", ImmutableMap.of("LINEITEM_PK", "partkey")))))));
+
+        // Right side is sorted.
+        assertPlan("SELECT o.orderkey FROM orders o INNER JOIN lineitem l ON o.custkey = l.orderkey",
+                preferSortMergeJoin,
+                anyTree(
+                        mergeJoin(INNER, ImmutableList.of(equiJoinClause("ORDERS_CK", "LINEITEM_OK")), Optional.empty(),
+                                sort(
+                                        ImmutableList.of(sort("ORDERS_CK", ASCENDING, FIRST)),
+                                        exchange(LOCAL, GATHER, ImmutableList.of(),
+                                                tableScan("orders", ImmutableMap.of("ORDERS_CK", "custkey")))),
+                                        tableScan("lineitem", ImmutableMap.of("LINEITEM_OK", "orderkey")))));
+
+        // Both sides are sorted.
+        assertPlan("SELECT o.orderkey FROM orders o INNER JOIN lineitem l ON o.orderkey = l.orderkey",
+                preferSortMergeJoin,
+                anyTree(
+                        mergeJoin(INNER, ImmutableList.of(equiJoinClause("ORDERS_OK", "LINEITEM_OK")), Optional.empty(),
+                                        tableScan("orders", ImmutableMap.of("ORDERS_OK", "orderkey")),
+                                        tableScan("lineitem", ImmutableMap.of("LINEITEM_OK", "orderkey")))));
     }
 
     @Test
@@ -1587,6 +1772,45 @@ public class TestLogicalPlanner
                                                                 any(
                                                                         tableScan("nation", ImmutableMap.of("name", "name", "regionkey", "regionkey"))))))
                                                 .withAlias("row_num", new RowNumberSymbolMatcher())))));
+    }
+
+    @Test
+    public void testOffsetWithLimit()
+    {
+        Session enableOffsetWithConcurrency = Session.builder(this.getQueryRunner().getDefaultSession())
+                .setSystemProperty(OFFSET_CLAUSE_ENABLED, "true")
+                .setSystemProperty("task_concurrency", "2") // task_concurrency > 1 required to add possible local exchanges that fail this test for incorrect AddLocalExchanges
+                .build();
+
+        assertPlanWithSession("SELECT totalprice FROM orders ORDER BY totalprice OFFSET 1 LIMIT 512",
+                enableOffsetWithConcurrency,
+                false,
+                any(
+                        strictProject(
+                                ImmutableMap.of("totalprice", new ExpressionMatcher("totalprice")),
+                                limit(
+                                        512,
+                                        filter(
+                                                "row_num > BIGINT '1'",
+                                                rowNumber(
+                                                        pattern -> pattern
+                                                                .partitionBy(ImmutableList.of()),
+                                                        anyTree(
+                                                                sort(
+                                                                        ImmutableList.of(sort("totalprice", ASCENDING, LAST)),
+                                                                        any(
+                                                                                tableScan("orders", ImmutableMap.of("totalprice", "totalprice"))))))
+                                                        .withAlias("row_num", new RowNumberSymbolMatcher()))))));
+    }
+
+    @Test
+    public void testRewriteExcludeColumnsFunctionToProjection()
+    {
+        assertPlan("SELECT *\n" +
+                        "FROM TABLE(system.builtin.exclude_columns(\n" +
+                        "    INPUT => TABLE(orders),\n" +
+                        "    COLUMNS => DESCRIPTOR(comment)))\n",
+                output(tableScan("orders")));
     }
 
     private Session noJoinReordering()

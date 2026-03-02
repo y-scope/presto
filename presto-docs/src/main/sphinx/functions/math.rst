@@ -40,6 +40,41 @@ Mathematical Functions
 
         SELECT cosine_similarity(MAP(ARRAY['a'], ARRAY[1.0]), MAP(ARRAY['a'], ARRAY[2.0])); -- 1.0
 
+.. function:: cosine_similarity(x, y) -> double
+
+    Returns the cosine similarity between the arrays ``x`` and ``y``.
+    If the input arrays have different sizes or if the input arrays contain a null, the function throws user error::
+
+        SELECT cosine_similarity(ARRAY[1.2], ARRAY[2.0]); -- 1.0
+
+.. function:: l2_squared(array(real), array(real)) -> real
+
+    Returns the squared `Euclidean distance <https://en.wikipedia.org/wiki/Euclidean_distance>`_ between the vectors represented as array(real).
+    If the input arrays have different sizes or if the input arrays contain a null, the function throws user error::
+
+        SELECT l2_squared(ARRAY[1.0], ARRAY[2.0]); -- 1.0
+
+.. function:: l2_squared(array(double), array(double)) -> double
+
+    Returns the squared `Euclidean distance <https://en.wikipedia.org/wiki/Euclidean_distance>`_ between the vectors represented as array(double).
+    If the input arrays have different sizes or if the input arrays contain a null, the function throws user error::
+
+        SELECT l2_squared(ARRAY[1.0], ARRAY[2.0]); -- 1.0
+
+.. function:: dot_product(array(real), array(real)) -> real
+
+    Returns the dot product of two vectors represented as array(real).
+    If the input arrays have different sizes or if the input arrays contain a null, the function throws user error::
+
+        SELECT dot_product(ARRAY[1.0, 2.0], ARRAY[3.0, 4.0]); -- 11.0
+
+.. function:: dot_product(array(double), array(double)) -> double
+
+    Returns the dot product of two vectors represented as array(double).
+    If the input arrays have different sizes or if the input arrays contain a null, the function throws user error::
+
+        SELECT dot_product(ARRAY[1.0, 2.0], ARRAY[3.0, 4.0]); -- 11.0
+
 .. function:: degrees(x) -> double
 
     Converts angle ``x`` in radians to degrees.
@@ -231,9 +266,14 @@ Probability Functions: cdf
     Compute the Poisson cdf with given lambda (mean) parameter:  P(N <= value; lambda).
     The lambda parameter must be a positive real number (of type DOUBLE) and value must be a non-negative integer.
 
+.. function:: t_cdf(df, value) -> double
+
+    Compute the Student's t cdf with given degrees of freedom:  P(N < value; df).
+    The degrees of freedom must be a positive real number and value must be a real value.
+
 .. function:: weibull_cdf(a, b, value) -> double
 
-    Compute the Weibull cdf with given parameters a, b: P(N <= value). The ``a``
+    Compute the Weibull cdf with given parameters a, b:  P(N <= value). The ``a``
     and ``b`` parameters must be positive doubles and ``value`` must also be a double.
 
 
@@ -272,7 +312,7 @@ Probability Functions: inverse_cdf
 
 .. function:: inverse_f_cdf(df1, df2, p) -> double
 
-    Compute the inverse of the F cdf with a given df1 (numerator degrees of freedom) and df2 (denominator degrees of freedom) parameters 
+    Compute the inverse of the F cdf with a given df1 (numerator degrees of freedom) and df2 (denominator degrees of freedom) parameters
     for the cumulative probability (p): P(N < n). The numerator and denominator df parameters must be positive real numbers.
     The probability p must lie on the interval [0, 1].
 
@@ -296,6 +336,12 @@ Probability Functions: inverse_cdf
     probability (p). It returns the value of n so that: P(N <= n; lambda) = p.
     The lambda parameter must be a positive real number (of type DOUBLE).
     The probability p must lie on the interval [0, 1).
+
+.. function:: inverse_t_cdf(df, p) -> double
+
+    Compute the inverse of the Student's t cdf with given degrees of freedom for the cumulative
+    probability (p): P(N < n). The degrees of freedom must be a positive real value.
+    The probability p must lie on the interval [0, 1].
 
 .. function:: inverse_weibull_cdf(a, b, p) -> double
 

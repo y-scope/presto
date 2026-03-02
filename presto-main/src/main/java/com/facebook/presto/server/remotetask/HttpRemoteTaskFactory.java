@@ -21,10 +21,10 @@ import com.facebook.airlift.json.JsonCodec;
 import com.facebook.airlift.json.smile.SmileCodec;
 import com.facebook.airlift.stats.DecayCounter;
 import com.facebook.airlift.stats.ExponentialDecay;
+import com.facebook.airlift.units.Duration;
 import com.facebook.drift.codec.ThriftCodec;
 import com.facebook.drift.transport.netty.codec.Protocol;
 import com.facebook.presto.Session;
-import com.facebook.presto.connector.ConnectorTypeSerdeManager;
 import com.facebook.presto.execution.LocationFactory;
 import com.facebook.presto.execution.NodeTaskMap;
 import com.facebook.presto.execution.QueryManager;
@@ -42,7 +42,6 @@ import com.facebook.presto.execution.scheduler.TableWriteInfo;
 import com.facebook.presto.metadata.HandleResolver;
 import com.facebook.presto.metadata.InternalNode;
 import com.facebook.presto.metadata.MetadataManager;
-import com.facebook.presto.metadata.MetadataUpdates;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.operator.ForScheduler;
 import com.facebook.presto.server.InternalCommunicationConfig;
@@ -51,14 +50,12 @@ import com.facebook.presto.spi.plan.PlanNodeId;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import io.airlift.units.Duration;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.AbstractEventExecutorGroup;
+import jakarta.annotation.PreDestroy;
+import jakarta.inject.Inject;
 import org.weakref.jmx.Managed;
 import org.weakref.jmx.Nested;
-
-import javax.annotation.PreDestroy;
-import javax.inject.Inject;
 
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -86,12 +83,10 @@ public class HttpRemoteTaskFactory
     private final Codec<TaskUpdateRequest> taskUpdateRequestCodec;
     private final Codec<TaskInfo> taskInfoResponseCodec;
     private final Codec<PlanFragment> planFragmentCodec;
-    private final Codec<MetadataUpdates> metadataUpdatesCodec;
     private final Duration maxErrorDuration;
     private final Duration taskStatusRefreshMaxWait;
     private final Duration taskInfoRefreshMaxWait;
     private final HandleResolver handleResolver;
-    private final ConnectorTypeSerdeManager connectorTypeSerdeManager;
 
     private final Duration taskInfoUpdateInterval;
     private final ExecutorService coreExecutor;
@@ -130,14 +125,11 @@ public class HttpRemoteTaskFactory
             ThriftCodec<TaskUpdateRequest> taskUpdateRequestThriftCodec,
             JsonCodec<PlanFragment> planFragmentJsonCodec,
             SmileCodec<PlanFragment> planFragmentSmileCodec,
-            JsonCodec<MetadataUpdates> metadataUpdatesJsonCodec,
-            SmileCodec<MetadataUpdates> metadataUpdatesSmileCodec,
             RemoteTaskStats stats,
             InternalCommunicationConfig communicationConfig,
             MetadataManager metadataManager,
             QueryManager queryManager,
-            HandleResolver handleResolver,
-            ConnectorTypeSerdeManager connectorTypeSerdeManager)
+            HandleResolver handleResolver)
     {
         this.httpClient = httpClient;
         this.locationFactory = locationFactory;
@@ -146,7 +138,6 @@ public class HttpRemoteTaskFactory
         this.taskInfoUpdateInterval = taskConfig.getInfoUpdateInterval();
         this.taskInfoRefreshMaxWait = taskConfig.getInfoRefreshMaxWait();
         this.handleResolver = handleResolver;
-        this.connectorTypeSerdeManager = connectorTypeSerdeManager;
 
         this.coreExecutor = newCachedThreadPool(daemonThreadsNamed("remote-task-callback-%s"));
         this.executor = new BoundedExecutor(coreExecutor, config.getRemoteTaskMaxCallbackThreads());
@@ -203,12 +194,6 @@ public class HttpRemoteTaskFactory
         }
 
         this.taskInfoJsonCodec = taskInfoJsonCodec;
-        if (binaryTransportEnabled) {
-            this.metadataUpdatesCodec = metadataUpdatesSmileCodec;
-        }
-        else {
-            this.metadataUpdatesCodec = metadataUpdatesJsonCodec;
-        }
         this.planFragmentCodec = planFragmentJsonCodec;
 
         this.metadataManager = metadataManager;
@@ -219,7 +204,7 @@ public class HttpRemoteTaskFactory
         this.taskUpdateRequestSize = new DecayCounter(ExponentialDecay.oneMinute());
         this.taskUpdateSizeTrackingEnabled = taskConfig.isTaskUpdateSizeTrackingEnabled();
 
-        this.eventLoopGroup = taskConfig.isEventLoopEnabled() ? Optional.of(new SafeEventLoopGroup(config.getRemoteTaskMaxCallbackThreads(),
+        this.eventLoopGroup = Optional.of(new SafeEventLoopGroup(config.getRemoteTaskMaxCallbackThreads(),
                 new ThreadFactoryBuilder().setNameFormat("task-event-loop-%s").setDaemon(true).build(), taskConfig.getSlowMethodThresholdOnEventLoop())
         {
             @Override
@@ -227,7 +212,7 @@ public class HttpRemoteTaskFactory
             {
                 return new SafeEventLoop(this, executor);
             }
-        }) : Optional.empty();
+        });
     }
 
     @Managed
@@ -266,51 +251,7 @@ public class HttpRemoteTaskFactory
             TableWriteInfo tableWriteInfo,
             SchedulerStatsTracker schedulerStatsTracker)
     {
-        if (eventLoopGroup.isPresent()) {
-            // Use event loop based HttpRemoteTask
-            return createHttpRemoteTaskWithEventLoop(
-                    session,
-                    taskId,
-                    node.getNodeIdentifier(),
-                    locationFactory.createLegacyTaskLocation(node, taskId),
-                    locationFactory.createTaskLocation(node, taskId),
-                    fragment,
-                    initialSplits,
-                    outputBuffers,
-                    httpClient,
-                    maxErrorDuration,
-                    taskStatusRefreshMaxWait,
-                    taskInfoRefreshMaxWait,
-                    taskInfoUpdateInterval,
-                    summarizeTaskInfo,
-                    taskStatusCodec,
-                    taskInfoCodec,
-                    taskInfoJsonCodec,
-                    taskUpdateRequestCodec,
-                    taskInfoResponseCodec,
-                    planFragmentCodec,
-                    metadataUpdatesCodec,
-                    nodeStatsTracker,
-                    stats,
-                    binaryTransportEnabled,
-                    thriftTransportEnabled,
-                    taskInfoThriftTransportEnabled,
-                    taskUpdateRequestThriftSerdeEnabled,
-                    taskInfoResponseThriftSerdeEnabled,
-                    thriftProtocol,
-                    tableWriteInfo,
-                    maxTaskUpdateSizeInBytes,
-                    metadataManager,
-                    queryManager,
-                    taskUpdateRequestSize,
-                    taskUpdateSizeTrackingEnabled,
-                    handleResolver,
-                    connectorTypeSerdeManager,
-                    schedulerStatsTracker,
-                    (SafeEventLoopGroup.SafeEventLoop) eventLoopGroup.get().next());
-        }
-        // Use default executor based HttpRemoteTask
-        return new HttpRemoteTask(
+        return createHttpRemoteTaskWithEventLoop(
                 session,
                 taskId,
                 node.getNodeIdentifier(),
@@ -320,9 +261,6 @@ public class HttpRemoteTaskFactory
                 initialSplits,
                 outputBuffers,
                 httpClient,
-                executor,
-                updateScheduledExecutor,
-                errorScheduledExecutor,
                 maxErrorDuration,
                 taskStatusRefreshMaxWait,
                 taskInfoRefreshMaxWait,
@@ -334,7 +272,6 @@ public class HttpRemoteTaskFactory
                 taskUpdateRequestCodec,
                 taskInfoResponseCodec,
                 planFragmentCodec,
-                metadataUpdatesCodec,
                 nodeStatsTracker,
                 stats,
                 binaryTransportEnabled,
@@ -350,7 +287,7 @@ public class HttpRemoteTaskFactory
                 taskUpdateRequestSize,
                 taskUpdateSizeTrackingEnabled,
                 handleResolver,
-                connectorTypeSerdeManager,
-                schedulerStatsTracker);
+                schedulerStatsTracker,
+                (SafeEventLoopGroup.SafeEventLoop) eventLoopGroup.get().next());
     }
 }
