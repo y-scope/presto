@@ -124,7 +124,8 @@ public class ClpSchemaTree
             case VarString:
             case NullValue:
                 return VARCHAR;
-            case DateString:
+            case DeprecatedDateString:
+            case Timestamp:
                 return TimestampType.TIMESTAMP;
             case UnstructuredArray:
                 return new ArrayType(VARCHAR);

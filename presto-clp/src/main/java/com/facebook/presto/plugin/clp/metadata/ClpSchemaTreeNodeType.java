@@ -26,10 +26,11 @@ public enum ClpSchemaTreeNodeType
     Object((byte) 5),
     UnstructuredArray((byte) 6),
     NullValue((byte) 7),
-    DateString((byte) 8),
+    DeprecatedDateString((byte) 8),
     StructuredArray((byte) 9),
     FormattedFloat((byte) 12),
-    DictionaryFloat((byte) 13);
+    DictionaryFloat((byte) 13),
+    Timestamp((byte) 14);
 
     private static final ClpSchemaTreeNodeType[] LOOKUP_TABLE;
     private final byte type;

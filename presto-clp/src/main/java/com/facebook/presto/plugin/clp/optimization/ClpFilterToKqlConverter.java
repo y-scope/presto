@@ -260,7 +260,9 @@ public class ClpFilterToKqlConverter
         String variable = variableOpt.get();
         String lowerBound = getLiteralString((ConstantExpression) second);
         String upperBound = getLiteralString((ConstantExpression) third);
-        String kql = String.format("%s >= %s AND %s <= %s", variable, lowerBound, variable, upperBound);
+        String kql = String.format("%s >= %s AND %s <= %s",
+                variable, formatLiteral(second.getType(), lowerBound),
+                variable, formatLiteral(third.getType(), upperBound));
         String metadataSqlQuery = metadataFilterColumns.contains(variable)
                 ? String.format("\"%s\" >= %s AND \"%s\" <= %s", variable, lowerBound, variable, upperBound)
                 : null;
@@ -450,7 +452,7 @@ public class ClpFilterToKqlConverter
                 if (metadataFilterColumns.contains(variableName)) {
                     metadataSqlQuery = format("\"%s\" = %s", variableName, literalString);
                 }
-                return new ClpExpression(format("%s: %s", variableName, literalString), metadataSqlQuery);
+                return new ClpExpression(format("%s: %s", variableName, formatLiteral(literalType, literalString)), metadataSqlQuery);
             }
         }
         else if (operator.equals(NOT_EQUAL)) {
@@ -461,14 +463,14 @@ public class ClpFilterToKqlConverter
                 if (metadataFilterColumns.contains(variableName)) {
                     metadataSqlQuery = format("NOT \"%s\" = %s", variableName, literalString);
                 }
-                return new ClpExpression(format("NOT %s: %s", variableName, literalString), metadataSqlQuery);
+                return new ClpExpression(format("NOT %s: %s", variableName, formatLiteral(literalType, literalString)), metadataSqlQuery);
             }
         }
         else if (LOGICAL_BINARY_OPS_FILTER.contains(operator) && !(literalType instanceof VarcharType)) {
             if (metadataFilterColumns.contains(variableName)) {
                 metadataSqlQuery = format("\"%s\" %s %s", variableName, operator.getOperator(), literalString);
             }
-            return new ClpExpression(format("%s %s %s", variableName, operator.getOperator(), literalString), metadataSqlQuery);
+            return new ClpExpression(format("%s %s %s", variableName, operator.getOperator(), formatLiteral(literalType, literalString)), metadataSqlQuery);
         }
         return new ClpExpression(originalNode);
     }
@@ -886,6 +888,23 @@ public class ClpFilterToKqlConverter
             return new ClpExpression(expression);
         }
         return new ClpExpression(baseString.getPushDownExpression().get() + "." + fieldName);
+    }
+
+    /**
+     * Wraps a literal string in the KQL timestamp function for TIMESTAMP types.
+     * <p></p>
+     * Example: <code>"1672531200000"</code> → <code>timestamp("1672531200000", "\L")</code>
+     *
+     * @param literalType the type of the literal
+     * @param literalString the raw string representation of the literal
+     * @return the formatted literal string, wrapped if TIMESTAMP type
+     */
+    private static String formatLiteral(Type literalType, String literalString)
+    {
+        if (literalType.equals(TIMESTAMP)) {
+            return format("timestamp(\"%s\", \"\\L\")", literalString);
+        }
+        return literalString;
     }
 
     /**
