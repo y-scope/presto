@@ -18,7 +18,7 @@
 using namespace facebook::presto;
 using namespace facebook::velox;
 
-class PrestoToVeloxConnectorTest : public ::testing::Test {};
+class PrestoToVeloxConnectorTest :                                  public ::testing::Test {};
 
 TEST_F(PrestoToVeloxConnectorTest, registerVariousConnectors) {
   std::vector<std::pair<std::string, std::unique_ptr<PrestoToVeloxConnector>>>
