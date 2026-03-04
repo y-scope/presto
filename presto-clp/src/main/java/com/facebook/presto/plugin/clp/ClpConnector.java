@@ -16,7 +16,7 @@ package com.facebook.presto.plugin.clp;
 import com.facebook.airlift.bootstrap.LifeCycleManager;
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.plugin.clp.optimization.ClpPlanOptimizerProvider;
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.connector.Connector;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
@@ -42,7 +42,7 @@ public class ClpConnector
     private final ClpSplitManager splitManager;
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpSplitFilterProvider splitFilterProvider;
+    private final ClpSplitMetadataConfig clpSplitMetadataConfig;
 
     @Inject
     public ClpConnector(
@@ -52,7 +52,7 @@ public class ClpConnector
             ClpSplitManager splitManager,
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            ClpSplitFilterProvider splitFilterProvider)
+            ClpSplitMetadataConfig clpSplitMetadataConfig)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -60,13 +60,13 @@ public class ClpConnector
         this.splitManager = requireNonNull(splitManager, "splitManager is null");
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
-        this.splitFilterProvider = requireNonNull(splitFilterProvider, "splitFilterProvider is null");
+        this.clpSplitMetadataConfig = requireNonNull(clpSplitMetadataConfig);
     }
 
     @Override
     public ConnectorPlanOptimizerProvider getConnectorPlanOptimizerProvider()
     {
-        return new ClpPlanOptimizerProvider(functionManager, functionResolution, splitFilterProvider);
+        return new ClpPlanOptimizerProvider(functionManager, functionResolution, clpSplitMetadataConfig);
     }
 
     @Override

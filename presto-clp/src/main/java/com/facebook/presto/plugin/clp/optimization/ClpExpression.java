@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.clp;
+package com.facebook.presto.plugin.clp.optimization;
 
 import com.facebook.presto.spi.relation.RowExpression;
 
@@ -31,17 +31,17 @@ public class ClpExpression
     // Optional KQL query or column name representing the fully or partially translatable part of the expression.
     private final Optional<String> pushDownExpression;
 
-    // Optional SQL string extracted from the query plan, which is only made of up of columns in
+    // Optional SQL expression extracted from the query plan, which is only made of up of columns in
     // CLP's metadata database.
-    private final Optional<String> metadataSqlQuery;
+    private final Optional<RowExpression> metadataExpression;
 
     // The remaining (non-translatable) portion of the RowExpression, if any.
     private final Optional<RowExpression> remainingExpression;
 
-    public ClpExpression(String pushDownExpression, String metadataSqlQuery, RowExpression remainingExpression)
+    public ClpExpression(String pushDownExpression, RowExpression metadataExpression, RowExpression remainingExpression)
     {
         this.pushDownExpression = Optional.ofNullable(pushDownExpression);
-        this.metadataSqlQuery = Optional.ofNullable(metadataSqlQuery);
+        this.metadataExpression = Optional.ofNullable(metadataExpression);
         this.remainingExpression = Optional.ofNullable(remainingExpression);
     }
 
@@ -68,11 +68,11 @@ public class ClpExpression
      * metadata SQL string.
      *
      * @param pushDownExpression
-     * @param metadataSqlQuery
+     * @param metadataExpression
      */
-    public ClpExpression(String pushDownExpression, String metadataSqlQuery)
+    public ClpExpression(String pushDownExpression, RowExpression metadataExpression)
     {
-        this(pushDownExpression, metadataSqlQuery, null);
+        this(pushDownExpression, metadataExpression, null);
     }
 
     /**
@@ -90,9 +90,9 @@ public class ClpExpression
         return pushDownExpression;
     }
 
-    public Optional<String> getMetadataSqlQuery()
+    public Optional<RowExpression> getMetadataExpression()
     {
-        return metadataSqlQuery;
+        return metadataExpression;
     }
 
     public Optional<RowExpression> getRemainingExpression()

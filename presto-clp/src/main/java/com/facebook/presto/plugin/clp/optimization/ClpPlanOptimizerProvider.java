@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.plugin.clp.optimization;
 
-import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
+import com.facebook.presto.plugin.clp.split.ClpSplitMetadataConfig;
 import com.facebook.presto.spi.ConnectorPlanOptimizer;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
 import com.facebook.presto.spi.function.FunctionMetadataManager;
@@ -29,14 +29,17 @@ public class ClpPlanOptimizerProvider
 {
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
-    private final ClpSplitFilterProvider splitFilterProvider;
+    private final ClpSplitMetadataConfig clpSplitMetadataConfig;
 
     @Inject
-    public ClpPlanOptimizerProvider(FunctionMetadataManager functionManager, StandardFunctionResolution functionResolution, ClpSplitFilterProvider splitFilterProvider)
+    public ClpPlanOptimizerProvider(
+            FunctionMetadataManager functionManager,
+            StandardFunctionResolution functionResolution,
+            ClpSplitMetadataConfig clpSplitMetadataConfig)
     {
         this.functionManager = functionManager;
         this.functionResolution = functionResolution;
-        this.splitFilterProvider = splitFilterProvider;
+        this.clpSplitMetadataConfig = clpSplitMetadataConfig;
     }
 
     @Override
@@ -48,6 +51,6 @@ public class ClpPlanOptimizerProvider
     @Override
     public Set<ConnectorPlanOptimizer> getPhysicalPlanOptimizers()
     {
-        return ImmutableSet.of(new ClpComputePushDown(functionManager, functionResolution, splitFilterProvider));
+        return ImmutableSet.of(new ClpComputePushDown(functionManager, functionResolution, clpSplitMetadataConfig));
     }
 }
