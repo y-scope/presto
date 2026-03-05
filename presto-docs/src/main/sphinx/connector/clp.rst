@@ -320,6 +320,160 @@ Each JSON log maps to this unified ``ROW`` type, with absent fields represented 
 ``status``, ``thread_num``, ``backtrace``) become fields within the ``ROW``, clearly reflecting the nested and varying
 structures of the original JSON logs.
 
+*************
+CLP Functions
+*************
+
+Semi-structured logs can have many potential keys, which can lead to very wide Presto tables. To keep table metadata
+concise and still preserve access to dynamic fields, the connector provides three sets of functions that are specific to
+the CLP connector. These functions are not part of standard Presto SQL.
+
+- JSON path functions (e.g., ``CLP_GET_STRING``)
+- Wildcard column matching functions for use in filter predicates (e.g., ``CLP_WILDCARD_STRING_COLUMN``)
+- A function for retrieving the entire row in JSON format (i.e., ``CLP_GET_JSON_STRING``)
+
+For the first two sets of functions, there is **no performance overhead**. During query optimization, the connector
+rewrites these functions into references to concrete schema-backed columns or valid symbols in KQL queries. This avoids
+unnecessary parsing overhead and delivers performance comparable to querying standard columns.
+
+Path-based Functions
+====================
+
+.. function:: CLP_GET_STRING(varchar) -> varchar
+
+    Returns the string value at the given JSON path, where the column type is one of: ``ClpString``, ``VarString``, or
+    ``DateString``. Returns a Presto ``VARCHAR``.
+
+.. function:: CLP_GET_BIGINT(varchar) -> bigint
+
+    Returns the integer value at the given JSON path, where the column type is ``Integer``. Returns a Presto ``BIGINT``.
+
+.. function:: CLP_GET_DOUBLE(varchar) -> double
+
+    Returns the double value at the given JSON path, where the column type is ``Float``. Returns a Presto ``DOUBLE``.
+
+.. function:: CLP_GET_BOOL(varchar) -> boolean
+
+    Returns the boolean value at the given JSON path, where the column type is ``Boolean``. Returns a Presto ``BOOLEAN``.
+
+.. function:: CLP_GET_STRING_ARRAY(varchar) -> array(varchar)
+
+    Returns the array value at the given JSON path, where the column type is ``UnstructuredArray`` and converts each
+    element into a string. Returns a Presto ``ARRAY(VARCHAR)``.
+
+.. note::
+
+   - JSON paths must be **constant string literals**; variables are not supported.
+   - Wildcards (e.g., ``msg.*.ts``) are **not supported**.
+   - If a path is invalid or missing in a given record, the function returns ``NULL`` rather than raising an error.
+
+Examples
+--------
+
+.. code-block:: sql
+
+    SELECT CLP_GET_STRING('msg.author') AS author
+    FROM clp.default.table_1
+    WHERE CLP_GET_BIGINT('msg.timestamp') > 1620000000;
+
+    SELECT CLP_GET_STRING_ARRAY('msg.tags') AS tags
+    FROM clp.default.table_2
+    WHERE CLP_GET_BOOL('msg.is_active') = true;
+
+
+Wildcard Column Functions
+=========================
+
+These functions are used to apply filter predicates across all columns of a certain type. They are useful for searching
+across unknown or dynamic schemas without specifying exact column names. Similar to the path-based functions, these
+functions are rewritten during query optimization to a KQL query that matches the appropriate columns.
+
+.. function:: CLP_WILDCARD_STRING_COLUMN() -> varchar
+
+   Represents all columns whose CLP types are ``ClpString``, ``VarString``, or ``DateString``.
+
+.. function:: CLP_WILDCARD_INT_COLUMN() -> bigint
+
+   Represents all columns whose CLP type is ``Integer``.
+
+.. function:: CLP_WILDCARD_FLOAT_COLUMN() -> double
+
+   Represents all columns whose CLP type is ``Float``.
+
+.. function:: CLP_WILDCARD_BOOL_COLUMN() -> boolean
+
+   Represents all columns whose CLP type is ``Boolean``.
+
+.. note::
+
+   - Wildcard functions must appear **only in filter conditions** (`WHERE` clause). They cannot be selected and cannot
+     be passed as arguments to other functions.
+   - Supported operators include:
+
+     ::
+
+         =   (EQUAL)
+         !=  (NOT_EQUAL)
+         <   (LESS_THAN)
+         <=  (LESS_THAN_OR_EQUAL)
+         >   (GREATER_THAN)
+         >=  (GREATER_THAN_OR_EQUAL)
+         LIKE
+         BETWEEN
+         IN
+
+     Use of other operators (e.g., arithmetic or function calls) with wildcard functions is not allowed and will result
+     in a query error.
+
+Examples
+--------
+
+.. code-block:: sql
+
+   -- Matches if any string column contains "Beijing"
+   SELECT *
+   FROM clp.default.table_1
+   WHERE CLP_WILDCARD_STRING_COLUMN() = 'Beijing';
+
+   -- Matches if any integer column equals 1
+   SELECT *
+   FROM clp.default.table_2
+   WHERE CLP_WILDCARD_INT_COLUMN() = 1;
+
+JSON String Function
+====================
+
+The ``CLP_GET_JSON_STRING``` function provides a convenient way to retrieve the entire log record—including both
+schema-backed and dynamic fields—as a single JSON string. This enables users to inspect, debug, or export complete
+records in their raw JSON form.
+
+Similar to the path-based and wildcard functions, this function is rewritten during query optimization to a special
+internal column. During query execution, this column is serialized into a JSON string that represents the full record.
+
+.. function:: CLP_GET_JSON_STRING() -> varchar
+
+   Returns the full log record as a JSON string, preserving all schema-backed and dynamic fields.
+
+.. note::
+   This function can only be used in the list of projected columns in a ``SELECT``` clause to retrieve the complete
+   JSON representation of each record. It cannot be used within filter predicates (``WHERE`` clause) or as an argument
+   to other functions.
+
+Examples
+--------
+
+.. code-block:: sql
+
+   -- Retrieve each record as a JSON string
+   SELECT CLP_GET_JSON_STRING()
+   FROM clp.default.table_1
+   LIMIT 10;
+
+   -- Retrieve JSON along with selected fields
+   SELECT timestamp, CLP_GET_JSON_STRING()
+   FROM clp.default.table_1
+   WHERE CLP_WILDCARD_STRING_COLUMN() = 'error';
+
 ***********
 SQL support
 ***********
