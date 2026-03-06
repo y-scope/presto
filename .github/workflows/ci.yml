@@ -1,0 +1,278 @@
+name: ci
+
+# ==============================================================================
+# CI Workflow Overview
+# ==============================================================================
+# Main orchestrator for all build and test jobs. Builds Java coordinator (presto)
+# and C++ native worker (prestissimo) in parallel, then runs integration tests.
+#
+# Terminology:
+# - presto: Java-based query coordinator (runs queries, manages workers)
+# - prestocpp: C++ worker implementation (source in presto-native-execution/)
+# - prestissimo: Runtime name for prestocpp (Docker image and binary)
+#
+# Job Dependency Graph:
+#   resolve-config ─► create-builder-image ─┬─► prestocpp ────┬─► integration-tests
+#                                           ├─► presto ───────┘
+#                                           └─► presto-tests
+#
+# ==============================================================================
+# Key Design Decisions
+# ==============================================================================
+#
+# 1. CACHING STRATEGY: Bake caches into Docker image layers
+#    --------------------------------------------------------
+#    Problem: Downloading ccache (~2GB+) and Maven cache from remote storage on
+#    every CI run causes bandwidth bottlenecks with parallel builds.
+#
+#    Solution: Bake caches into Docker image layers.
+#    - Docker layer caching: each host downloads cache layer ONCE, then reuses it
+#    - Builder image based on GitHub runner image (always pre-cached on self-hosted)
+#    - Parallel jobs on same host share cached layers with zero network traffic
+#
+# 2. IMAGE TAGGING: Dual tags + version streams
+#    -------------------------------------------
+#    Problem: Branch-only tags can't pin specific builds for production while also
+#    providing a "latest" tag for development.
+#
+#    Solution: Every build gets two tags:
+#    - Immutable: <version>-<TYPE>-<timestamp>-<hash> (e.g., 0.293-BETA-20250522140509-abc123)
+#      Use for: Production deployments, reproducible environments
+#    - Mutable:  <version>-<TYPE>-SNAPSHOT (e.g., 0.293-BETA-SNAPSHOT)
+#      Use for: Always pulling latest without knowing exact version
+#
+#    Version streams (RELEASE, BETA, DEV) let users choose stability level.
+#
+# 3. BUILDER IMAGE TAG: Auto-computed dependency hash
+#    -------------------------------------------------
+#    The unified-builder image tag is a hash of dependency files (setup scripts,
+#    pom.xml, etc.). Image is only rebuilt when dependencies change.
+#
+# 4. CENTRALIZED CONFIG JOB: Single source of truth
+#    -----------------------------------------------
+#    Problem: GitHub Actions doesn't allow `${{ env.* }}` in `with:` blocks when
+#    calling reusable workflows. Also, version tag computation was duplicated
+#    across presto-build.yml and prestocpp workflows.
+#
+#    Solution: A `resolve-config` job computes all shared configuration upfront:
+#    - builder-image: Hash-based tag for the builder image
+#    - runtime-version-tag: Immutable tag (e.g., 0.293-BETA-20250522140509-abc123)
+#    - runtime-snapshot-tag: Mutable tag (e.g., 0.293-BETA-SNAPSHOT)
+#
+#    All downstream jobs reference these outputs via `needs.resolve-config.outputs.*`.
+#
+# ==============================================================================
+# Comparison with Upstream (prestodb/presto)
+# ==============================================================================
+# |---------------------|----------------------------------------|-----------------------------------------------|
+# | Aspect              | Upstream                               | This Fork (yscope)                            |
+# |---------------------|----------------------------------------|-----------------------------------------------|
+# | Runners             | GitHub-hosted (ephemeral)              | Self-hosted (ephemeral)                       |
+# | CI Structure        | Separate independent workflows         | Unified ci.yml orchestrator (parallel)        |
+# | Builder Image       | presto-native-dependency (C++ only)    | unified-builder (Java + C++ + caches)         |
+# | Builder Image Tag   | Pinned version-timestamp-hash          | Auto-computed dependency hash                 |
+# | Runtime Image Tag   | Release version only (e.g., 0.292)     | version-TYPE-timestamp-hash per build         |
+# | ccache Strategy     | Stash/restore via Apache Infra         | Pre-warmed in builder image                   |
+# | Image Publishing    | On release only                        | On every push (presto + prestissimo)          |
+# |---------------------|----------------------------------------|-----------------------------------------------|
+#
+# ==============================================================================
+# Configuration
+# ==============================================================================
+# IMAGE_VERSION_TYPE (auto-determined)
+#   RELEASE if building on/targeting the default branch, BETA otherwise.
+#   Override by hardcoding the env variable below if needed.
+#
+# ARTIFACT_JAVA_VERSION (GitHub repo variable: Settings > Secrets and variables)
+#   Controls which Java version uploads artifacts. Values: 8, 17. Default: 8
+#
+# ==============================================================================
+# Outputs
+# ==============================================================================
+# Artifacts (1-day retention, shared between jobs):
+# | Artifact            | Contents                                          |
+# |---------------------|---------------------------------------------------|
+# | presto-server       | presto-server-*.tar.gz                            |
+# | presto-cli          | presto-cli-*-executable.jar                       |
+# | presto-native-build | presto_server, velox_functions_remote_server_main |
+#
+# Docker Images (ghcr.io, pushed on push events only):
+# | Image           | Description                    |
+# |-----------------|--------------------------------|
+# | unified-builder | Build environment with deps    |
+# | presto          | Java coordinator runtime       |
+# | prestissimo     | C++ native worker runtime      |
+
+# ==============================================================================
+# Triggers: When does this workflow run?
+# ==============================================================================
+on:
+  workflow_dispatch:  # Manual trigger from GitHub UI (Actions tab -> Run workflow)
+  pull_request:       # On every pull request
+  push:               # On every push to any branch
+    paths-ignore:
+      - 'presto-docs/**'  # Skip CI for docs-only changes (docs have their own workflow)
+
+# ==============================================================================
+# Environment Variables
+# ==============================================================================
+env:
+  # Docker image version type: RELEASE if on default branch, BETA otherwise
+  # For PRs: uses base_ref (target branch), for pushes: uses ref_name (current branch)
+  IMAGE_VERSION_TYPE: ${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == github.event.repository.default_branch && 'RELEASE' || 'BETA' }}
+
+  # Maven JVM settings (not inherited by called workflows)
+  MAVEN_OPTS: "-Xmx1024M -XX:+ExitOnOutOfMemoryError"
+  MAVEN_INSTALL_OPTS: "-Xmx2G -XX:+ExitOnOutOfMemoryError"
+  RETRY: .github/bin/retry
+
+# ==============================================================================
+# Concurrency Control
+# ==============================================================================
+# For PRs: Groups by branch name, so pushing to the same PR cancels previous runs.
+# For pushes to main: Groups by commit SHA, so every merge is tested independently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+# ==============================================================================
+# Jobs
+# ==============================================================================
+jobs:
+  # ----------------------------------------------------------------------------
+  # Step 1: Resolve Config - Compute Builder Tag and Runtime Version Tags
+  # ----------------------------------------------------------------------------
+  # Centralizes all configuration computation:
+  # - builder-image: Hash-based tag for the builder image (only rebuilds when dependencies change)
+  # - runtime-version-tag: Immutable tag for runtime images (version-TYPE-timestamp-hash)
+  # - runtime-snapshot-tag: Mutable SNAPSHOT tag for runtime images (version-TYPE-SNAPSHOT)
+  resolve-config:
+    runs-on: ubuntu-latest
+    outputs:
+      builder-image: ${{ steps.builder.outputs.image }}
+      runtime-version-tag: ${{ steps.version.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ steps.version.outputs.runtime-snapshot-tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          show-progress: false
+
+      - name: Initialize submodules (needed for velox scripts hash)
+        run: |
+          # Try shallow clone first (fast), fall back to full clone if pinned commit not in shallow history
+          git submodule update --init --recursive --depth=1 || \
+          git submodule update --init --recursive
+
+      - name: Compute builder image tag
+        id: builder
+        run: |
+          # Compute hash of files that affect the builder image:
+          # - Builder dockerfile itself
+          # - C++ setup scripts (native worker dependencies)
+          # - pom.xml files (Maven/Java dependencies)
+          # - download_nodejs script (Node.js/Yarn for frontend)
+          DOCKERFILE_HASH=$(sha256sum .github/dockerfiles/yscope-presto-builder.dockerfile | cut -c1-8)
+          SCRIPTS_HASH=$(find presto-native-execution/scripts presto-native-execution/velox/scripts -type f -exec sha256sum {} \; | sort | sha256sum | cut -c1-8)
+          POM_HASH=$(find . -name "pom.xml" -exec sha256sum {} \; | sort | sha256sum | cut -c1-8)
+          NODEJS_HASH=$(sha256sum .github/bin/download_nodejs | cut -c1-8)
+          TAG="${DOCKERFILE_HASH}-${SCRIPTS_HASH}-${POM_HASH}-${NODEJS_HASH}"
+          echo "image=ghcr.io/${{ github.repository }}/unified-builder:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Compute runtime version tags
+        id: version
+        run: |
+          # Extract base version from pom.xml (e.g., "0.293" from "0.293-SNAPSHOT")
+          BASE_VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>\(.*\)<\/version>.*/\1/' | sed 's/-SNAPSHOT//')
+
+          # Get commit timestamp for immutable tag
+          TIMESTAMP=$(git show -s --format=%cd --date=format:'%Y%m%d%H%M%S' HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+
+          # Output tags:
+          # - runtime-version-tag: e.g., 0.293-BETA-20250529140509-484b00e (immutable)
+          # - runtime-snapshot-tag: e.g., 0.293-BETA-SNAPSHOT (mutable, always latest)
+          echo "runtime-version-tag=${BASE_VERSION}-${{ env.IMAGE_VERSION_TYPE }}-${TIMESTAMP}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "runtime-snapshot-tag=${BASE_VERSION}-${{ env.IMAGE_VERSION_TYPE }}-SNAPSHOT" >> $GITHUB_OUTPUT
+
+  # ----------------------------------------------------------------------------
+  # Step 2: Create Builder Image (if needed)
+  # ----------------------------------------------------------------------------
+  # Checks if a builder image with this tag exists. If not, builds and pushes it.
+  # The image contains all C++ and Java dependencies pre-installed.
+  create-builder-image:
+    needs: resolve-config
+    uses: ./.github/workflows/create-builder-image.yml
+    with:
+      builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+
+  # ----------------------------------------------------------------------------
+  # Step 3a: Build Presto (Java)
+  # ----------------------------------------------------------------------------
+  # Builds the Java coordinator with both Java 8 and Java 17 in parallel.
+  # Only the version matching ARTIFACT_JAVA_VERSION (default: '8') will:
+  # - Upload artifacts (presto-server, presto-cli) for integration tests
+  # - Build and push the presto Docker image
+  presto:
+    name: presto-java${{ matrix.java-major }}
+    needs: [resolve-config, create-builder-image]
+    strategy:
+      matrix:
+        include:
+          - java-major: '8'
+            java-version: '8.0.442'
+          - java-major: '17'
+            java-version: '17.0.13'
+    uses: ./.github/workflows/presto-build.yml
+    with:
+      builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+      java-version: ${{ matrix.java-version }}
+      should-upload-artifacts: ${{ matrix.java-major == (vars.ARTIFACT_JAVA_VERSION || '8') }}
+      should-build-image: ${{ matrix.java-major == (vars.ARTIFACT_JAVA_VERSION || '8') }}
+      runtime-version-tag: ${{ needs.resolve-config.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ needs.resolve-config.outputs.runtime-snapshot-tag }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 3b: Presto Unit Tests (Java)
+  # ----------------------------------------------------------------------------
+  # Runs Java unit tests in parallel with builds. Uses matrix strategy to run
+  # multiple test modules in parallel across Java 8 and Java 17.
+  presto-tests:
+    name: presto-tests
+    needs: [resolve-config, create-builder-image]
+    uses: ./.github/workflows/tests.yml
+    with:
+      builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 3c: Build and Test Prestocpp (C++)
+  # ----------------------------------------------------------------------------
+  # Builds the C++ native worker (prestocpp), runs C++ unit tests, and builds
+  # the prestissimo runtime Docker image.
+  # Uses pre-warmed ccache from builder image for fast incremental builds.
+  # Uploads the compiled binary as an artifact for integration tests.
+  prestocpp:
+    name: prestocpp
+    needs: [resolve-config, create-builder-image]
+    uses: ./.github/workflows/prestocpp-linux-build-and-unit-test.yml
+    with:
+      builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+      runtime-version-tag: ${{ needs.resolve-config.outputs.runtime-version-tag }}
+      runtime-snapshot-tag: ${{ needs.resolve-config.outputs.runtime-snapshot-tag }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 4: Integration Tests
+  # ----------------------------------------------------------------------------
+  # End-to-end tests that run the Java coordinator with the C++ native worker.
+  # Requires artifacts from both:
+  # - presto: presto-server tarball (Java coordinator)
+  # - prestocpp: presto_server binary (C++ native worker)
+  integration-tests:
+    name: integration-tests
+    needs: [resolve-config, create-builder-image, presto, prestocpp]
+    uses: ./.github/workflows/integration-tests.yml
+    with:
+      builder-image: ${{ needs.resolve-config.outputs.builder-image }}
+    secrets: inherit

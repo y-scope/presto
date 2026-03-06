@@ -1,0 +1,137 @@
+name: create-builder-image
+
+# ==============================================================================
+# Create Builder Image
+# ==============================================================================
+# This workflow creates the unified builder Docker image if it doesn't already exist.
+#
+# The builder image contains:
+# - All C++ dependencies (boost, folly, etc.) pre-compiled
+# - Pre-warmed ccache (compiler cache) with prestocpp already built once
+# - Pre-downloaded Maven dependencies
+# - Pre-downloaded Node.js/Yarn
+#
+# Building this image takes ~1 hour, but we only do it when dependencies change.
+# Most CI runs will skip this step because the image already exists.
+#
+# Fork PR Handling:
+# -----------------
+# Fork PRs have restricted permissions and cannot push to ghcr.io by default.
+# To handle this securely:
+# 1. check-builder-image: Fast job to check if image exists (no special permissions)
+# 2. build-builder-image: Only runs if image doesn't exist
+#    - For fork PRs: Requires manual approval via "builder-image" environment
+#    - For same-repo PRs/pushes: Runs automatically
+#
+# Setup Required:
+# 1. Create GitHub Environment "builder-image" in repo settings
+# 2. Add required reviewers to that environment
+# 3. This ensures fork PRs that change dependencies get maintainer review
+
+on:
+  workflow_call:
+    inputs:
+      builder-image:
+        description: 'Full builder image URI with tag'
+        required: true
+        type: string
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Check if builder image exists (fast, no approval needed)
+  # ---------------------------------------------------------------------------
+  check-builder-image:
+    name: "check-builder-image"
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check-image.outputs.exists }}
+      is-fork: ${{ steps.check-fork.outputs.is-fork }}
+    steps:
+      - name: Login to GitHub container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if builder image exists
+        id: check-image
+        run: |
+          IMAGE_REF="${{ inputs.builder-image }}"
+          # NOTE: For existence checks, this is more efficient than `docker pull`.
+          if docker manifest inspect "${IMAGE_REF}" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Builder image already exists: ${IMAGE_REF}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Builder image does not exist: ${IMAGE_REF}"
+          fi
+
+      - name: Check if PR is from fork
+        id: check-fork
+        run: |
+          # For pull_request events, check if head repo differs from base repo
+          # For push events, this is always false (same repo)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+            BASE_REPO="${{ github.repository }}"
+            if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
+              echo "is-fork=true" >> $GITHUB_OUTPUT
+              echo "PR is from fork: $HEAD_REPO"
+            else
+              echo "is-fork=false" >> $GITHUB_OUTPUT
+              echo "PR is from same repo"
+            fi
+          else
+            echo "is-fork=false" >> $GITHUB_OUTPUT
+            echo "Not a pull_request event"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build and push builder image (only if doesn't exist)
+  # ---------------------------------------------------------------------------
+  build-builder-image:
+    name: "build-builder-image"
+    needs: check-builder-image
+    # Only run if image doesn't exist
+    if: needs.check-builder-image.outputs.exists == 'false'
+    # For fork PRs, require approval via "builder-image" environment
+    # For same-repo, no environment (runs automatically)
+    # NOTE: Create "builder-image" environment in GitHub repo settings with required reviewers
+    environment: ${{ needs.check-builder-image.outputs.is-fork == 'true' && 'builder-image' || '' }}
+    runs-on: >-
+      ${{
+        github.repository_owner == 'y-scope'
+        && fromJSON('["self-hosted", "x64", "cores=32", "ubuntu-noble"]')
+        || 'ubuntu-latest'
+      }}
+    timeout-minutes: 180
+    # Concurrency control: prevent duplicate builds of the same image
+    concurrency:
+      group: ${{ inputs.builder-image }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          submodules: recursive
+          show-progress: false
+
+      - name: Login to GitHub container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build and push unified builder image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6
+        with:
+          context: .
+          file: ./.github/dockerfiles/yscope-presto-builder.dockerfile
+          push: true
+          tags: ${{ inputs.builder-image }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}

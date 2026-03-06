@@ -14,9 +14,9 @@ on:
 concurrency:
   group: "${{github.workflow}}-${{github.ref}}"
 
-  # Cancel in-progress jobs for efficiency. Exclude the `release-0.293-clp-connector` branch so
-  # that each commit to release-0.293-clp-connector is checked completely.
-  cancel-in-progress: "${{github.ref != 'refs/heads/release-0.293-clp-connector'}}"
+  # Cancel in-progress jobs for efficiency. Exclude branches with `release-0.293-clp-connector-snapshot` prefix so
+  # that each commit to these branches is checked completely.
+  cancel-in-progress: "${{!startsWith(github.ref, 'refs/heads/release-0.293-clp-connector-snapshot')}}"
 
 jobs:
   prestocpp-format-and-header-check:
@@ -24,7 +24,7 @@ jobs:
     container:
       image: public.ecr.aws/oss-presto/velox-dev:check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Fix git permissions
         # Usually actions/checkout does this but as we run in a container
