@@ -1,0 +1,107 @@
+name: YScope Presto - CLP Connector Stable Release - Prepare
+
+on:
+  workflow_dispatch:
+    inputs:
+      prepare_release:
+        description: 'Prepare release branch and tag'
+        type: boolean
+        default: true
+        required: false
+
+env:
+  JAVA_VERSION: ${{ vars.JAVA_VERSION || '17.0.13' }}
+  JAVA_DISTRIBUTION: ${{ vars.JAVA_DISTRIBUTION || 'temurin' }}
+  MAVEN_OPTS: ${{ vars.MAVEN_OPTS }}
+  GIT_CI_USER: ${{ github.actor }}
+  GIT_CI_EMAIL: "${{ github.actor }}@users.noreply.github.com"
+
+jobs:
+  prepare-release-branch:
+    if: ${{ inputs.prepare_release }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout presto source
+        uses: actions/checkout@v4
+        with:
+          show-progress: false
+          fetch-depth: 5
+
+      - name: Ensure checkout latest code
+        run: |
+          git fetch origin ${{ github.ref_name }}
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/${{ github.ref_name }})" ]; then
+            echo "Branch ${{ github.ref_name }} has new commits. Resetting to latest."
+            git reset --hard origin/${{ github.ref_name }}
+          else
+            echo "Branch ${{ github.ref_name }} is already up to date."
+          fi
+
+      - name: Set up JDK ${{ env.JAVA_DISTRIBUTION }}/${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory ${{github.workspace}}
+          git config --global user.email "${{ env.GIT_CI_EMAIL }}"
+          git config --global user.name "${{ env.GIT_CI_USER }}"
+          git config --global alias.ls 'log --pretty=format:"%cd %h %ce: %s" --date=short --no-merges'
+          git config pull.rebase false
+
+      - name: Set presto release version
+        run: |
+          unset MAVEN_CONFIG && ./mvnw versions:set -DremoveSnapshot -ntp
+
+      - name: Get presto release version
+        id: get-version
+        run: |
+          PRESTO_RELEASE_VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate \
+            -Dexpression=project.version -q -ntp -DforceStdout | tail -n 1)
+          echo "PRESTO_RELEASE_VERSION=$PRESTO_RELEASE_VERSION" >> $GITHUB_ENV
+          echo "PRESTO_RELEASE_VERSION=$PRESTO_RELEASE_VERSION"
+
+      - name: Prepare release tag and commits and push the preparation PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "In case this job failed, please delete the branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}, and re-run the job"
+          git reset --hard
+          git switch -c release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
+          unset MAVEN_CONFIG && ./mvnw release:prepare --batch-mode \
+            -DskipTests \
+            -DautoVersionSubmodules \
+            -DdevelopmentVersion=${{ env.PRESTO_RELEASE_VERSION }} \
+            -DreleaseVersion=${{ env.PRESTO_RELEASE_VERSION }}
+          grep -m 2 "<version>" pom.xml
+          echo "Pushing branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
+          git ls -5
+          git push origin release-preparation-${{ env.PRESTO_RELEASE_VERSION }}
+          echo "Creating PR for branch release-preparation-${{ env.PRESTO_RELEASE_VERSION }}"
+          NEXT_PRESTO_RELEASE_VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate \
+            -Dexpression=project.version -q -ntp -DforceStdout | tail -n 1)
+          gh pr create \
+            --base release-0.293-clp-connector \
+            --head "release-preparation-${{ env.PRESTO_RELEASE_VERSION }}" \
+            --title "feat: Bump version to \`$NEXT_PRESTO_RELEASE_VERSION\` for next development cycle." \
+            --body "Automated pull request to bump the project version for the next development cycle."
+
+      - name: Push release tag, and branch
+        run: |
+          echo "In case this job failed, please delete the tag ${{ env.PRESTO_RELEASE_VERSION }} and the branch release-${{ env.PRESTO_RELEASE_VERSION }}, and re-run the job"
+          git checkout ${{ env.PRESTO_RELEASE_VERSION }}
+          git switch -c release-${{ env.PRESTO_RELEASE_VERSION }}
+          echo "Pushing release branch release-${{ env.PRESTO_RELEASE_VERSION }} and tag ${{ env.PRESTO_RELEASE_VERSION }}"
+
+          echo "commits on release-${{ env.PRESTO_RELEASE_VERSION }} branch"
+          git ls -4
+          git push origin release-${{ env.PRESTO_RELEASE_VERSION }} --tags
+          echo -e "\nPushed release tag to: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.PRESTO_RELEASE_VERSION }}"
+          echo "Pushed release branch to: ${{ github.server_url }}/${{ github.repository }}/tree/release-${{ env.PRESTO_RELEASE_VERSION }}"

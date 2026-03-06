@@ -51,7 +51,7 @@ jobs:
         uses: "actions/upload-artifact@v4"
         with:
           name: "presto-server"
-          path: "presto-server/target/presto-server-0.293.tar.gz"
+          path: "presto-server/target/presto-server-*.tar.gz"
           if-no-files-found: "error"
           retention-days: 1
       - name: "Upload presto-cli"
@@ -59,7 +59,7 @@ jobs:
         uses: "actions/upload-artifact@v4"
         with:
           name: "presto-cli"
-          path: "presto-cli/target/presto-cli-0.293-executable.jar"
+          path: "presto-cli/target/presto-cli-*-executable.jar"
           if-no-files-found: "error"
           retention-days: 1
       - name: "Clean Maven output"
@@ -100,12 +100,20 @@ jobs:
           images: "ghcr.io/${{github.repository}}/coordinator"
           tags: "type=raw,value=dev"
 
+      - name: Get presto release version
+        id: get-version
+        run: |
+          PRESTO_DEVELOP_VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate \
+            -Dexpression=project.version -q -ntp -DforceStdout | tail -n 1)
+          echo "PRESTO_DEVELOP_VERSION=$PRESTO_DEVELOP_VERSION" >> $GITHUB_ENV
+          echo "PRESTO_DEVELOP_VERSION=$PRESTO_DEVELOP_VERSION"
+
       - name: "Build and push"
         uses: "docker/build-push-action@v6"
         with:
           build-args: |-
             JMX_PROMETHEUS_JAVA_AGENT_VERSION=0.20.0
-            PRESTO_VERSION=0.293
+            PRESTO_VERSION=${{ env.PRESTO_DEVELOP_VERSION }}
           context: "./docker"
           file: "./docker/Dockerfile"
           push: >-
