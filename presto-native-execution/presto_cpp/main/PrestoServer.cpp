@@ -360,6 +360,8 @@ void PrestoServer::run() {
   initializeVeloxMemory();
   initializeThreadPools();
 
+  registerDynamicFunctions();
+
   auto catalogNames = registerVeloxConnectors(fs::path(configDirectoryPath_));
 
   const bool bindToNodeInternalAddressOnly =
@@ -500,7 +502,6 @@ void PrestoServer::run() {
   registerVectorSerdes();
   registerPrestoPlanNodeSerDe();
   registerTraceNodeFactories();
-  registerDynamicFunctions();
 
   facebook::velox::exec::ExchangeSource::registerFactory(
       [this](
