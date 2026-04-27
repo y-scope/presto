@@ -190,7 +190,7 @@ public class TestClpCodecRoundtrip
     @Test
     public void testCodecProviderReturnsAllCodecs()
     {
-        ClpCodecProvider provider = new ClpCodecProvider(TYPE_MANAGER);
+        ClpConnectorCodecProvider provider = new ClpConnectorCodecProvider(TYPE_MANAGER);
 
         assertNotNull(provider.getColumnHandleCodec());
         assertNotNull(provider.getConnectorSplitCodec());
