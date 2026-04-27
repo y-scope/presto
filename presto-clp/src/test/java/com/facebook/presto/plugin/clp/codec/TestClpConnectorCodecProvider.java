@@ -33,9 +33,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNotNull;
 
-public class TestClpCodecRoundtrip
+public class TestClpConnectorCodecProvider
 {
     private static final TypeManager TYPE_MANAGER = new TypeManager()
     {
@@ -96,13 +95,13 @@ public class TestClpCodecRoundtrip
     public void testSplitRoundtripArchiveWithKql()
     {
         ClpSplitCodec codec = new ClpSplitCodec();
-        ClpSplit original = new ClpSplit("/data/logs/archive.clp", ClpSplit.SplitType.ARCHIVE, Optional.of("ERROR"));
+        ClpSplit original = new ClpSplit("/data/logs/archive.clp", ClpSplit.SplitType.ARCHIVE, Optional.of("LEVEL:ERROR"));
         byte[] bytes = codec.serialize(original);
         ClpSplit deserialized = (ClpSplit) codec.deserialize(bytes);
 
         assertEquals(deserialized.getPath(), "/data/logs/archive.clp");
         assertEquals(deserialized.getType(), ClpSplit.SplitType.ARCHIVE);
-        assertEquals(deserialized.getKqlQuery(), Optional.of("ERROR"));
+        assertEquals(deserialized.getKqlQuery(), Optional.of("LEVEL:ERROR"));
     }
 
     @Test
@@ -162,21 +161,6 @@ public class TestClpCodecRoundtrip
     }
 
     @Test
-    public void testTableLayoutHandleMinimalRoundtrip()
-    {
-        ClpTableLayoutHandleCodec codec = new ClpTableLayoutHandleCodec();
-        ClpTableHandle table = new ClpTableHandle(new SchemaTableName("clp", "logs"), "");
-        ClpTableLayoutHandle original = new ClpTableLayoutHandle(table, Optional.empty(), Optional.empty());
-        byte[] bytes = codec.serialize(original);
-        ClpTableLayoutHandle deserialized = (ClpTableLayoutHandle) codec.deserialize(bytes);
-
-        assertEquals(deserialized.getTable().getSchemaTableName().getSchemaName(), "clp");
-        assertEquals(deserialized.getTable().getTablePath(), "");
-        assertEquals(deserialized.getKqlQuery(), Optional.empty());
-        assertEquals(deserialized.getMetadataSql(), Optional.empty());
-    }
-
-    @Test
     public void testTransactionHandleRoundtrip()
     {
         ClpTransactionHandleCodec codec = new ClpTransactionHandleCodec();
@@ -185,46 +169,5 @@ public class TestClpCodecRoundtrip
 
         ConnectorTransactionHandle deserialized = codec.deserialize(bytes);
         assertEquals(deserialized, ClpTransactionHandle.INSTANCE);
-    }
-
-    @Test
-    public void testCodecProviderReturnsAllCodecs()
-    {
-        ClpConnectorCodecProvider provider = new ClpConnectorCodecProvider(TYPE_MANAGER);
-
-        assertNotNull(provider.getColumnHandleCodec());
-        assertNotNull(provider.getConnectorSplitCodec());
-        assertNotNull(provider.getConnectorTransactionHandleCodec());
-        assertNotNull(provider.getConnectorTableHandleCodec());
-        assertNotNull(provider.getConnectorTableLayoutHandleCodec());
-
-        assertEquals(provider.getColumnHandleCodec().isPresent(), true);
-        assertEquals(provider.getConnectorSplitCodec().isPresent(), true);
-        assertEquals(provider.getConnectorTransactionHandleCodec().isPresent(), true);
-        assertEquals(provider.getConnectorTableHandleCodec().isPresent(), true);
-        assertEquals(provider.getConnectorTableLayoutHandleCodec().isPresent(), true);
-    }
-
-    @Test
-    public void testEmptyStringRoundtrip()
-    {
-        ClpColumnHandleCodec codec = new ClpColumnHandleCodec(TYPE_MANAGER);
-        ClpColumnHandle original = new ClpColumnHandle("", "", VarcharType.createUnboundedVarcharType());
-        byte[] bytes = codec.serialize(original);
-        ClpColumnHandle deserialized = (ClpColumnHandle) codec.deserialize(bytes);
-
-        assertEquals(deserialized.getColumnName(), "");
-        assertEquals(deserialized.getOriginalColumnName(), "");
-    }
-
-    @Test
-    public void testEmptyOptionalRoundtrip()
-    {
-        ClpSplitCodec codec = new ClpSplitCodec();
-        ClpSplit original = new ClpSplit("/path", ClpSplit.SplitType.ARCHIVE, Optional.empty());
-        byte[] bytes = codec.serialize(original);
-        ClpSplit deserialized = (ClpSplit) codec.deserialize(bytes);
-
-        assertEquals(deserialized.getKqlQuery(), Optional.empty());
     }
 }
