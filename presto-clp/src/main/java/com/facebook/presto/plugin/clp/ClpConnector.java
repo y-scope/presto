@@ -15,6 +15,7 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.bootstrap.LifeCycleManager;
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.plugin.clp.codec.ClpConnectorCodecProvider;
 import com.facebook.presto.plugin.clp.optimization.ClpPlanOptimizerProvider;
 import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
