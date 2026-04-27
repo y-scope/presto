@@ -15,9 +15,12 @@ package com.facebook.presto.plugin.clp;
 
 import com.facebook.airlift.bootstrap.LifeCycleManager;
 import com.facebook.airlift.log.Logger;
+import com.facebook.presto.common.type.TypeManager;
+import com.facebook.presto.plugin.clp.codec.ClpCodecProvider;
 import com.facebook.presto.plugin.clp.optimization.ClpPlanOptimizerProvider;
 import com.facebook.presto.plugin.clp.split.filter.ClpSplitFilterProvider;
 import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorCodecProvider;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorPlanOptimizerProvider;
 import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
@@ -43,6 +46,7 @@ public class ClpConnector
     private final FunctionMetadataManager functionManager;
     private final StandardFunctionResolution functionResolution;
     private final ClpSplitFilterProvider splitFilterProvider;
+    private final TypeManager typeManager;
 
     @Inject
     public ClpConnector(
@@ -52,7 +56,8 @@ public class ClpConnector
             ClpSplitManager splitManager,
             FunctionMetadataManager functionManager,
             StandardFunctionResolution functionResolution,
-            ClpSplitFilterProvider splitFilterProvider)
+            ClpSplitFilterProvider splitFilterProvider,
+            TypeManager typeManager)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -61,6 +66,7 @@ public class ClpConnector
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
         this.splitFilterProvider = requireNonNull(splitFilterProvider, "splitFilterProvider is null");
+        this.typeManager = requireNonNull(typeManager, "typeManager is null");
     }
 
     @Override
@@ -91,6 +97,12 @@ public class ClpConnector
     public ConnectorSplitManager getSplitManager()
     {
         return splitManager;
+    }
+
+    @Override
+    public ConnectorCodecProvider getConnectorCodecProvider()
+    {
+        return new ClpCodecProvider(typeManager);
     }
 
     @Override
