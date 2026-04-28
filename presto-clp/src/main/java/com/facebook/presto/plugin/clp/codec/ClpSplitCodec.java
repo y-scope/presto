@@ -28,6 +28,12 @@ import java.util.Optional;
 public class ClpSplitCodec
         implements ConnectorCodec<ConnectorSplit>
 {
+    // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorSplit):
+    //   path            : writeUTF
+    //   typeOrdinal     : writeInt (0 = ARCHIVE, 1 = IR)
+    //   kqlQueryPresent : writeBoolean
+    //   [kqlQuery]      : writeUTF, if present
+
     @Override
     public byte[] serialize(ConnectorSplit handle)
     {

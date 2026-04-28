@@ -20,17 +20,18 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 public class ClpTransactionHandleCodec
         implements ConnectorCodec<ConnectorTransactionHandle>
 {
+    // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTransactionHandle):
+    //   (0 bytes — empty payload)
+
     @Override
     public byte[] serialize(ConnectorTransactionHandle handle)
     {
-        // ClpTransactionHandle is a singleton with no data
         return new byte[0];
     }
 
     @Override
     public ConnectorTransactionHandle deserialize(byte[] bytes)
     {
-        // Return the singleton instance
         return ClpTransactionHandle.INSTANCE;
     }
 }

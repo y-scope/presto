@@ -32,6 +32,11 @@ import static java.util.Objects.requireNonNull;
 public class ClpColumnHandleCodec
         implements ConnectorCodec<ColumnHandle>
 {
+    // Wire format (C++ ClpConnectorProtocol::deserialize for ColumnHandle):
+    //   columnName          : writeUTF
+    //   originalColumnName  : writeUTF
+    //   columnTypeSignature : writeUTF
+
     private final TypeManager typeManager;
 
     public ClpColumnHandleCodec(TypeManager typeManager)

@@ -28,6 +28,11 @@ import java.io.UncheckedIOException;
 public class ClpTableHandleCodec
         implements ConnectorCodec<ConnectorTableHandle>
 {
+    // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTableHandle):
+    //   schemaName : writeUTF
+    //   tableName  : writeUTF
+    //   tablePath  : writeUTF
+
     @Override
     public byte[] serialize(ConnectorTableHandle handle)
     {

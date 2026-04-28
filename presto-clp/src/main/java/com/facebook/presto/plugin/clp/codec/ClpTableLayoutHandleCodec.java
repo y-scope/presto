@@ -30,6 +30,15 @@ import java.util.Optional;
 public class ClpTableLayoutHandleCodec
         implements ConnectorCodec<ConnectorTableLayoutHandle>
 {
+    // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTableLayoutHandle):
+    //   schemaName         : writeUTF
+    //   tableName          : writeUTF
+    //   tablePath          : writeUTF
+    //   kqlQueryPresent    : writeBoolean
+    //   [kqlQuery]         : writeUTF, if present
+    //   metadataSqlPresent : writeBoolean
+    //   [metadataSql]      : writeUTF, if present
+
     @Override
     public byte[] serialize(ConnectorTableLayoutHandle handle)
     {
