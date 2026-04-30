@@ -41,7 +41,8 @@ public class ClpTableHandleCodec
     {
         try {
             if (!(handle instanceof ClpTableHandle)) {
-                throw new IllegalArgumentException("Expected ClpTableHandle but got: " + handle.getClass().getName());
+                throw new IllegalArgumentException("Expected ClpTableHandle but got: " +
+                        (handle == null ? "null" : handle.getClass().getName()));
             }
             ClpTableHandle tableHandle = (ClpTableHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();

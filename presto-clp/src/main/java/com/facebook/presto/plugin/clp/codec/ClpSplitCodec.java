@@ -42,7 +42,8 @@ public class ClpSplitCodec
     {
         try {
             if (!(handle instanceof ClpSplit)) {
-                throw new IllegalArgumentException("Expected ClpSplit but got: " + handle.getClass().getName());
+                throw new IllegalArgumentException("Expected ClpSplit but got: " +
+                        (handle == null ? "null" : handle.getClass().getName()));
             }
             ClpSplit split = (ClpSplit) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();

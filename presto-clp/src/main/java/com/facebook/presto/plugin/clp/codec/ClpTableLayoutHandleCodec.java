@@ -46,7 +46,8 @@ public class ClpTableLayoutHandleCodec
     {
         try {
             if (!(handle instanceof ClpTableLayoutHandle)) {
-                throw new IllegalArgumentException("Expected ClpTableLayoutHandle but got: " + handle.getClass().getName());
+                throw new IllegalArgumentException("Expected ClpTableLayoutHandle but got: " +
+                        (handle == null ? "null" : handle.getClass().getName()));
             }
             ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();

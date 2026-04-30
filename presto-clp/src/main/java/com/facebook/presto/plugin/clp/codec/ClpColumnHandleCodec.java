@@ -51,7 +51,8 @@ public class ClpColumnHandleCodec
     {
         try {
             if (!(handle instanceof ClpColumnHandle)) {
-                throw new IllegalArgumentException("Expected ClpColumnHandle but got: " + handle.getClass().getName());
+                throw new IllegalArgumentException("Expected ClpColumnHandle but got: " +
+                        (handle == null ? "null" : handle.getClass().getName()));
             }
             ClpColumnHandle columnHandle = (ClpColumnHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();

@@ -38,6 +38,9 @@ final class CodecUtils
             throws IOException
     {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > 0xFFFF) {
+            throw new IOException("UTF-8 string too long for 2-byte length prefix: " + bytes.length + " bytes");
+        }
         out.writeShort(bytes.length);
         out.write(bytes);
     }
