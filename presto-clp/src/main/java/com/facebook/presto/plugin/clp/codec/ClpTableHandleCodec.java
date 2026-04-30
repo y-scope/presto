@@ -37,12 +37,9 @@ public class ClpTableHandleCodec
     public byte[] serialize(ConnectorTableHandle handle)
     {
         try {
-            ClpTableHandle tableHandle = (ClpTableHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
-            out.writeUTF(tableHandle.getSchemaTableName().getSchemaName());
-            out.writeUTF(tableHandle.getSchemaTableName().getTableName());
-            out.writeUTF(tableHandle.getTablePath());
+            writeTableHandle((ClpTableHandle) handle, out);
             return byteOut.toByteArray();
         }
         catch (IOException e) {
@@ -54,15 +51,28 @@ public class ClpTableHandleCodec
     public ConnectorTableHandle deserialize(byte[] bytes)
     {
         try {
-            ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
-            DataInputStream in = new DataInputStream(byteIn);
-            String schemaName = in.readUTF();
-            String tableName = in.readUTF();
-            String tablePath = in.readUTF();
-            return new ClpTableHandle(new SchemaTableName(schemaName, tableName), tablePath);
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+            return readTableHandle(in);
         }
         catch (IOException e) {
             throw new UncheckedIOException("Failed to deserialize ClpTableHandle", e);
         }
+    }
+
+    static void writeTableHandle(ClpTableHandle handle, DataOutputStream out)
+            throws IOException
+    {
+        out.writeUTF(handle.getSchemaTableName().getSchemaName());
+        out.writeUTF(handle.getSchemaTableName().getTableName());
+        out.writeUTF(handle.getTablePath());
+    }
+
+    static ClpTableHandle readTableHandle(DataInputStream in)
+            throws IOException
+    {
+        String schemaName = in.readUTF();
+        String tableName = in.readUTF();
+        String tablePath = in.readUTF();
+        return new ClpTableHandle(new SchemaTableName(schemaName, tableName), tablePath);
     }
 }

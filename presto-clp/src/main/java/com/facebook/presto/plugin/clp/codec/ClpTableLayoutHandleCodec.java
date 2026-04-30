@@ -17,7 +17,6 @@ import com.facebook.presto.plugin.clp.ClpTableHandle;
 import com.facebook.presto.plugin.clp.ClpTableLayoutHandle;
 import com.facebook.presto.spi.ConnectorCodec;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
-import com.facebook.presto.spi.SchemaTableName;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -27,13 +26,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Optional;
 
+import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.readTableHandle;
+import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.writeTableHandle;
+
 public class ClpTableLayoutHandleCodec
         implements ConnectorCodec<ConnectorTableLayoutHandle>
 {
     // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTableLayoutHandle):
-    //   schemaName         : writeUTF
-    //   tableName          : writeUTF
-    //   tablePath          : writeUTF
+    //   [table handle]     : serialized by ClpTableHandleCodec
     //   kqlQueryPresent    : writeBoolean
     //   [kqlQuery]         : writeUTF, if present
     //   metadataSqlPresent : writeBoolean
@@ -46,11 +46,7 @@ public class ClpTableLayoutHandleCodec
             ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
-            // Serialize the table handle
-            ClpTableHandle table = layoutHandle.getTable();
-            out.writeUTF(table.getSchemaTableName().getSchemaName());
-            out.writeUTF(table.getSchemaTableName().getTableName());
-            out.writeUTF(table.getTablePath());
+            writeTableHandle(layoutHandle.getTable(), out);
             // Serialize kqlQuery
             Optional<String> kqlQuery = layoutHandle.getKqlQuery();
             out.writeBoolean(kqlQuery.isPresent());
@@ -74,13 +70,8 @@ public class ClpTableLayoutHandleCodec
     public ConnectorTableLayoutHandle deserialize(byte[] bytes)
     {
         try {
-            ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
-            DataInputStream in = new DataInputStream(byteIn);
-            // Deserialize the table handle
-            String schemaName = in.readUTF();
-            String tableName = in.readUTF();
-            String tablePath = in.readUTF();
-            ClpTableHandle table = new ClpTableHandle(new SchemaTableName(schemaName, tableName), tablePath);
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+            ClpTableHandle table = readTableHandle(in);
             // Deserialize kqlQuery
             Optional<String> kqlQuery = in.readBoolean()
                     ? Optional.of(in.readUTF())
