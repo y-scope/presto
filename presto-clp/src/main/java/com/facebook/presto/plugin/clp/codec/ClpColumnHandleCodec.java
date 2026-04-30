@@ -27,15 +27,17 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
 import static java.util.Objects.requireNonNull;
 
 public class ClpColumnHandleCodec
         implements ConnectorCodec<ColumnHandle>
 {
     // Wire format (C++ ClpConnectorProtocol::deserialize for ColumnHandle):
-    //   columnName          : writeUTF
-    //   originalColumnName  : writeUTF
-    //   columnTypeSignature : writeUTF
+    //   columnName          : 2-byte BE length + UTF-8 bytes
+    //   originalColumnName  : 2-byte BE length + UTF-8 bytes
+    //   columnTypeSignature : 2-byte BE length + UTF-8 bytes
 
     private final TypeManager typeManager;
 
@@ -54,9 +56,9 @@ public class ClpColumnHandleCodec
             ClpColumnHandle columnHandle = (ClpColumnHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
-            out.writeUTF(columnHandle.getColumnName());
-            out.writeUTF(columnHandle.getOriginalColumnName());
-            out.writeUTF(columnHandle.getColumnType().getTypeSignature().toString());
+            writeUtf8String(columnHandle.getColumnName(), out);
+            writeUtf8String(columnHandle.getOriginalColumnName(), out);
+            writeUtf8String(columnHandle.getColumnType().getTypeSignature().toString(), out);
             return byteOut.toByteArray();
         }
         catch (IOException e) {
@@ -70,9 +72,9 @@ public class ClpColumnHandleCodec
         try {
             ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
             DataInputStream in = new DataInputStream(byteIn);
-            String columnName = in.readUTF();
-            String originalColumnName = in.readUTF();
-            String typeSignature = in.readUTF();
+            String columnName = readUtf8String(in);
+            String originalColumnName = readUtf8String(in);
+            String typeSignature = readUtf8String(in);
             if (in.available() > 0) {
                 throw new IOException("Unexpected trailing bytes in ClpColumnHandle deserialization");
             }

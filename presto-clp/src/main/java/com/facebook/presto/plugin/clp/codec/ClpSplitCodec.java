@@ -25,14 +25,17 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Optional;
 
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
+
 public class ClpSplitCodec
         implements ConnectorCodec<ConnectorSplit>
 {
     // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorSplit):
-    //   path            : writeUTF
+    //   path            : 2-byte BE length + UTF-8 bytes
     //   typeOrdinal     : writeInt (0 = ARCHIVE, 1 = IR)
     //   kqlQueryPresent : writeBoolean
-    //   [kqlQuery]      : writeUTF, if present
+    //   [kqlQuery]      : 2-byte BE length + UTF-8 bytes, if present
 
     @Override
     public byte[] serialize(ConnectorSplit handle)
@@ -44,12 +47,12 @@ public class ClpSplitCodec
             ClpSplit split = (ClpSplit) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
-            out.writeUTF(split.getPath());
+            writeUtf8String(split.getPath(), out);
             out.writeInt(split.getType().ordinal());
             Optional<String> kqlQuery = split.getKqlQuery();
             out.writeBoolean(kqlQuery.isPresent());
             if (kqlQuery.isPresent()) {
-                out.writeUTF(kqlQuery.get());
+                writeUtf8String(kqlQuery.get(), out);
             }
             return byteOut.toByteArray();
         }
@@ -64,10 +67,10 @@ public class ClpSplitCodec
         try {
             ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
             DataInputStream in = new DataInputStream(byteIn);
-            String path = in.readUTF();
+            String path = readUtf8String(in);
             ClpSplit.SplitType type = ClpSplit.SplitType.values()[in.readInt()];
             Optional<String> kqlQuery = in.readBoolean()
-                    ? Optional.of(in.readUTF())
+                    ? Optional.of(readUtf8String(in))
                     : Optional.empty();
             if (in.available() > 0) {
                 throw new IOException("Unexpected trailing bytes in ClpSplit deserialization");

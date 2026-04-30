@@ -26,6 +26,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Optional;
 
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
 import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.readTableHandle;
 import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.writeTableHandle;
 
@@ -35,9 +37,9 @@ public class ClpTableLayoutHandleCodec
     // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTableLayoutHandle):
     //   [table handle]     : serialized by ClpTableHandleCodec
     //   kqlQueryPresent    : writeBoolean
-    //   [kqlQuery]         : writeUTF, if present
+    //   [kqlQuery]         : 2-byte BE length + UTF-8 bytes, if present
     //   metadataSqlPresent : writeBoolean
-    //   [metadataSql]      : writeUTF, if present
+    //   [metadataSql]      : 2-byte BE length + UTF-8 bytes, if present
 
     @Override
     public byte[] serialize(ConnectorTableLayoutHandle handle)
@@ -54,13 +56,13 @@ public class ClpTableLayoutHandleCodec
             Optional<String> kqlQuery = layoutHandle.getKqlQuery();
             out.writeBoolean(kqlQuery.isPresent());
             if (kqlQuery.isPresent()) {
-                out.writeUTF(kqlQuery.get());
+                writeUtf8String(kqlQuery.get(), out);
             }
             // Serialize metadataSql
             Optional<String> metadataSql = layoutHandle.getMetadataSql();
             out.writeBoolean(metadataSql.isPresent());
             if (metadataSql.isPresent()) {
-                out.writeUTF(metadataSql.get());
+                writeUtf8String(metadataSql.get(), out);
             }
             return byteOut.toByteArray();
         }
@@ -77,11 +79,11 @@ public class ClpTableLayoutHandleCodec
             ClpTableHandle table = readTableHandle(in);
             // Deserialize kqlQuery
             Optional<String> kqlQuery = in.readBoolean()
-                    ? Optional.of(in.readUTF())
+                    ? Optional.of(readUtf8String(in))
                     : Optional.empty();
             // Deserialize metadataSql
             Optional<String> metadataSql = in.readBoolean()
-                    ? Optional.of(in.readUTF())
+                    ? Optional.of(readUtf8String(in))
                     : Optional.empty();
             if (in.available() > 0) {
                 throw new IOException("Unexpected trailing bytes in ClpTableLayoutHandle deserialization");

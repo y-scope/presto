@@ -25,13 +25,16 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
+
 public class ClpTableHandleCodec
         implements ConnectorCodec<ConnectorTableHandle>
 {
     // Wire format (C++ ClpConnectorProtocol::deserialize for ConnectorTableHandle):
-    //   schemaName : writeUTF
-    //   tableName  : writeUTF
-    //   tablePath  : writeUTF
+    //   schemaName : 2-byte BE length + UTF-8 bytes
+    //   tableName  : 2-byte BE length + UTF-8 bytes
+    //   tablePath  : 2-byte BE length + UTF-8 bytes
 
     @Override
     public byte[] serialize(ConnectorTableHandle handle)
@@ -70,17 +73,17 @@ public class ClpTableHandleCodec
     static void writeTableHandle(ClpTableHandle handle, DataOutputStream out)
             throws IOException
     {
-        out.writeUTF(handle.getSchemaTableName().getSchemaName());
-        out.writeUTF(handle.getSchemaTableName().getTableName());
-        out.writeUTF(handle.getTablePath());
+        writeUtf8String(handle.getSchemaTableName().getSchemaName(), out);
+        writeUtf8String(handle.getSchemaTableName().getTableName(), out);
+        writeUtf8String(handle.getTablePath(), out);
     }
 
     static ClpTableHandle readTableHandle(DataInputStream in)
             throws IOException
     {
-        String schemaName = in.readUTF();
-        String tableName = in.readUTF();
-        String tablePath = in.readUTF();
+        String schemaName = readUtf8String(in);
+        String tableName = readUtf8String(in);
+        String tablePath = readUtf8String(in);
         return new ClpTableHandle(new SchemaTableName(schemaName, tableName), tablePath);
     }
 }
