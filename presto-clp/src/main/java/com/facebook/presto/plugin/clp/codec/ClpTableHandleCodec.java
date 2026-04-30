@@ -37,9 +37,10 @@ public class ClpTableHandleCodec
     public byte[] serialize(ConnectorTableHandle handle)
     {
         try {
-            if (!(handle instanceof ClpTableHandle tableHandle)) {
+            if (!(handle instanceof ClpTableHandle)) {
                 throw new IllegalArgumentException("Expected ClpTableHandle but got: " + handle.getClass().getName());
             }
+            ClpTableHandle tableHandle = (ClpTableHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             writeTableHandle(tableHandle, out);

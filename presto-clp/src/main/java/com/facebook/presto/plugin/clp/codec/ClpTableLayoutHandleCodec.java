@@ -43,9 +43,10 @@ public class ClpTableLayoutHandleCodec
     public byte[] serialize(ConnectorTableLayoutHandle handle)
     {
         try {
-            if (!(handle instanceof ClpTableLayoutHandle layoutHandle)) {
+            if (!(handle instanceof ClpTableLayoutHandle)) {
                 throw new IllegalArgumentException("Expected ClpTableLayoutHandle but got: " + handle.getClass().getName());
             }
+            ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             writeTableHandle(layoutHandle.getTable(), out);

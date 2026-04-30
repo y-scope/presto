@@ -48,9 +48,10 @@ public class ClpColumnHandleCodec
     public byte[] serialize(ColumnHandle handle)
     {
         try {
-            if (!(handle instanceof ClpColumnHandle columnHandle)) {
+            if (!(handle instanceof ClpColumnHandle)) {
                 throw new IllegalArgumentException("Expected ClpColumnHandle but got: " + handle.getClass().getName());
             }
+            ClpColumnHandle columnHandle = (ClpColumnHandle) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             out.writeUTF(columnHandle.getColumnName());

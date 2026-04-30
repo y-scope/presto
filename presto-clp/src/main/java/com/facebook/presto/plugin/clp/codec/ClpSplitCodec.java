@@ -38,9 +38,10 @@ public class ClpSplitCodec
     public byte[] serialize(ConnectorSplit handle)
     {
         try {
-            if (!(handle instanceof ClpSplit split)) {
+            if (!(handle instanceof ClpSplit)) {
                 throw new IllegalArgumentException("Expected ClpSplit but got: " + handle.getClass().getName());
             }
+            ClpSplit split = (ClpSplit) handle;
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             out.writeUTF(split.getPath());
