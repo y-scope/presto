@@ -38,7 +38,9 @@ public class ClpSplitCodec
     public byte[] serialize(ConnectorSplit handle)
     {
         try {
-            ClpSplit split = (ClpSplit) handle;
+            if (!(handle instanceof ClpSplit split)) {
+                throw new IllegalArgumentException("Expected ClpSplit but got: " + handle.getClass().getName());
+            }
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             out.writeUTF(split.getPath());
@@ -66,6 +68,9 @@ public class ClpSplitCodec
             Optional<String> kqlQuery = in.readBoolean()
                     ? Optional.of(in.readUTF())
                     : Optional.empty();
+            if (in.available() > 0) {
+                throw new IOException("Unexpected trailing bytes in ClpSplit deserialization");
+            }
             return new ClpSplit(path, type, kqlQuery);
         }
         catch (IOException e) {

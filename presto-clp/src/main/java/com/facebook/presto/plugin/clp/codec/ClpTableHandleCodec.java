@@ -37,9 +37,12 @@ public class ClpTableHandleCodec
     public byte[] serialize(ConnectorTableHandle handle)
     {
         try {
+            if (!(handle instanceof ClpTableHandle tableHandle)) {
+                throw new IllegalArgumentException("Expected ClpTableHandle but got: " + handle.getClass().getName());
+            }
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
-            writeTableHandle((ClpTableHandle) handle, out);
+            writeTableHandle(tableHandle, out);
             return byteOut.toByteArray();
         }
         catch (IOException e) {
@@ -52,7 +55,11 @@ public class ClpTableHandleCodec
     {
         try {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
-            return readTableHandle(in);
+            ClpTableHandle handle = readTableHandle(in);
+            if (in.available() > 0) {
+                throw new IOException("Unexpected trailing bytes in ClpTableHandle deserialization");
+            }
+            return handle;
         }
         catch (IOException e) {
             throw new UncheckedIOException("Failed to deserialize ClpTableHandle", e);

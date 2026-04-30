@@ -48,7 +48,9 @@ public class ClpColumnHandleCodec
     public byte[] serialize(ColumnHandle handle)
     {
         try {
-            ClpColumnHandle columnHandle = (ClpColumnHandle) handle;
+            if (!(handle instanceof ClpColumnHandle columnHandle)) {
+                throw new IllegalArgumentException("Expected ClpColumnHandle but got: " + handle.getClass().getName());
+            }
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             out.writeUTF(columnHandle.getColumnName());
@@ -70,6 +72,9 @@ public class ClpColumnHandleCodec
             String columnName = in.readUTF();
             String originalColumnName = in.readUTF();
             String typeSignature = in.readUTF();
+            if (in.available() > 0) {
+                throw new IOException("Unexpected trailing bytes in ClpColumnHandle deserialization");
+            }
             Type type = typeManager.getType(TypeSignature.parseTypeSignature(typeSignature));
             return new ClpColumnHandle(columnName, originalColumnName, type);
         }

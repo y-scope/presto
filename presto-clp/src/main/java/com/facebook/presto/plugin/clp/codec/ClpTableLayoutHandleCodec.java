@@ -43,7 +43,9 @@ public class ClpTableLayoutHandleCodec
     public byte[] serialize(ConnectorTableLayoutHandle handle)
     {
         try {
-            ClpTableLayoutHandle layoutHandle = (ClpTableLayoutHandle) handle;
+            if (!(handle instanceof ClpTableLayoutHandle layoutHandle)) {
+                throw new IllegalArgumentException("Expected ClpTableLayoutHandle but got: " + handle.getClass().getName());
+            }
             ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(byteOut);
             writeTableHandle(layoutHandle.getTable(), out);
@@ -80,6 +82,9 @@ public class ClpTableLayoutHandleCodec
             Optional<String> metadataSql = in.readBoolean()
                     ? Optional.of(in.readUTF())
                     : Optional.empty();
+            if (in.available() > 0) {
+                throw new IOException("Unexpected trailing bytes in ClpTableLayoutHandle deserialization");
+            }
             return new ClpTableLayoutHandle(table, kqlQuery, metadataSql);
         }
         catch (IOException e) {

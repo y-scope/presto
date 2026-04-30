@@ -26,12 +26,18 @@ public class ClpTransactionHandleCodec
     @Override
     public byte[] serialize(ConnectorTransactionHandle handle)
     {
+        if (handle != ClpTransactionHandle.INSTANCE) {
+            throw new IllegalArgumentException("Expected ClpTransactionHandle but got: " + handle.getClass().getName());
+        }
         return new byte[0];
     }
 
     @Override
     public ConnectorTransactionHandle deserialize(byte[] bytes)
     {
+        if (bytes.length > 0) {
+            throw new IllegalArgumentException("Expected empty payload for ClpTransactionHandle but got " + bytes.length + " bytes");
+        }
         return ClpTransactionHandle.INSTANCE;
     }
 }
