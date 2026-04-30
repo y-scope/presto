@@ -26,10 +26,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Optional;
 
-import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
-import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
 import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.readTableHandle;
 import static com.facebook.presto.plugin.clp.codec.ClpTableHandleCodec.writeTableHandle;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.readUtf8String;
+import static com.facebook.presto.plugin.clp.codec.CodecUtils.writeUtf8String;
 
 public class ClpTableLayoutHandleCodec
         implements ConnectorCodec<ConnectorTableLayoutHandle>
