@@ -22,7 +22,7 @@ namespace facebook::presto::protocol::clp {
 namespace {
 
 // Java's CodecUtils.writeUtf8String: 2-byte big-endian length + standard UTF-8 bytes.
-std::string readUTF(std::istringstream& in) {
+std::string readUtf8String(std::istringstream& in) {
   uint16_t length{};
   in.read(reinterpret_cast<char*>(&length), sizeof(length));
   VELOX_CHECK(false == in.fail(), "Failed to read UTF length: insufficient bytes");
@@ -43,7 +43,7 @@ int32_t readInt(std::istringstream& in) {
 }
 
 bool readBoolean(std::istringstream& in) {
-  char byte;
+  char byte{};
   in.read(&byte, sizeof(byte));
   VELOX_CHECK(false == in.fail(), "Failed to read boolean: insufficient bytes");
   return byte != 0;
@@ -63,9 +63,9 @@ void ClpConnectorProtocol::deserialize(
   std::istringstream in(binaryData);
   auto handle = std::make_shared<ClpColumnHandle>();
 
-  handle->columnName = readUTF(in);
-  handle->originalColumnName = readUTF(in);
-  handle->columnType = readUTF(in);
+  handle->columnName = readUtf8String(in);
+  handle->originalColumnName = readUtf8String(in);
+  handle->columnType = readUtf8String(in);
   handle->_type = "clp";
 
   proto = handle;
@@ -84,7 +84,7 @@ void ClpConnectorProtocol::deserialize(
   std::istringstream in(binaryData);
   auto handle = std::make_shared<ClpSplit>();
 
-  handle->path = readUTF(in);
+  handle->path = readUtf8String(in);
   int typeOrdinal = readInt(in);
   VELOX_CHECK(
       typeOrdinal >= 0 && typeOrdinal <= 1,
@@ -92,7 +92,7 @@ void ClpConnectorProtocol::deserialize(
       typeOrdinal);
   handle->type = static_cast<SplitType>(typeOrdinal);
   if (readBoolean(in)) {
-    handle->kqlQuery = std::make_shared<String>(readUTF(in));
+    handle->kqlQuery = std::make_shared<String>(readUtf8String(in));
   }
   handle->_type = "clp";
 
@@ -106,9 +106,9 @@ void ClpConnectorProtocol::deserialize(
 //   tablePath  : CodecUtils.writeUtf8String
 
 static void deserializeClpTableHandle(std::istringstream& in, ClpTableHandle& table) {
-  table.schemaTableName.schema = readUTF(in);
-  table.schemaTableName.table = readUTF(in);
-  table.tablePath = readUTF(in);
+  table.schemaTableName.schema = readUtf8String(in);
+  table.schemaTableName.table = readUtf8String(in);
+  table.tablePath = readUtf8String(in);
 }
 
 void ClpConnectorProtocol::deserialize(
@@ -141,13 +141,13 @@ void ClpConnectorProtocol::deserialize(
 
   // kqlQuery (optional)
   if (readBoolean(in)) {
-    handle->kqlQuery = std::make_shared<String>(readUTF(in));
+    handle->kqlQuery = std::make_shared<String>(readUtf8String(in));
   }
 
   // metadataFilterQuery (optional)
   if (readBoolean(in)) {
     handle->metadataFilterQuery =
-        std::make_shared<String>(readUTF(in));
+        std::make_shared<String>(readUtf8String(in));
   }
   handle->_type = "clp";
 
