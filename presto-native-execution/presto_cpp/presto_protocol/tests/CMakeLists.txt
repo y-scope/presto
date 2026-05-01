@@ -14,6 +14,7 @@ add_executable(
   presto_protocol_test
   Base64Test.cpp
   CallExpressionTest.cpp
+  ClpConnectorProtocolTest.cpp
   ConstantExpressionTest.cpp
   DataSizeTest.cpp
   DeleteTest.cpp

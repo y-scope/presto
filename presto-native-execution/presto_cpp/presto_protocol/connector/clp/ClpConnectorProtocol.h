@@ -12,18 +12,230 @@
  * limitations under the License.
  */
 #pragma once
+
 #include "presto_cpp/presto_protocol/connector/clp/presto_protocol_clp.h"
 #include "presto_cpp/presto_protocol/core/ConnectorProtocol.h"
 
 namespace facebook::presto::protocol::clp {
-using ClpConnectorProtocol = ConnectorProtocolTemplate<
-    ClpTableHandle,
-    ClpTableLayoutHandle,
-    ClpColumnHandle,
-    NotImplemented,
-    NotImplemented,
-    ClpSplit,
-    NotImplemented,
-    ClpTransactionHandle,
-    NotImplemented>;
+
+class ClpConnectorProtocol : public ConnectorProtocol {
+ public:
+  // --- ConnectorTableHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorTableHandle>& p)
+      const override {
+    VELOX_NYI("to_json not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorTableHandle>& p)
+      const override {
+    auto k = std::make_shared<ClpTableHandle>();
+    j.get_to(*k);
+    p = k;
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorTableHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("Serialize not implemented");
+  }
+  void deserialize(
+      const std::string& binaryData,
+      std::shared_ptr<ConnectorTableHandle>& proto) const override;
+
+  // --- ConnectorTableLayoutHandle ---
+  void to_json(
+      json& j,
+      const std::shared_ptr<ConnectorTableLayoutHandle>& p) const override {
+    VELOX_NYI("to_json not implemented");
+  }
+  void from_json(
+      const json& j,
+      std::shared_ptr<ConnectorTableLayoutHandle>& p) const override {
+    auto k = std::make_shared<ClpTableLayoutHandle>();
+    j.get_to(*k);
+    p = k;
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorTableLayoutHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("Serialize not implemented");
+  }
+  void deserialize(
+      const std::string& binaryData,
+      std::shared_ptr<ConnectorTableLayoutHandle>& proto) const override;
+
+  // --- ColumnHandle ---
+  void to_json(json& j, const std::shared_ptr<ColumnHandle>& p)
+      const override {
+    VELOX_NYI("to_json not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ColumnHandle>& p)
+      const override {
+    auto k = std::make_shared<ClpColumnHandle>();
+    j.get_to(*k);
+    p = k;
+  }
+  void serialize(
+      const std::shared_ptr<ColumnHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("Serialize not implemented");
+  }
+  void deserialize(
+      const std::string& binaryData,
+      std::shared_ptr<ColumnHandle>& proto) const override;
+
+  // --- ConnectorInsertTableHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorInsertTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorInsertTableHandle not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorInsertTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorInsertTableHandle not implemented");
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorInsertTableHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("ConnectorInsertTableHandle not implemented");
+  }
+  void deserialize(
+      const std::string& thrift,
+      std::shared_ptr<ConnectorInsertTableHandle>& proto) const override {
+    VELOX_NYI("ConnectorInsertTableHandle not implemented");
+  }
+
+  // --- ConnectorDistributedProcedureHandle ---
+  void to_json(
+      json& j,
+      const std::shared_ptr<ConnectorDistributedProcedureHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorDistributedProcedureHandle not implemented");
+  }
+  void from_json(
+      const json& j,
+      std::shared_ptr<ConnectorDistributedProcedureHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorDistributedProcedureHandle not implemented");
+  }
+
+  // --- ConnectorOutputTableHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorOutputTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorOutputTableHandle not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorOutputTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorOutputTableHandle not implemented");
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorOutputTableHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("ConnectorOutputTableHandle not implemented");
+  }
+  void deserialize(
+      const std::string& thrift,
+      std::shared_ptr<ConnectorOutputTableHandle>& proto) const override {
+    VELOX_NYI("ConnectorOutputTableHandle not implemented");
+  }
+
+  // --- ConnectorSplit ---
+  void to_json(json& j, const std::shared_ptr<ConnectorSplit>& p)
+      const override {
+    VELOX_NYI("to_json not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorSplit>& p)
+      const override {
+    auto k = std::make_shared<ClpSplit>();
+    j.get_to(*k);
+    p = k;
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorSplit>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("Serialize not implemented");
+  }
+  void deserialize(
+      const std::string& binaryData,
+      std::shared_ptr<ConnectorSplit>& proto) const override;
+
+  // --- ConnectorPartitioningHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorPartitioningHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorPartitioningHandle not implemented");
+  }
+  void from_json(
+      const json& j,
+      std::shared_ptr<ConnectorPartitioningHandle>& p) const override {
+    VELOX_NYI("ConnectorPartitioningHandle not implemented");
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorPartitioningHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("ConnectorPartitioningHandle not implemented");
+  }
+  void deserialize(
+      const std::string& thrift,
+      std::shared_ptr<ConnectorPartitioningHandle>& proto) const override {
+    VELOX_NYI("ConnectorPartitioningHandle not implemented");
+  }
+
+  // --- ConnectorTransactionHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorTransactionHandle>& p)
+      const override {
+    VELOX_NYI("to_json not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorTransactionHandle>& p)
+      const override {
+    auto k = std::make_shared<ClpTransactionHandle>();
+    j.get_to(*k);
+    p = k;
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorTransactionHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("Serialize not implemented");
+  }
+  void deserialize(
+      const std::string& binaryData,
+      std::shared_ptr<ConnectorTransactionHandle>& proto) const override;
+
+  // --- ConnectorDeleteTableHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorDeleteTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorDeleteTableHandle not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorDeleteTableHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorDeleteTableHandle not implemented");
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorDeleteTableHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("ConnectorDeleteTableHandle not implemented");
+  }
+  void deserialize(
+      const std::string& thrift,
+      std::shared_ptr<ConnectorDeleteTableHandle>& proto) const override {
+    VELOX_NYI("ConnectorDeleteTableHandle not implemented");
+  }
+
+  // --- ConnectorIndexHandle ---
+  void to_json(json& j, const std::shared_ptr<ConnectorIndexHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorIndexHandle not implemented");
+  }
+  void from_json(const json& j, std::shared_ptr<ConnectorIndexHandle>& p)
+      const override {
+    VELOX_NYI("ConnectorIndexHandle not implemented");
+  }
+  void serialize(
+      const std::shared_ptr<ConnectorIndexHandle>& proto,
+      std::string& thrift) const override {
+    VELOX_NYI("ConnectorIndexHandle not implemented");
+  }
+  void deserialize(
+      const std::string& thrift,
+      std::shared_ptr<ConnectorIndexHandle>& proto) const override {
+    VELOX_NYI("ConnectorIndexHandle not implemented");
+  }
+};
+
 } // namespace facebook::presto::protocol::clp

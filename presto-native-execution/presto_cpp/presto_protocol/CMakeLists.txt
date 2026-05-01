@@ -17,6 +17,7 @@ add_library(
   core/DataSize.cpp
   core/Duration.cpp
   core/ConnectorProtocol.cpp
+  connector/clp/ClpConnectorProtocol.cpp
 )
 
 target_link_libraries(presto_protocol velox_type velox_presto_serializer ${RE2})
