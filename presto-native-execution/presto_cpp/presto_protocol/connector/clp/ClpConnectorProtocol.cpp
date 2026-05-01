@@ -35,7 +35,7 @@ std::string readUTF(std::istringstream& in) {
 }
 
 int32_t readInt(std::istringstream& in) {
-  uint32_t value;
+  uint32_t value{};
   in.read(reinterpret_cast<char*>(&value), sizeof(value));
   VELOX_CHECK(false == in.fail(), "Failed to read int: insufficient bytes");
   value = folly::Endian::big(value);
