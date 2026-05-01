@@ -23,7 +23,7 @@ namespace {
 
 // Java's CodecUtils.writeUtf8String: 2-byte big-endian length + standard UTF-8 bytes.
 std::string readUTF(std::istringstream& in) {
-  uint16_t length;
+  uint16_t length{};
   in.read(reinterpret_cast<char*>(&length), sizeof(length));
   VELOX_CHECK(false == in.fail(), "Failed to read UTF length: insufficient bytes");
   length = folly::Endian::big(length);
@@ -35,7 +35,7 @@ std::string readUTF(std::istringstream& in) {
 }
 
 int32_t readInt(std::istringstream& in) {
-  uint32_t value;
+  uint32_t value{};
   in.read(reinterpret_cast<char*>(&value), sizeof(value));
   VELOX_CHECK(false == in.fail(), "Failed to read int: insufficient bytes");
   value = folly::Endian::big(value);
