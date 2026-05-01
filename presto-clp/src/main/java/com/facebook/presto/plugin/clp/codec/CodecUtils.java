@@ -28,7 +28,7 @@ import java.nio.charset.StandardCharsets;
  * which differs from standard UTF-8 for null bytes ({@code 0xC0 0x80} vs {@code 0x00}) and
  * supplementary characters (surrogate pairs vs 4-byte sequences). The C++ side deserialize the encoding to std::strings
  * as raw bytes and passes them to clp-s, which assumes standard UTF-8 — so Modified UTF-8
- * would break string comparisons for any non-ASCII content.
+ * would break string comparisons for some unicode content.
  */
 final class CodecUtils
 {
