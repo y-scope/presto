@@ -213,7 +213,11 @@ class ResponseHandler : public proxygen::HTTPTransactionHandler {
 
   void setTransaction(proxygen::HTTPTransaction* txn) noexcept override {
     txn_ = CHECK_NOTNULL(txn);
+// Skip this check for GCC to prevent SIGSEGV as described in the issue:
+// https://github.com/prestodb/presto/issues/22995
+#if defined(__clang__)
     protocol_ = txn_->getTransport().getCodec().getProtocol();
+#endif
     // Track connection usage via sequence number:
     // - seqNo == 0: First request on this connection
     // - seqNo > 0: Connection is being reused for subsequent requests
