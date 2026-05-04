@@ -13,6 +13,20 @@ jobs:
         with:
           submodules: "recursive"
 
+      - name: "Set image tag"
+        id: "image-tag"
+        run: |-
+          if [ "${{ github.ref }}" = "refs/heads/release-0.297-edge-10-clp-connector-plugin" ]; then
+            echo "tag=plugin-base" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/release-0.297-edge-10-clp-connector" ]; then
+            echo "tag=dev" >> $GITHUB_OUTPUT
+            echo "push=${{ github.event_name != 'pull_request' }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=dev" >> $GITHUB_OUTPUT
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: "Login to image registry"
         uses: "docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772"
         with:
@@ -25,16 +39,14 @@ jobs:
         uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
         with:
           images: "ghcr.io/${{github.repository}}/prestissimo-worker-dev-env"
-          tags: "type=raw,value=dev"
+          tags: "type=raw,value=${{steps.image-tag.outputs.tag}}"
 
       - name: "Build and push dependency image"
         uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"
         with:
           context: "./presto-native-execution"
           file: "./presto-native-execution/scripts/dockerfiles/ubuntu-22.04-dependency.dockerfile"
-          push: >-
-            ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.297-edge-10-clp-connector'}}
+          push: "${{steps.image-tag.outputs.push == 'true'}}"
           tags: "${{steps.metadata-deps-image.outputs.tags}}"
           labels: "${{steps.metadata-deps-image.outputs.labels}}"
 
@@ -43,7 +55,7 @@ jobs:
         uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"
         with:
           images: "ghcr.io/${{github.repository}}/prestissimo-worker"
-          tags: "type=raw,value=dev"
+          tags: "type=raw,value=${{steps.image-tag.outputs.tag}}"
 
       - name: "Get number of cores"
         id: "get-cores"
@@ -61,8 +73,6 @@ jobs:
             OSNAME=ubuntu
           context: "./presto-native-execution"
           file: "./presto-native-execution/scripts/dockerfiles/prestissimo-runtime.dockerfile"
-          push: >-
-            ${{github.event_name != 'pull_request'
-            && github.ref == 'refs/heads/release-0.297-edge-10-clp-connector'}}
+          push: "${{steps.image-tag.outputs.push == 'true'}}"
           tags: "${{steps.metadata-runtime-image.outputs.tags}}"
           labels: "${{steps.metadata-runtime-image.outputs.labels}}"
