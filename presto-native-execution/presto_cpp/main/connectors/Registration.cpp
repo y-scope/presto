@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 #include "presto_cpp/main/connectors/Registration.h"
-#include "presto_cpp/main/connectors/ClpPrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/HivePrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/IcebergPrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/SystemConnector.h"
@@ -22,7 +21,6 @@
 #include "presto_cpp/main/connectors/arrow_flight/ArrowPrestoToVeloxConnector.h"
 #endif
 
-#include "velox/connectors/clp/ClpConnector.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/iceberg/IcebergConnector.h"
 #include "velox/connectors/tpcds/TpcdsConnector.h"
@@ -90,9 +88,6 @@ void registerConnectors() {
   registerPrestoToVeloxConnector(
       std::make_unique<SystemPrestoToVeloxConnector>("$system@system"));
 
-  registerPrestoToVeloxConnector(std::make_unique<ClpPrestoToVeloxConnector>(
-      velox::connector::clp::ClpConnectorFactory::kClpConnectorName));
-
 #ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
   registerPrestoToVeloxConnector(
       std::make_unique<ArrowPrestoToVeloxConnector>(
@@ -144,10 +139,6 @@ void registerConnectorFactories() {
   facebook::presto::registerConnectorFactory(
       std::make_shared<facebook::velox::connector::hive::iceberg::
                            IcebergConnectorFactory>());
-
-  facebook::presto::registerConnectorFactory(
-      std::make_shared<
-          facebook::velox::connector::clp::ClpConnectorFactory>());
 
 #ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
   // Note: ArrowFlightConnectorFactory would need to be implemented in Presto

@@ -16,7 +16,6 @@
 // DEPRECATED: This file is deprecated and will be removed in future versions.
 
 #include "presto_cpp/presto_protocol/connector/arrow_flight/presto_protocol_arrow_flight.cpp"
-#include "presto_cpp/presto_protocol/connector/clp/presto_protocol_clp.cpp"
 #include "presto_cpp/presto_protocol/connector/hive/presto_protocol_hive.cpp"
 #include "presto_cpp/presto_protocol/connector/iceberg/presto_protocol_iceberg.cpp"
 #include "presto_cpp/presto_protocol/connector/tpcds/presto_protocol_tpcds.cpp"
