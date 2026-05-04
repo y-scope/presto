@@ -63,31 +63,7 @@ jobs:
       - name: "Clean Maven output"
         run: "./mvnw clean -pl '!:presto-server,!:presto-cli,!presto-test-coverage'"
 
-  clp-connector-unit-tests:
-    name: "clp-connector-unit-tests"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          show-progress: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 17.0.13
-          cache: 'maven'
-      - name: Download nodejs to maven cache
-        run: .github/bin/download_nodejs
-      - name: Install presto-clp dependencies
-        run: |
-          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
-          ./mvnw install -B -V -T 1C -DskipTests -Dmaven.javadoc.skip=true --no-transfer-progress -am -pl 'presto-clp'
-      - name: Run presto-clp unit tests
-        run: |
-          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
-          ./mvnw test -B --no-transfer-progress -pl 'presto-clp'
-
-  presto-coordinator-image:
+presto-coordinator-image:
     name: "presto-coordinator-image"
     needs: "maven-checks"
     runs-on: "ubuntu-22.04"

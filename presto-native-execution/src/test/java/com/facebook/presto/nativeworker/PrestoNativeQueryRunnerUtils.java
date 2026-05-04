@@ -29,7 +29,6 @@ import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.iceberg.CatalogType;
 import com.facebook.presto.iceberg.FileFormat;
 import com.facebook.presto.iceberg.IcebergQueryRunner;
-import com.facebook.presto.plugin.clp.ClpQueryRunner;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.DistributedQueryRunner;
@@ -69,7 +68,6 @@ import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeW
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerSystemProperties;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.getNativeWorkerTpcdsProperties;
 import static com.facebook.presto.nativeworker.SymlinkManifestGeneratorUtils.createSymlinkManifest;
-import static com.facebook.presto.plugin.clp.ClpQueryRunner.CLP_CATALOG;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static java.util.Objects.requireNonNull;
@@ -527,25 +525,6 @@ public class PrestoNativeQueryRunnerUtils
         }
     }
 
-    public static QueryRunner createNativeClpQueryRunner(
-            String metadataDbUrl,
-            String metadataDbUser,
-            String metadataDbPassword,
-            String metadataDbTablePrefix)
-            throws Exception
-    {
-        NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
-        return ClpQueryRunner.createQueryRunner(
-                metadataDbUrl,
-                metadataDbUser,
-                metadataDbPassword,
-                metadataDbTablePrefix,
-                nativeQueryRunnerParameters.workerCount,
-                getExternalClpWorkerLauncher(
-                        CLP_CATALOG,
-                        nativeQueryRunnerParameters.serverBinary.toString()));
-    }
-
     public static void createSchemaIfNotExist(QueryRunner queryRunner, String schemaName)
     {
         ExtendedHiveMetastore metastore = getFileHiveMetastore((DistributedQueryRunner) queryRunner);
@@ -742,47 +721,6 @@ public class PrestoNativeQueryRunnerUtils
                         throw new UncheckedIOException(e);
                     }
                 });
-    }
-
-    public static Optional<BiFunction<Integer, URI, Process>> getExternalClpWorkerLauncher(
-            String catalogName,
-            String prestoServerPath)
-    {
-        return Optional.of((workerIndex, discoveryUri) -> {
-            try {
-                Path dir = Paths.get("/tmp", PrestoNativeQueryRunnerUtils.class.getSimpleName());
-                Files.createDirectories(dir);
-                Path tempDirectoryPath = Files.createTempDirectory(dir, "worker");
-                log.info("Temp directory for Worker #%d: %s", workerIndex, tempDirectoryPath.toString());
-
-                String configProperties = format("discovery.uri=%s%n" +
-                        "presto.version=testversion%n" +
-                        "system-memory-gb=4%n" +
-                        "http-server.http.port=0%n", discoveryUri);
-
-                Files.write(tempDirectoryPath.resolve("config.properties"), configProperties.getBytes());
-                Files.write(tempDirectoryPath.resolve("node.properties"),
-                        format("node.id=%s%n" +
-                                "node.internal-address=127.0.0.1%n" +
-                                "node.environment=testing%n" +
-                                "node.location=test-location", UUID.randomUUID()).getBytes());
-
-                Path catalogDirectoryPath = tempDirectoryPath.resolve("catalog");
-                Files.createDirectory(catalogDirectoryPath);
-                Files.write(catalogDirectoryPath.resolve(format("%s.properties", catalogName)),
-                        "connector.name=clp".getBytes());
-
-                return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
-                        .directory(tempDirectoryPath.toFile())
-                        .redirectErrorStream(true)
-                        .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                        .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                        .start();
-            }
-            catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
     }
 
     public static class NativeQueryRunnerParameters
