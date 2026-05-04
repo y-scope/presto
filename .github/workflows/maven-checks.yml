@@ -63,7 +63,7 @@ jobs:
       - name: "Clean Maven output"
         run: "./mvnw clean -pl '!:presto-server,!:presto-cli,!presto-test-coverage'"
 
-presto-coordinator-image:
+  presto-coordinator-image:
     name: "presto-coordinator-image"
     needs: "maven-checks"
     runs-on: "ubuntu-22.04"
