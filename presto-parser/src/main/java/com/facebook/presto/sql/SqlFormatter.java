@@ -103,6 +103,8 @@ import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SampledRelation;
 import com.facebook.presto.sql.tree.Select;
 import com.facebook.presto.sql.tree.SelectItem;
+import com.facebook.presto.sql.tree.SetColumnDefault;
+import com.facebook.presto.sql.tree.SetColumnType;
 import com.facebook.presto.sql.tree.SetProperties;
 import com.facebook.presto.sql.tree.SetRole;
 import com.facebook.presto.sql.tree.SetSession;
@@ -1041,7 +1043,16 @@ public final class SqlFormatter
 
         protected Void visitSetProperties(SetProperties node, Integer context)
         {
-            builder.append("ALTER TABLE ");
+            switch (node.getType()) {
+                case TABLE:
+                    builder.append("ALTER TABLE ");
+                    break;
+                case MATERIALIZED_VIEW:
+                    builder.append("ALTER MATERIALIZED VIEW ");
+                    break;
+                default:
+                    throw new UnsupportedOperationException("Unsupported SetProperties type: " + node.getType());
+            }
             if (node.isTableExists()) {
                 builder.append("IF EXISTS ");
             }
@@ -2043,6 +2054,21 @@ public final class SqlFormatter
             return null;
         }
 
+        @Override
+        protected Void visitSetColumnDefault(SetColumnDefault node, Integer indent)
+        {
+            builder.append("ALTER TABLE ");
+            if (node.isTableExists()) {
+                builder.append("IF EXISTS ");
+            }
+            builder.append(formatName(node.getTable()));
+            builder.append(" ALTER COLUMN ");
+            builder.append(formatName(node.getColumn()));
+            builder.append(" SET DEFAULT ");
+            process(node.getDefaultExpression(), indent);
+            return null;
+        }
+
         private String processConstraintDefinition(ConstraintSpecification node)
         {
             StringBuilder sb = new StringBuilder();
@@ -2084,6 +2110,21 @@ public final class SqlFormatter
             else {
                 process(relation, indent);
             }
+        }
+
+        @Override
+        protected Void visitSetColumnType(SetColumnType node, Integer context)
+        {
+            builder.append("ALTER TABLE ");
+            if (node.isTableExists()) {
+                builder.append("IF EXISTS ");
+            }
+            builder.append(formatName(node.getTableName()))
+                    .append(" ALTER COLUMN ")
+                    .append(formatName(node.getColumnName()))
+                    .append(" SET DATA TYPE ")
+                    .append(node.getType().toString());
+            return null;
         }
 
         private StringBuilder append(int indent, String value)

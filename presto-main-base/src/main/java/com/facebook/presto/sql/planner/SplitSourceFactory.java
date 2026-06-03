@@ -80,7 +80,7 @@ import static com.facebook.presto.SystemSessionProperties.isNativeExecutionEnabl
 import static com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingStrategy.GROUPED_SCHEDULING;
 import static com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingStrategy.REWINDABLE_GROUPED_SCHEDULING;
 import static com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingStrategy.UNGROUPED_SCHEDULING;
-import static com.google.common.collect.Iterables.getOnlyElement;
+import static com.google.common.collect.MoreCollectors.onlyElement;
 import static java.util.Objects.requireNonNull;
 
 public class SplitSourceFactory
@@ -156,11 +156,15 @@ public class SplitSourceFactory
         {
             // get dataSource for table
             TableHandle table = node.getTable();
+            Map<String, String> partitionColumnMapping = stageExecutionDescriptor.isScanGroupedExecution(node.getId())
+                    ? stageExecutionDescriptor.getPartitionColumnMapping(node.getId())
+                    : ImmutableMap.of();
             Supplier<SplitSource> splitSourceSupplier = () -> splitSourceProvider.getSplits(
                     session,
                     table,
                     getSplitSchedulingStrategy(stageExecutionDescriptor, node.getId()),
-                    warningCollector);
+                    warningCollector,
+                    partitionColumnMapping);
 
             SplitSource splitSource = new LazySplitSource(splitSourceSupplier);
 
@@ -244,6 +248,9 @@ public class SplitSourceFactory
 
             TableHandle table = node.getTableHandle();
             SplitSchedulingStrategy strategy = getSplitSchedulingStrategy(stageExecutionDescriptor, node.getId());
+            Map<String, String> partitionColumnMapping = stageExecutionDescriptor.isScanGroupedExecution(node.getId())
+                    ? stageExecutionDescriptor.getPartitionColumnMapping(node.getId())
+                    : ImmutableMap.of();
 
             // Use LazySplitSource to defer the potentially expensive MetaStore
             // call (split enumeration) until splits are actually needed,
@@ -251,7 +258,7 @@ public class SplitSourceFactory
             // to be resolved by the connector's plan optimizer
             // (ApplyConnectorOptimization).
             SplitSource splitSource = new LazySplitSource(
-                    () -> splitSourceProvider.getSplits(session, table, strategy, warningCollector));
+                    () -> splitSourceProvider.getSplits(session, table, strategy, warningCollector, partitionColumnMapping));
             splitSources.add(splitSource);
 
             return ImmutableMap.of(node.getId(), splitSource);
@@ -287,7 +294,7 @@ public class SplitSourceFactory
                     Map<PlanNodeId, SplitSource> nodeSplits = node.getSource().accept(this, context);
                     // TODO: when this happens we should switch to either BERNOULLI or page sampling
                     if (nodeSplits.size() == 1) {
-                        PlanNodeId planNodeId = getOnlyElement(nodeSplits.keySet());
+                        PlanNodeId planNodeId = nodeSplits.keySet().stream().collect(onlyElement());
                         SplitSource sampledSplitSource = new SampledSplitSource(nodeSplits.get(planNodeId), node.getSampleRatio());
                         return ImmutableMap.of(planNodeId, sampledSplitSource);
                     }

@@ -29,6 +29,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -90,29 +91,16 @@ public class PluginManagerUtil
             return;
         }
 
+        List<String> pluginsToLoad = new ArrayList<>();
+
         for (File file : listFiles(installedPluginsDir)) {
             if (file.isDirectory()) {
-                loadPlugin(
-                        file.getAbsolutePath(),
-                        resolver,
-                        spiPackages,
-                        coordinatorPluginServicesFile,
-                        pluginServicesFile,
-                        pluginInstaller,
-                        parent);
+                pluginsToLoad.add(file.getAbsolutePath());
             }
         }
 
-        for (String plugin : plugins) {
-            loadPlugin(
-                    plugin,
-                    resolver,
-                    spiPackages,
-                    coordinatorPluginServicesFile,
-                    pluginServicesFile,
-                    pluginInstaller,
-                    parent);
-        }
+        pluginsToLoad.addAll(plugins);
+        loadPlugins(pluginsToLoad, resolver, spiPackages, coordinatorPluginServicesFile, pluginServicesFile, pluginInstaller, parent);
 
         if (metadata != null) {
             metadata.verifyComparableOrderableContract();
@@ -121,8 +109,8 @@ public class PluginManagerUtil
         pluginsLoaded.set(true);
     }
 
-    public static void loadPlugin(
-            String plugin,
+    public static void loadPlugins(
+            List<String> pluginsList,
             ArtifactResolver resolver,
             List<String> spiPackages,
             String coordinatorPluginServicesFile,
@@ -131,23 +119,47 @@ public class PluginManagerUtil
             ClassLoader parent)
             throws Exception
     {
-        log.info("-- Loading plugin %s --", plugin);
-        URLClassLoader pluginClassLoader = buildClassLoader(
-                plugin,
-                resolver,
-                spiPackages,
-                coordinatorPluginServicesFile,
-                pluginServicesFile,
-                parent);
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(pluginClassLoader)) {
-            loadPlugin(pluginClassLoader, RouterPlugin.class, pluginInstaller);
-            loadPlugin(pluginClassLoader, CoordinatorPlugin.class, pluginInstaller);
-            loadPlugin(pluginClassLoader, Plugin.class, pluginInstaller);
+        List<PluginClassLoaderHandle> pluginClassLoaders = new ArrayList<>();
+        try {
+            for (String plugin : pluginsList) {
+                pluginClassLoaders.add(new PluginClassLoaderHandle(
+                        plugin,
+                        buildClassLoader(
+                                plugin,
+                                resolver,
+                                spiPackages,
+                                coordinatorPluginServicesFile,
+                                pluginServicesFile,
+                                parent)));
+            }
         }
-        log.info("-- Finished loading plugin %s --", plugin);
+        catch (Exception e) {
+            closePluginClassLoaders(pluginClassLoaders);
+            throw e;
+        }
+
+        // Ensuring all coordinator plugins are installed before any plugins across all plugin bundles.
+        // router plugins ordering is not relevant here.
+        loadPlugins(pluginClassLoaders, CoordinatorPlugin.class, pluginInstaller);
+        loadPlugins(pluginClassLoaders, Plugin.class, pluginInstaller);
+        loadPlugins(pluginClassLoaders, RouterPlugin.class, pluginInstaller);
     }
 
-    public static void loadPlugin(
+    private static void loadPlugins(
+            List<PluginClassLoaderHandle> pluginClassLoaders,
+            Class<?> clazz,
+            PluginInstaller pluginInstaller)
+    {
+        for (PluginClassLoaderHandle pluginClassLoader : pluginClassLoaders) {
+            log.info("-- Loading %s from plugin %s --", clazz.getSimpleName(), pluginClassLoader.getPlugin());
+            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(pluginClassLoader.getClassLoader())) {
+                loadPlugin(pluginClassLoader.getClassLoader(), clazz, pluginInstaller);
+            }
+            log.info("-- Finished loading %s from plugin %s --", clazz.getSimpleName(), pluginClassLoader.getPlugin());
+        }
+    }
+
+    private static void loadPlugin(
             URLClassLoader pluginClassLoader,
             Class<?> clazz,
             PluginInstaller pluginInstaller)
@@ -161,6 +173,7 @@ public class PluginManagerUtil
 
         for (Object plugin : plugins) {
             log.info("Installing %s", plugin.getClass().getName());
+
             if (plugin instanceof Plugin) {
                 pluginInstaller.installPlugin((Plugin) plugin);
             }
@@ -185,7 +198,7 @@ public class PluginManagerUtil
             ClassLoader parent)
             throws Exception
     {
-        File file = new File(plugin);
+        File file = Paths.get(plugin).toFile();
         if (file.isFile() && (file.getName().equals("pom.xml") || file.getName().endsWith(".pom"))) {
             return buildClassLoaderFromPom(file, resolver, spiPackages, coordinatorPluginServicesFile, pluginServicesFile, parent);
         }
@@ -291,6 +304,40 @@ public class PluginManagerUtil
         Set<String> plugins = discoverPlugins(artifact, classLoader, servicesFile, className);
         if (!plugins.isEmpty()) {
             writePluginServices(plugins, artifact.getFile(), servicesFile);
+        }
+    }
+
+    private static void closePluginClassLoaders(List<PluginClassLoaderHandle> pluginClassLoaders)
+    {
+        for (PluginClassLoaderHandle pluginClassLoader : pluginClassLoaders) {
+            try {
+                pluginClassLoader.getClassLoader().close();
+            }
+            catch (IOException e) {
+                log.warn(e, "Failed to close plugin classloader for %s", pluginClassLoader.getPlugin());
+            }
+        }
+    }
+
+    private static class PluginClassLoaderHandle
+    {
+        private final String plugin;
+        private final URLClassLoader classLoader;
+
+        private PluginClassLoaderHandle(String plugin, URLClassLoader classLoader)
+        {
+            this.plugin = plugin;
+            this.classLoader = classLoader;
+        }
+
+        public String getPlugin()
+        {
+            return plugin;
+        }
+
+        public URLClassLoader getClassLoader()
+        {
+            return classLoader;
         }
     }
 }

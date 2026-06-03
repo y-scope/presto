@@ -22,7 +22,11 @@ import com.facebook.presto.common.predicate.NullableValue;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.DecimalType;
 import com.facebook.presto.common.type.Decimals;
+import com.facebook.presto.common.type.RealType;
+import com.facebook.presto.common.type.TimeType;
+import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.common.type.TimestampType;
+import com.facebook.presto.common.type.TimestampWithTimeZoneType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.common.type.VarbinaryType;
@@ -53,6 +57,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.ContentFile;
@@ -79,6 +84,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.hive.HiveSchemaUtil;
 import org.apache.iceberg.io.CloseableIterable;
@@ -95,6 +101,7 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -117,7 +124,9 @@ import static com.facebook.presto.common.predicate.Domain.singleValue;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.Chars.isCharType;
+import static com.facebook.presto.common.type.DateTimeEncoding.packDateTimeWithZone;
 import static com.facebook.presto.common.type.DateType.DATE;
+import static com.facebook.presto.common.type.Decimals.encodeScaledValue;
 import static com.facebook.presto.common.type.Decimals.isLongDecimal;
 import static com.facebook.presto.common.type.Decimals.isShortDecimal;
 import static com.facebook.presto.common.type.DoubleType.DOUBLE;
@@ -141,6 +150,7 @@ import static com.facebook.presto.iceberg.ExpressionConverter.toIcebergExpressio
 import static com.facebook.presto.iceberg.FileContent.POSITION_DELETES;
 import static com.facebook.presto.iceberg.FileContent.fromIcebergFileContent;
 import static com.facebook.presto.iceberg.IcebergColumnHandle.DATA_SEQUENCE_NUMBER_COLUMN_HANDLE;
+import static com.facebook.presto.iceberg.IcebergColumnHandle.LAST_UPDATED_SEQUENCE_NUMBER_COLUMN_HANDLE;
 import static com.facebook.presto.iceberg.IcebergColumnHandle.PATH_COLUMN_HANDLE;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_INVALID_FORMAT_VERSION;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_INVALID_PARTITION_VALUE;
@@ -192,6 +202,7 @@ import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH;
 import static org.apache.iceberg.CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES;
 import static org.apache.iceberg.LocationProviders.locationsFor;
+import static org.apache.iceberg.MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER;
 import static org.apache.iceberg.MetadataTableUtils.createMetadataTableInstance;
 import static org.apache.iceberg.TableProperties.COMMIT_NUM_RETRIES;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
@@ -218,6 +229,7 @@ import static org.apache.iceberg.TableProperties.WRITE_DATA_LOCATION;
 import static org.apache.iceberg.TableProperties.WRITE_FOLDER_STORAGE_LOCATION;
 import static org.apache.iceberg.TableProperties.WRITE_LOCATION_PROVIDER_IMPL;
 import static org.apache.iceberg.TableProperties.WRITE_METADATA_LOCATION;
+import static org.apache.iceberg.expressions.Expressions.alwaysTrue;
 import static org.apache.iceberg.types.Type.TypeID.BINARY;
 import static org.apache.iceberg.types.Type.TypeID.FIXED;
 
@@ -226,6 +238,7 @@ public final class IcebergUtil
     private static final Logger log = Logger.get(IcebergUtil.class);
     public static final int MIN_FORMAT_VERSION_FOR_DELETE = 2;
     public static final int MAX_FORMAT_VERSION_FOR_ROW_LEVEL_OPERATIONS = 2;
+    public static final int MIN_FORMAT_VERSION_FOR_ROW_LINEAGE = 3;
     public static final int MAX_SUPPORTED_FORMAT_VERSION = 3;
 
     public static final long DOUBLE_POSITIVE_ZERO = 0x0000000000000000L;
@@ -239,6 +252,12 @@ public final class IcebergUtil
     public static final int REAL_NEGATIVE_INFINITE = 0xff800000;
 
     protected static final String VIEW_OWNER = "view_owner";
+
+    public static final int DEFAULT_MIN_INPUT_FILES = 5;
+
+    private static final Schema LINEAGE_ONLY_SCHEMA = new Schema(LAST_UPDATED_SEQUENCE_NUMBER);
+    private static final InclusiveMetricsEvaluator MATCH_ALL_LINEAGE_EVALUATOR =
+            new InclusiveMetricsEvaluator(LINEAGE_ONLY_SCHEMA, alwaysTrue());
 
     private IcebergUtil() {}
 
@@ -308,6 +327,11 @@ public final class IcebergUtil
         else {
             throw new PrestoException(NOT_SUPPORTED, "Unsupported Table type: " + table.getClass().getName());
         }
+    }
+
+    public static boolean supportsRowLineage(Table table)
+    {
+        return opsFromTable(table).current().formatVersion() >= MIN_FORMAT_VERSION_FOR_ROW_LINEAGE;
     }
 
     public static void validateMinimumFormatVersion(Table table, int minVersion, String errorMessage)
@@ -510,13 +534,34 @@ public final class IcebergUtil
                 .anyMatch(snapshot -> snapshot.snapshotId() == id);
     }
 
+    /**
+     * Sanitizes table properties by converting deprecated properties that cause errors in Iceberg 1.9.0+.
+     *
+     * @param properties the original properties map
+     * @param tableName the table name for logging purposes
+     * @return a new map with deprecated properties converted to their new equivalents
+     */
+    public static Map<String, String> sanitizeProperties(Map<String, String> properties, String tableName)
+    {
+        Map<String, String> sanitized = new HashMap<>(properties);
+        if (sanitized.containsKey(OBJECT_STORE_PATH)) {
+            log.warn("Table %s uses deprecated property '%s'. Converting to '%s' for Iceberg library compatibility.", tableName, OBJECT_STORE_PATH, WRITE_DATA_LOCATION);
+            if (!sanitized.containsKey(WRITE_DATA_LOCATION)) {
+                sanitized.put(WRITE_DATA_LOCATION, sanitized.get(OBJECT_STORE_PATH));
+            }
+            sanitized.remove(OBJECT_STORE_PATH);
+        }
+        return sanitized;
+    }
+
     public static LocationProvider getLocationProvider(SchemaTableName schemaTableName, String tableLocation, Map<String, String> storageProperties)
     {
         if (storageProperties.containsKey(WRITE_LOCATION_PROVIDER_IMPL)) {
             throw new PrestoException(NOT_SUPPORTED, "Table " + schemaTableName + " specifies " + storageProperties.get(WRITE_LOCATION_PROVIDER_IMPL) +
                     " as a location provider. Writing to Iceberg tables with custom location provider is not supported.");
         }
-        return locationsFor(tableLocation, storageProperties);
+        Map<String, String> sanitizedProperties = sanitizeProperties(storageProperties, schemaTableName.toString());
+        return locationsFor(tableLocation, sanitizedProperties);
     }
 
     public static TableScan buildTableScan(Table icebergTable, MetadataTableType metadataTableType, RuntimeStats runtimeStats)
@@ -643,9 +688,8 @@ public final class IcebergUtil
         return partitionValue == null ? NullableValue.asNull(prestoType) : NullableValue.of(prestoType, partitionValue);
     }
 
-    // Strip the constraints on metadata columns like "$path", "$data_sequence_number" from the list.
-    // Also strips row lineage columns (_row_id, _last_updated_sequence_number) which cannot be
-    // pushed to Iceberg's manifest filter because they are not part of the physical table schema.
+    // Row-lineage columns are stripped because Iceberg's Binder rejects field ids absent from
+    // the table schema; they are evaluated at the split level instead.
     public static <U> TupleDomain<IcebergColumnHandle> getNonMetadataColumnConstraints(TupleDomain<U> allConstraints)
     {
         return allConstraints.transform(c -> {
@@ -659,10 +703,21 @@ public final class IcebergUtil
 
     public static <U> TupleDomain<IcebergColumnHandle> getMetadataColumnConstraints(TupleDomain<U> allConstraints)
     {
-        return allConstraints.transform(c -> isMetadataColumnId(((IcebergColumnHandle) c).getId()) ? (IcebergColumnHandle) c : null);
+        return allConstraints.transform(c -> {
+            IcebergColumnHandle handle = (IcebergColumnHandle) c;
+            if (isMetadataColumnId(handle.getId()) || handle.isLastUpdatedSequenceNumberColumn()) {
+                return handle;
+            }
+            return null;
+        });
     }
 
-    public static boolean metadataColumnsMatchPredicates(TupleDomain<IcebergColumnHandle> constraints, String path, long dataSequenceNumber)
+    public static boolean metadataColumnsMatchPredicates(
+            TupleDomain<IcebergColumnHandle> constraints,
+            String path,
+            long dataSequenceNumber,
+            ContentFile<?> file,
+            InclusiveMetricsEvaluator lineageEvaluator)
     {
         if (constraints.isAll()) {
             return true;
@@ -671,16 +726,57 @@ public final class IcebergUtil
         boolean matches = true;
         if (constraints.getDomains().isPresent()) {
             for (Map.Entry<IcebergColumnHandle, Domain> constraint : constraints.getDomains().get().entrySet()) {
-                if (constraint.getKey() == PATH_COLUMN_HANDLE) {
-                    matches &= constraint.getValue().includesNullableValue(utf8Slice(path));
+                IcebergColumnHandle handle = constraint.getKey();
+                Domain domain = constraint.getValue();
+                if (handle == PATH_COLUMN_HANDLE) {
+                    matches &= domain.includesNullableValue(utf8Slice(path));
                 }
-                else if (constraint.getKey() == DATA_SEQUENCE_NUMBER_COLUMN_HANDLE) {
-                    matches &= constraint.getValue().includesNullableValue(dataSequenceNumber);
+                else if (handle == DATA_SEQUENCE_NUMBER_COLUMN_HANDLE) {
+                    matches &= domain.includesNullableValue(dataSequenceNumber);
+                }
+                else if (handle.isLastUpdatedSequenceNumberColumn()) {
+                    matches &= lastUpdatedSequenceNumberMatches(domain, dataSequenceNumber, file, lineageEvaluator);
                 }
             }
         }
 
         return matches;
+    }
+
+    // The fallback branches handle cases where InclusiveMetricsEvaluator would over-include:
+    // V2/no-row-lineage files (column always null) and V3 pre-compaction (effective value =
+    // dataSequenceNumber per Iceberg's LastUpdatedSeqReader).
+    private static boolean lastUpdatedSequenceNumberMatches(
+            Domain domain,
+            long dataSequenceNumber,
+            ContentFile<?> file,
+            InclusiveMetricsEvaluator evaluator)
+    {
+        int fieldId = LAST_UPDATED_SEQUENCE_NUMBER.fieldId();
+        Map<Integer, ByteBuffer> lowerBounds = file.lowerBounds();
+        Map<Integer, ByteBuffer> upperBounds = file.upperBounds();
+        if (lowerBounds != null && lowerBounds.containsKey(fieldId)
+                && upperBounds != null && upperBounds.containsKey(fieldId)) {
+            return evaluator.eval(file);
+        }
+        if (file instanceof DataFile && ((DataFile) file).firstRowId() == null) {
+            return domain.isNullAllowed();
+        }
+        return domain.includesNullableValue(dataSequenceNumber);
+    }
+
+    public static InclusiveMetricsEvaluator buildLastUpdatedSequenceNumberEvaluator(TupleDomain<IcebergColumnHandle> metadataColumnConstraints)
+    {
+        if (metadataColumnConstraints.getDomains().isEmpty()) {
+            return MATCH_ALL_LINEAGE_EVALUATOR;
+        }
+        Domain domain = metadataColumnConstraints.getDomains().get().get(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN_HANDLE);
+        if (domain == null) {
+            return MATCH_ALL_LINEAGE_EVALUATOR;
+        }
+        Expression expression = toIcebergExpression(TupleDomain.withColumnDomains(
+                ImmutableMap.of(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN_HANDLE, domain)));
+        return new InclusiveMetricsEvaluator(LINEAGE_ONLY_SCHEMA, expression);
     }
 
     public static PartitionSet getPartitions(
@@ -1431,6 +1527,58 @@ public final class IcebergUtil
         return getTargetSplitSize(IcebergSessionProperties.getTargetSplitSize(session), scan.targetSplitSize());
     }
 
+    public static Object getNativeValue(Type type, Object value)
+    {
+        if (value == null) {
+            return null;
+        }
+        else if (type.getJavaType() == double.class) {
+            return ((Number) value).doubleValue();
+        }
+        else if (type.getJavaType() == long.class) {
+            if (type instanceof TimestampType || type instanceof TimeType) {
+                return MICROSECONDS.toMillis((long) value);
+            }
+            else if (type instanceof TimestampWithTimeZoneType) {
+                return packDateTimeWithZone(MICROSECONDS.toMillis((long) value), TimeZoneKey.UTC_KEY);
+            }
+            else if (value instanceof BigDecimal) {
+                return ((BigDecimal) value).unscaledValue().longValue();
+            }
+            else if (value instanceof Float && type instanceof RealType) {
+                return (long) floatToRawIntBits((Float) value);
+            }
+            else {
+                return ((Number) value).longValue();
+            }
+        }
+        else if (type.getJavaType() == Slice.class) {
+            Slice slice;
+            if (value instanceof byte[]) {
+                slice = Slices.wrappedBuffer((byte[]) value);
+            }
+            else if (value instanceof String) {
+                slice = Slices.utf8Slice((String) value);
+            }
+            else if (value instanceof BigDecimal) {
+                slice = encodeScaledValue((BigDecimal) value);
+            }
+            else if (value instanceof ByteBuffer) {
+                slice = Slices.wrappedBuffer(((ByteBuffer) value).array());
+            }
+            else if (value instanceof CharBuffer) {
+                slice = Slices.utf8Slice(((CharBuffer) value).toString());
+            }
+            else {
+                slice = (Slice) value;
+            }
+            return slice;
+        }
+        else {
+            return value;
+        }
+    }
+
     // This code is copied from Iceberg
     private static String fullTableName(String catalogName, TableIdentifier identifier)
     {
@@ -1460,9 +1608,13 @@ public final class IcebergUtil
     /**
      * Convert a Presto internal representation default value to an Iceberg Literal based on the column type.
      * This is used to set initial-default and write-default values in Iceberg V3 schemas.
+     * Returns null if defaultValue is null, which represents setting the default to NULL.
      */
     public static Literal<?> convertToIcebergLiteral(Object defaultValue, org.apache.iceberg.types.Type icebergType)
     {
+        if (defaultValue == null) {
+            return null;
+        }
         switch (icebergType.typeId()) {
             case STRING:
                 return Literal.of(((Slice) defaultValue).toStringUtf8());
@@ -1507,7 +1659,7 @@ public final class IcebergUtil
 
     /**
      * Parses and validates the min-input-files option value.
-     * Returns the parsed integer value, or 1 if the option is not present.
+     * Returns the parsed integer value, or default of {@value #DEFAULT_MIN_INPUT_FILES} if the option is not present.
      *
      * @throws IllegalArgumentException if the value is invalid
      */
@@ -1515,7 +1667,7 @@ public final class IcebergUtil
     {
         String minInputFilesStr = options.get("min-input-files");
         if (minInputFilesStr == null) {
-            return 1;
+            return DEFAULT_MIN_INPUT_FILES;
         }
 
         try {
@@ -1536,6 +1688,8 @@ public final class IcebergUtil
      * Parses and validates the min-file-size-bytes option value.
      * Returns the parsed long value, or 0 if the option is not present.
      *
+     * @param options rewrite options map
+     * @return minimum file size threshold in bytes
      * @throws IllegalArgumentException if the value is invalid
      */
     public static long parseMinFileSize(Map<String, String> options)
@@ -1544,7 +1698,6 @@ public final class IcebergUtil
         if (minFileSizeStr == null) {
             return 0;
         }
-
         try {
             long minFileSize = Long.parseLong(minFileSizeStr);
             if (minFileSize < 0) {
@@ -1571,7 +1724,6 @@ public final class IcebergUtil
         if (maxFileSizeStr == null) {
             return 0;
         }
-
         try {
             long maxFileSize = Long.parseLong(maxFileSizeStr);
             if (maxFileSize < 0) {
@@ -1587,8 +1739,22 @@ public final class IcebergUtil
     }
 
     /**
+     * Parses and validates the rewrite-all option value.
+     * Returns true if the option is set to "true", false otherwise.
+     */
+    public static boolean parseRewriteAll(Map<String, String> options)
+    {
+        String rewriteAllStr = options.get("rewrite-all");
+        if (rewriteAllStr == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(rewriteAllStr.trim());
+    }
+
+    /**
      * Filters files by partition-level criteria.
      * Selects files from partitions that have at least min-input-files files.
+     * If rewrite-all is true, skips filtering and returns all tasks.
      *
      * @param tasks all available tasks
      * @param options rewrite options map
@@ -1596,6 +1762,10 @@ public final class IcebergUtil
      */
     public static CloseableIterable<FileScanTask> filterByGroup(CloseableIterable<FileScanTask> tasks, Map<String, String> options)
     {
+        if (parseRewriteAll(options)) {
+            return tasks;
+        }
+
         int minInputFiles = parseMinInputFiles(options);
         if (minInputFiles <= 1) {
             return tasks;
@@ -1628,6 +1798,7 @@ public final class IcebergUtil
     /**
      * Filters files by individual file criteria using OR logic.
      * Selects files that are too small (< min-file-size-bytes) OR too large (> max-file-size-bytes).
+     * If rewrite-all is true, skips filtering and returns all tasks.
      *
      * @param tasks all available tasks
      * @param options rewrite options map
@@ -1635,6 +1806,10 @@ public final class IcebergUtil
      */
     public static CloseableIterable<FileScanTask> filterByFile(CloseableIterable<FileScanTask> tasks, Map<String, String> options)
     {
+        if (parseRewriteAll(options)) {
+            return tasks;
+        }
+
         long minFileSizeBytes = parseMinFileSize(options);
         long maxFileSizeBytes = parseMaxFileSize(options);
 

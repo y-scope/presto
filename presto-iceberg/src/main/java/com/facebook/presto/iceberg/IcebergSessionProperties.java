@@ -32,6 +32,7 @@ import org.apache.parquet.column.ParquetProperties;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
@@ -72,8 +73,11 @@ public final class IcebergSessionProperties
     public static final String STATISTICS_KLL_SKETCH_K_PARAMETER = "statistics_kll_sketch_k_parameter";
     public static final String TARGET_SPLIT_SIZE_BYTES = "target_split_size_bytes";
     public static final String MATERIALIZED_VIEW_STORAGE_PREFIX = "materialized_view_storage_prefix";
+    public static final String MATERIALIZED_VIEW_DEFAULT_STORAGE_SCHEMA = "materialized_view_default_storage_schema";
     public static final String MAX_PARTITIONS_PER_WRITER = "max_partitions_per_writer";
     public static final String MATERIALIZED_VIEW_MAX_CHANGED_PARTITIONS = "materialized_view_max_changed_partitions";
+    public static final String MATERIALIZED_VIEW_DEFAULT_MAX_SNAPSHOTS_PER_REFRESH = "materialized_view_default_max_snapshots_per_refresh";
+    public static final String AGGREGATE_PUSH_DOWN_ENABLED = "aggregate_push_down_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -244,11 +248,29 @@ public final class IcebergSessionProperties
                                 "When a custom table name is provided, it takes precedence over this prefix.",
                         icebergConfig.getMaterializedViewStoragePrefix(),
                         false))
+                .add(stringProperty(
+                        MATERIALIZED_VIEW_DEFAULT_STORAGE_SCHEMA,
+                        "Default schema for materialized view storage tables when the storage_schema " +
+                                "table property is not set. When unset (null), storage tables are created in the " +
+                                "same schema as the materialized view.",
+                        icebergConfig.getMaterializedViewDefaultStorageSchema(),
+                        false))
                 .add(integerProperty(
                         MATERIALIZED_VIEW_MAX_CHANGED_PARTITIONS,
                         "Maximum number of changed partitions to track for materialized view staleness detection. " +
                                 "If the number of changed partitions exceeds this threshold, the materialized view will fall back to full recompute.",
                         icebergConfig.getMaterializedViewMaxChangedPartitions(),
+                        false))
+                .add(integerProperty(
+                        MATERIALIZED_VIEW_DEFAULT_MAX_SNAPSHOTS_PER_REFRESH,
+                        "Default upper bound on snapshots consumed per base table per refresh when the materialized view " +
+                                "does not override it via the max_snapshots_per_refresh table property. 0 means unbounded.",
+                        icebergConfig.getMaterializedViewDefaultMaxSnapshotsPerRefresh(),
+                        false))
+                .add(booleanProperty(
+                        AGGREGATE_PUSH_DOWN_ENABLED,
+                        "Controls whether to push down aggregate (MIN/MAX/COUNT) to Iceberg based on data file stats",
+                        icebergConfig.isAggregatePushDownEnabled(),
                         false));
 
         nessieConfig.ifPresent((config) -> propertiesBuilder
@@ -404,8 +426,27 @@ public final class IcebergSessionProperties
         return session.getProperty(MATERIALIZED_VIEW_STORAGE_PREFIX, String.class);
     }
 
+    public static Optional<String> getMaterializedViewDefaultStorageSchema(ConnectorSession session)
+    {
+        return Optional.ofNullable(session.getProperty(MATERIALIZED_VIEW_DEFAULT_STORAGE_SCHEMA, String.class));
+    }
+
     public static int getMaterializedViewMaxChangedPartitions(ConnectorSession session)
     {
         return session.getProperty(MATERIALIZED_VIEW_MAX_CHANGED_PARTITIONS, Integer.class);
+    }
+
+    public static OptionalInt getMaterializedViewDefaultMaxSnapshotsPerRefresh(ConnectorSession session)
+    {
+        Integer value = session.getProperty(MATERIALIZED_VIEW_DEFAULT_MAX_SNAPSHOTS_PER_REFRESH, Integer.class);
+        if (value == null || value <= 0) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(value);
+    }
+
+    public static boolean isAggregatePushDownEnabled(ConnectorSession session)
+    {
+        return session.getProperty(AGGREGATE_PUSH_DOWN_ENABLED, Boolean.class);
     }
 }
