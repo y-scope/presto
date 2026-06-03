@@ -227,6 +227,11 @@ public abstract class IcebergDistributedTestBase
         this.icebergQueryRunner = IcebergQueryRunner.builder()
                 .setCatalogType(catalogType)
                 .setExtraConnectorProperties(extraConnectorProperties)
+                // These tests do not rely on long query history (no assertions on past queries,
+                // retries, or timing behavior). The aggressive limits below are chosen solely to
+                // reduce query history memory usage and are safe for all Iceberg distributed tests.
+                .setExtraProperties(ImmutableMap.of("query.max-age", "10s",
+                        "query.max-history", "10"))
                 .build();
         return icebergQueryRunner.getQueryRunner();
     }
@@ -368,12 +373,29 @@ public abstract class IcebergDistributedTestBase
     private void testAddColumnWithDefault(Session session, FileFormat fileFormat)
     {
         String tableName = "test_add_column_with_default_" + randomTableSuffix();
+        assertUpdate(session, "DROP TABLE IF EXISTS " + tableName);
         // Test varchar default
         assertUpdate(session, "CREATE TABLE " + tableName + "(id int, name varchar) with (\"format-version\" = '3', \"write.format.default\" = '" + fileFormat + "')");
         assertUpdate(session, "INSERT INTO " + tableName + " VALUES(1, 'Alice'), (2, 'Bob')", 2);
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN country varchar DEFAULT 'IN'");
         Table icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("country").initialDefault(), "IN");
+        assertEquals(icebergTable.schema().findField("country").writeDefault(), "IN");
+        assertQuery(session, "SELECT id, name, country FROM " + tableName + " ORDER BY id", "VALUES (1, 'Alice', 'IN'), (2, 'Bob', 'IN')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(3, 'Charlie', 'US')", 1);
+        assertQuery(session, "SELECT id, name, country FROM " + tableName + " ORDER BY id", "VALUES (1, 'Alice', 'IN'), (2, 'Bob', 'IN'), (3, 'Charlie', 'US')");
+        assertUpdate(session, "DROP TABLE " + tableName);
+
+        // Test empty string default
+        assertUpdate(session, "CREATE TABLE " + tableName + "(id int, name varchar) with (\"format-version\" = '3', \"write.format.default\" = '" + fileFormat + "')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(1, 'Alice'), (2, 'Bob')", 2);
+        assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN description varchar DEFAULT ''");
+        icebergTable = loadTable(tableName);
+        assertEquals(icebergTable.schema().findField("description").initialDefault(), "");
+        assertEquals(icebergTable.schema().findField("description").writeDefault(), "");
+        assertQuery(session, "SELECT id, name, description FROM " + tableName + " ORDER BY id", "VALUES (1, 'Alice', ''), (2, 'Bob', '')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(3, 'Charlie', 'Has description')", 1);
+        assertQuery(session, "SELECT id, name, description FROM " + tableName + " ORDER BY id", "VALUES (1, 'Alice', ''), (2, 'Bob', ''), (3, 'Charlie', 'Has description')");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test integer default
@@ -382,6 +404,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN priority integer DEFAULT 5");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("priority").initialDefault(), 5);
+        assertEquals(icebergTable.schema().findField("priority").writeDefault(), 5);
+        assertQuery(session, "SELECT id, priority FROM " + tableName + " ORDER BY id", "VALUES (1, 5), (2, 5)");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(3, 10)", 1);
+        assertQuery(session, "SELECT id, priority FROM " + tableName + " ORDER BY id", "VALUES (1, 5), (2, 5), (3, 10)");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test double default
@@ -390,6 +416,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN score double DEFAULT 0.0E0");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("score").initialDefault(), 0.0);
+        assertEquals(icebergTable.schema().findField("score").writeDefault(), 0.0);
+        assertQuery(session, "SELECT id, score FROM " + tableName, "VALUES (1, 0.0)");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, 95.5)", 1);
+        assertQuery(session, "SELECT id, score FROM " + tableName + " ORDER BY id", "VALUES (1, 0.0), (2, 95.5)");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test boolean default
@@ -398,6 +428,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN is_active boolean DEFAULT true");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("is_active").initialDefault(), true);
+        assertEquals(icebergTable.schema().findField("is_active").writeDefault(), true);
+        assertQuery(session, "SELECT id, is_active FROM " + tableName, "VALUES (1, true)");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, false)", 1);
+        assertQuery(session, "SELECT id, is_active FROM " + tableName + " ORDER BY id", "VALUES (1, true), (2, false)");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test NOT NULL with default
@@ -406,6 +440,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN status varchar NOT NULL DEFAULT 'ACTIVE'");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("status").initialDefault(), "ACTIVE");
+        assertEquals(icebergTable.schema().findField("status").writeDefault(), "ACTIVE");
+        assertQuery(session, "SELECT id, status FROM " + tableName, "VALUES (1, 'ACTIVE')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, 'INACTIVE')", 1);
+        assertQuery(session, "SELECT id, status FROM " + tableName + " ORDER BY id", "VALUES (1, 'ACTIVE'), (2, 'INACTIVE')");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test date default
@@ -414,6 +452,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN creation_date date DEFAULT DATE '2023-01-01'");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("creation_date").initialDefault(), 19358);
+        assertEquals(icebergTable.schema().findField("creation_date").writeDefault(), 19358);
+        assertQuery(session, "SELECT id, creation_date FROM " + tableName, "VALUES (1, DATE '2023-01-01')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, DATE '2024-06-15')", 1);
+        assertQuery(session, "SELECT id, creation_date FROM " + tableName + " ORDER BY id", "VALUES (1, DATE '2023-01-01'), (2, DATE '2024-06-15')");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test timestamp default
@@ -422,6 +464,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN creation_time timestamp DEFAULT TIMESTAMP '2023-01-01 11:00:00.000000'");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("creation_time").initialDefault(), 1672570800000000L);
+        assertEquals(icebergTable.schema().findField("creation_time").writeDefault(), 1672570800000000L);
+        assertQuery(session, "SELECT id, creation_time FROM " + tableName, "VALUES (1, TIMESTAMP '2023-01-01 11:00:00.000000')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, TIMESTAMP '2024-12-25 15:30:00.000000')", 1);
+        assertQuery(session, "SELECT id, creation_time FROM " + tableName + " ORDER BY id", "VALUES (1, TIMESTAMP '2023-01-01 11:00:00.000000'), (2, TIMESTAMP '2024-12-25 15:30:00.000000')");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test bigint default
@@ -430,6 +476,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN long_val bigint DEFAULT 10000000000");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("long_val").initialDefault(), 10000000000L);
+        assertEquals(icebergTable.schema().findField("long_val").writeDefault(), 10000000000L);
+        assertQuery(session, "SELECT id, long_val FROM " + tableName, "VALUES (1, 10000000000)");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, 99999999999)", 1);
+        assertQuery(session, "SELECT id, long_val FROM " + tableName + " ORDER BY id", "VALUES (1, 10000000000), (2, 99999999999)");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test real default
@@ -438,6 +488,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN real_val real DEFAULT 10.5");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("real_val").initialDefault(), 10.5f);
+        assertEquals(icebergTable.schema().findField("real_val").writeDefault(), 10.5f);
+        assertQuery(session, "SELECT id, real_val FROM " + tableName, "VALUES (1, CAST(10.5 AS REAL))");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, REAL '25.75')", 1);
+        assertQuery(session, "SELECT id, real_val FROM " + tableName + " ORDER BY id", "VALUES (1, CAST(10.5 AS REAL)), (2, CAST(25.75 AS REAL))");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test decimal default
@@ -446,6 +500,10 @@ public abstract class IcebergDistributedTestBase
         assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN decimal_val decimal(10,2) DEFAULT DECIMAL '10.55'");
         icebergTable = loadTable(tableName);
         assertEquals(icebergTable.schema().findField("decimal_val").initialDefault(), new java.math.BigDecimal("10.55"));
+        assertEquals(icebergTable.schema().findField("decimal_val").writeDefault(), new java.math.BigDecimal("10.55"));
+        assertQuery(session, "SELECT id, decimal_val FROM " + tableName, "VALUES (1, CAST(10.55 AS DECIMAL))");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(2, DECIMAL '99.99')", 1);
+        assertQuery(session, "SELECT id, decimal_val FROM " + tableName + " ORDER BY id", "VALUES (1, CAST(10.55 AS DECIMAL)), (2, CAST(99.99 AS DECIMAL))");
         assertUpdate(session, "DROP TABLE " + tableName);
 
         // Test multiple columns with defaults
@@ -458,6 +516,25 @@ public abstract class IcebergDistributedTestBase
         assertEquals(icebergTable.schema().findField("country").initialDefault(), "US");
         assertEquals(icebergTable.schema().findField("priority").initialDefault(), 10);
         assertEquals(icebergTable.schema().findField("is_enabled").initialDefault(), false);
+        assertEquals(icebergTable.schema().findField("country").writeDefault(), "US");
+        assertEquals(icebergTable.schema().findField("priority").writeDefault(), 10);
+        assertEquals(icebergTable.schema().findField("is_enabled").writeDefault(), false);
+        assertQuery(session, "SELECT id, country, priority, is_enabled FROM " + tableName + " ORDER BY id", "VALUES (1, 'US', 10, false), (2, 'US', 10, false)");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(3, 'UK', 20, true)", 1);
+        assertQuery(session, "SELECT id, country, priority, is_enabled FROM " + tableName + " ORDER BY id", "VALUES (1, 'US', 10, false), (2, 'US', 10, false), (3, 'UK', 20, true)");
+        assertUpdate(session, "DROP TABLE " + tableName);
+
+        // Test column aliases with default values
+        assertUpdate(session, "CREATE TABLE " + tableName + "(id int, name varchar) with (\"format-version\" = '3', \"write.format.default\" = '" + fileFormat + "')");
+        assertUpdate(session, "INSERT INTO " + tableName + " VALUES(1, 'Alice'), (2, 'Bob')", 2);
+        assertUpdate(session, "ALTER TABLE " + tableName + " ADD COLUMN country varchar DEFAULT 'IN'");
+        icebergTable = loadTable(tableName);
+        assertEquals(icebergTable.schema().findField("country").initialDefault(), "IN");
+        assertEquals(icebergTable.schema().findField("country").writeDefault(), "IN");
+        // Test with column alias - should still return default value
+        assertQuery(session, "SELECT id, name, country AS region FROM " + tableName + " ORDER BY id", "VALUES (1, 'Alice', 'IN'), (2, 'Bob', 'IN')");
+        // Test with multiple aliases
+        assertQuery(session, "SELECT id AS user_id, country AS region FROM " + tableName + " ORDER BY user_id", "VALUES (1, 'IN'), (2, 'IN')");
         assertUpdate(session, "DROP TABLE " + tableName);
     }
 
@@ -1619,10 +1696,9 @@ public abstract class IcebergDistributedTestBase
         Session session = deleteAsJoinEnabled(joinRewriteEnabled);
         String tableName = "test_v2_row_delete_" + randomTableSuffix();
         assertUpdate(session, "CREATE TABLE " + tableName + " with (\"write.format.default\" = '" + fileFormat + "') AS SELECT * FROM tpch.tiny.nation order by nationkey", 25);
-        Table icebergTable = updateTable(tableName);
-        String dataFilePath = (String) computeActual("SELECT file_path FROM \"" + tableName + "$files\" LIMIT 1").getOnlyValue();
 
-        writePositionDeleteToNationTable(icebergTable, dataFilePath, 0);
+        assertUpdate(session, "DELETE FROM " + tableName + " WHERE nationkey = 0", 1);
+        Table icebergTable = updateTable(tableName);
         testCheckDeleteFiles(icebergTable, 1, ImmutableList.of(POSITION_DELETES));
         assertQuery(session, "SELECT count(*) FROM " + tableName, "VALUES 24");
         assertQuery(session, "SELECT nationkey FROM " + tableName, "SELECT nationkey FROM nation WHERE nationkey != 0");
@@ -1632,7 +1708,8 @@ public abstract class IcebergDistributedTestBase
         assertQuery(session, "SELECT count(*) FROM " + tableName, "VALUES 19");
         assertQuery(session, "SELECT nationkey FROM " + tableName, "SELECT nationkey FROM nation WHERE regionkey != 1 AND nationkey != 0");
 
-        writePositionDeleteToNationTable(icebergTable, dataFilePath, 7);
+        assertUpdate(session, "DELETE FROM " + tableName + " WHERE nationkey = 7", 1);
+        icebergTable = updateTable(tableName);
         testCheckDeleteFiles(icebergTable, 3, ImmutableList.of(POSITION_DELETES, POSITION_DELETES, EQUALITY_DELETES));
         assertQuery(session, "SELECT count(*) FROM " + tableName, "VALUES 18");
         assertQuery(session, "SELECT nationkey FROM " + tableName, "SELECT nationkey FROM nation WHERE regionkey != 1 AND nationkey NOT IN (0, 7)");
@@ -1641,6 +1718,16 @@ public abstract class IcebergDistributedTestBase
         testCheckDeleteFiles(icebergTable, 4, ImmutableList.of(POSITION_DELETES, POSITION_DELETES, EQUALITY_DELETES, EQUALITY_DELETES));
         assertQuery(session, "SELECT count(*) FROM " + tableName, "VALUES 13");
         assertQuery(session, "SELECT nationkey FROM " + tableName, "SELECT nationkey FROM nation WHERE regionkey NOT IN (1, 2) AND nationkey NOT IN (0, 7)");
+
+        assertUpdate(session, "UPDATE " + tableName + " SET name = 'ENGLAND' WHERE nationkey = 23", 1);
+        icebergTable = updateTable(tableName);
+        if (fileFormat.equalsIgnoreCase(ORC.toString())) {
+            testCheckDeleteFiles(icebergTable, 6, ImmutableList.of(POSITION_DELETES, POSITION_DELETES, POSITION_DELETES, POSITION_DELETES, EQUALITY_DELETES, EQUALITY_DELETES));
+        }
+        else {
+            testCheckDeleteFiles(icebergTable, 5, ImmutableList.of(POSITION_DELETES, POSITION_DELETES, POSITION_DELETES, EQUALITY_DELETES, EQUALITY_DELETES));
+        }
+        assertQuery(session, "SELECT name FROM " + tableName + " WHERE nationkey = 23", "VALUES 'ENGLAND'");
     }
 
     @Test(dataProvider = "equalityDeleteOptions")
@@ -1812,7 +1899,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'DDDD')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'FFFF')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'])", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -1835,7 +1922,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'AAAA')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'BBBB')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'])", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 3);
             for (Object filePath : result.getOnlyColumnAsSet()) {
@@ -1859,7 +1946,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'DDDD')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'FFFF')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'])", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -1882,7 +1969,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'AAAA')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'BBBB')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'])", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 3);
             for (Object filePath : result.getOnlyColumnAsSet()) {
@@ -1909,7 +1996,7 @@ public abstract class IcebergDistributedTestBase
                 assertTrue(isFileSorted(String.valueOf(filePath), "id", "DESC"));
             }
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC', 'emp_name ASC'])", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC', 'emp_name ASC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -1966,7 +2053,8 @@ public abstract class IcebergDistributedTestBase
                             "schema => '%s', " +
                             "table_name => '%s', " +
                             "filter => 'emp_name = ''AAAAA''', " +
-                            "sorted_by => ARRAY['id desc'])",
+                            "sorted_by => ARRAY['id desc'], " +
+                            "options => map(array['rewrite-all'], array['true']))",
                     schema, tableName), 3);
 
             // Rewrite only rows with `emp_name = 'BBBBB'` and sort the rewritten data files by `id asc`
@@ -1975,7 +2063,8 @@ public abstract class IcebergDistributedTestBase
                             "schema => '%s', " +
                             "table_name => '%s', " +
                             "filter => 'emp_name = ''BBBBB''', " +
-                            "sorted_by => ARRAY['id asc'])",
+                            "sorted_by => ARRAY['id asc'], " +
+                            "options => map(array['rewrite-all'], array['true']))",
                     schema, tableName), 4);
 
             // All data is still present
@@ -2407,7 +2496,8 @@ public abstract class IcebergDistributedTestBase
             assertQueryFails("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch', filter => 'a > 3')", ".*");
             assertQueryFails("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch', filter => 'c > 3')", ".*");
 
-            assertUpdate("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch')", 3);
+            // Explicitly set min-input-files=1 since we only have 4 files and want to rewrite them
+            assertUpdate("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch', options => map(array['rewrite-all'], array['true']))", 3);
             assertQuery("SELECT * FROM " + tableName, "VALUES (2, '1002', NULL), (3, '1003', 3), (5, '1005', 5)");
             icebergTable = loadTable(tableName);
             assertHasDataFiles(icebergTable.currentSnapshot(), 3);
@@ -2420,7 +2510,8 @@ public abstract class IcebergDistributedTestBase
             assertHasDataFiles(icebergTable.currentSnapshot(), 2);
             assertHasDeleteFiles(icebergTable.currentSnapshot(), 0);
 
-            assertUpdate("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch', filter => 'c > 2')", 1);
+            // Explicitly set min-input-files=1 since we only have 2 files and want to rewrite them
+            assertUpdate("call system.rewrite_data_files(table_name => '" + tableName + "', schema => 'tpch', filter => 'c > 2', options => map(array['rewrite-all'], array['true']))", 1);
             assertQuery("SELECT * FROM " + tableName, "VALUES (2, '1002', NULL), (3, '1003', 3)");
             icebergTable = loadTable(tableName);
             assertHasDataFiles(icebergTable.currentSnapshot(), 2);
@@ -5045,6 +5136,33 @@ public abstract class IcebergDistributedTestBase
         }
         finally {
             assertUpdate("DROP TABLE IF EXISTS " + tableName);
+        }
+    }
+
+    @Test
+    public void testDeprecatedObjectStoragePathProperty()
+            throws IOException
+    {
+        String tableName = "test_deprecated_property";
+        String dataWriteLocation = createTempDirectory(tableName).toAbsolutePath().toString();
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (id INTEGER, name VARCHAR)");
+            assertUpdate("CALL system.set_table_property('" + getSession().getSchema().get() + "', '" + tableName + "', 'write.object-storage.enabled', 'true')");
+            assertUpdate("CALL system.set_table_property('" + getSession().getSchema().get() + "', '" + tableName + "', 'write.object-storage.path', '" + dataWriteLocation + "')");
+            Table icebergTable = loadTable(tableName);
+            assertTrue(icebergTable.properties().containsKey("write.object-storage.enabled"));
+            assertTrue(icebergTable.properties().containsKey("write.object-storage.path"));
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'test')", 1);
+            assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'test')");
+            assertQuery("SELECT COUNT(*) FROM " + tableName, "VALUES (1)");
+        }
+        finally {
+            try {
+                assertUpdate("DROP TABLE IF EXISTS " + tableName);
+            }
+            catch (Exception e) {
+                // ignored for hive catalog compatibility
+            }
         }
     }
 }

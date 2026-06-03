@@ -23,10 +23,12 @@ import com.facebook.airlift.units.MaxDataSize;
 import com.facebook.presto.CompressionCodec;
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.common.resourceGroups.QueryType;
+import com.facebook.presto.spi.MaterializedViewRefreshType;
 import com.facebook.presto.spi.MaterializedViewStaleReadBehavior;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.security.ViewSecurity;
+import com.facebook.presto.sql.planner.iterative.rule.materializedview.MaterializedViewRewriteStrategy;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -88,6 +90,7 @@ public class FeaturesConfig
     private boolean colocatedJoinsEnabled = true;
     private boolean groupedExecutionEnabled = true;
     private boolean recoverableGroupedExecutionEnabled;
+    private boolean partitionAwareGroupedExecutionEnabled;
     private double maxFailedTaskPercentage = 0.3;
     private int concurrentLifespansPerTask;
     private boolean spatialJoinsEnabled = true;
@@ -124,6 +127,7 @@ public class FeaturesConfig
     private int optimizeMetadataQueriesCallThreshold = 100;
     private boolean optimizeHashGeneration = true;
     private boolean enableIntermediateAggregations;
+    private boolean enableParallelizeChainedAggregations;
     private boolean optimizeCaseExpressionPredicate;
     private boolean pushTableWriteThroughUnion = true;
     private CompressionCodec exchangeCompressionCodec = CompressionCodec.NONE;
@@ -157,6 +161,7 @@ public class FeaturesConfig
     private boolean pushAggregationThroughJoin = true;
     private boolean pushPartialAggregationThroughJoin;
     private boolean pushSemiJoinThroughUnion;
+    private boolean pushAggregationThroughDisjointUnion;
     private boolean simplifyCoalesceOverJoinKeys;
     private boolean pushdownThroughUnnest;
     private boolean simplifyAggregationsOverConstant;
@@ -243,7 +248,10 @@ public class FeaturesConfig
     private boolean legacyMaterializedViewRefresh = true;
     private boolean allowLegacyMaterializedViewsToggle;
     private boolean materializedViewAllowFullRefreshEnabled;
+    private MaterializedViewRefreshType materializedViewDefaultRefreshType = MaterializedViewRefreshType.FULL;
     private MaterializedViewStaleReadBehavior materializedViewStaleReadBehavior = MaterializedViewStaleReadBehavior.USE_VIEW_QUERY;
+    private MaterializedViewRewriteStrategy materializedViewStitchingStrategy = MaterializedViewRewriteStrategy.ALWAYS;
+    private MaterializedViewRewriteStrategy materializedViewIncrementalRefreshStrategy = MaterializedViewRewriteStrategy.ALWAYS;
 
     private AggregationIfToFilterRewriteStrategy aggregationIfToFilterRewriteStrategy = AggregationIfToFilterRewriteStrategy.DISABLED;
     private String analyzerType = "BUILTIN";
@@ -300,7 +308,8 @@ public class FeaturesConfig
     private boolean pullUpExpressionFromLambda;
     private boolean rewriteConstantArrayContainsToIn;
     private boolean rewriteExpressionWithConstantVariable = true;
-    private boolean rewriteRowConstructorInToDisjunction;
+    private boolean optimizeRowInPredicate;
+    private boolean pushFilterThroughSelectingAggregation;
     private boolean optimizeConditionalApproxDistinct = true;
 
     private boolean preProcessMetadataCalls;
@@ -683,6 +692,19 @@ public class FeaturesConfig
     public FeaturesConfig setRecoverableGroupedExecutionEnabled(boolean recoverableGroupedExecutionEnabled)
     {
         this.recoverableGroupedExecutionEnabled = recoverableGroupedExecutionEnabled;
+        return this;
+    }
+
+    public boolean isPartitionAwareGroupedExecutionEnabled()
+    {
+        return partitionAwareGroupedExecutionEnabled;
+    }
+
+    @Config("partition-aware-grouped-execution-enabled")
+    @ConfigDescription("Schedule each (bucket, partition-values) pair as a separate lifespan in grouped execution, reducing per-lifespan memory for bucketed + partitioned tables")
+    public FeaturesConfig setPartitionAwareGroupedExecutionEnabled(boolean partitionAwareGroupedExecutionEnabled)
+    {
+        this.partitionAwareGroupedExecutionEnabled = partitionAwareGroupedExecutionEnabled;
         return this;
     }
 
@@ -1677,6 +1699,19 @@ public class FeaturesConfig
         return this;
     }
 
+    public boolean isEnableParallelizeChainedAggregations()
+    {
+        return enableParallelizeChainedAggregations;
+    }
+
+    @Config("optimizer.parallelize-chained-aggregation")
+    @ConfigDescription("Insert a local round-robin exchange above the inner aggregation in chained aggregations to parallelize the outer PARTIAL across local drivers")
+    public FeaturesConfig setEnableParallelizeChainedAggregations(boolean enableParallelizeChainedAggregations)
+    {
+        this.enableParallelizeChainedAggregations = enableParallelizeChainedAggregations;
+        return this;
+    }
+
     public boolean isPushAggregationThroughJoin()
     {
         return pushAggregationThroughJoin;
@@ -1712,6 +1747,19 @@ public class FeaturesConfig
     public FeaturesConfig setPushSemiJoinThroughUnion(boolean pushSemiJoinThroughUnion)
     {
         this.pushSemiJoinThroughUnion = pushSemiJoinThroughUnion;
+        return this;
+    }
+
+    public boolean isPushAggregationThroughDisjointUnion()
+    {
+        return pushAggregationThroughDisjointUnion;
+    }
+
+    @Config("optimizer.push-aggregation-through-disjoint-union")
+    @ConfigDescription("Push aggregation completely below UNION ALL when at least one grouping key has constant values that are disjoint across union branches, eliminating the final aggregation")
+    public FeaturesConfig setPushAggregationThroughDisjointUnion(boolean pushAggregationThroughDisjointUnion)
+    {
+        this.pushAggregationThroughDisjointUnion = pushAggregationThroughDisjointUnion;
         return this;
     }
 
@@ -2403,6 +2451,19 @@ public class FeaturesConfig
         return this;
     }
 
+    public MaterializedViewRefreshType getMaterializedViewDefaultRefreshType()
+    {
+        return materializedViewDefaultRefreshType;
+    }
+
+    @Config("materialized-view-default-refresh-type")
+    @ConfigDescription("Default refresh type for materialized views when not specified on the view (FULL or INCREMENTAL)")
+    public FeaturesConfig setMaterializedViewDefaultRefreshType(MaterializedViewRefreshType value)
+    {
+        this.materializedViewDefaultRefreshType = value;
+        return this;
+    }
+
     public MaterializedViewStaleReadBehavior getMaterializedViewStaleReadBehavior()
     {
         return materializedViewStaleReadBehavior;
@@ -2413,6 +2474,32 @@ public class FeaturesConfig
     public FeaturesConfig setMaterializedViewStaleReadBehavior(MaterializedViewStaleReadBehavior value)
     {
         this.materializedViewStaleReadBehavior = value;
+        return this;
+    }
+
+    public MaterializedViewRewriteStrategy getMaterializedViewStitchingStrategy()
+    {
+        return materializedViewStitchingStrategy;
+    }
+
+    @Config("materialized-view-stitching-strategy")
+    @ConfigDescription("Controls when query-time stitching of partially stale materialized views fires (ALWAYS, NEVER, or AUTOMATIC for cost-based)")
+    public FeaturesConfig setMaterializedViewStitchingStrategy(MaterializedViewRewriteStrategy value)
+    {
+        this.materializedViewStitchingStrategy = value;
+        return this;
+    }
+
+    public MaterializedViewRewriteStrategy getMaterializedViewIncrementalRefreshStrategy()
+    {
+        return materializedViewIncrementalRefreshStrategy;
+    }
+
+    @Config("materialized-view-incremental-refresh-strategy")
+    @ConfigDescription("Controls when incremental refresh of materialized views fires (ALWAYS, NEVER, or AUTOMATIC for cost-based)")
+    public FeaturesConfig setMaterializedViewIncrementalRefreshStrategy(MaterializedViewRewriteStrategy value)
+    {
+        this.materializedViewIncrementalRefreshStrategy = value;
         return this;
     }
 
@@ -3174,16 +3261,29 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isRewriteRowConstructorInToDisjunction()
+    public boolean isOptimizeRowInPredicate()
     {
-        return this.rewriteRowConstructorInToDisjunction;
+        return this.optimizeRowInPredicate;
     }
 
-    @Config("optimizer.rewrite-row-constructor-in-to-disjunction")
-    @ConfigDescription("Rewrite ROW(...) IN (ROW(...), ...) into OR of ANDs for partition pruning")
-    public FeaturesConfig setRewriteRowConstructorInToDisjunction(boolean rewriteRowConstructorInToDisjunction)
+    @Config("optimizer.optimize-row-in-predicate")
+    @ConfigDescription("Optimize ROW(...) IN/NOT IN (ROW(...), ...) by adding per-column IN/NOT IN predicates to help the domain translator extract constraints")
+    public FeaturesConfig setOptimizeRowInPredicate(boolean optimizeRowInPredicate)
     {
-        this.rewriteRowConstructorInToDisjunction = rewriteRowConstructorInToDisjunction;
+        this.optimizeRowInPredicate = optimizeRowInPredicate;
+        return this;
+    }
+
+    public boolean isPushFilterThroughSelectingAggregation()
+    {
+        return this.pushFilterThroughSelectingAggregation;
+    }
+
+    @Config("optimizer.push-filter-through-selecting-aggregation")
+    @ConfigDescription("Push HAVING-style filter on MAX/MIN/ARBITRARY aggregate output below the aggregation when the predicate direction matches the aggregate")
+    public FeaturesConfig setPushFilterThroughSelectingAggregation(boolean pushFilterThroughSelectingAggregation)
+    {
+        this.pushFilterThroughSelectingAggregation = pushFilterThroughSelectingAggregation;
         return this;
     }
 

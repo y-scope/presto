@@ -24,8 +24,11 @@ import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
 import com.facebook.presto.spi.plan.ProjectNode;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.ConstantExpression;
+import com.facebook.presto.spi.relation.InputReferenceExpression;
 import com.facebook.presto.spi.relation.LambdaDefinitionExpression;
 import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.RowExpressionVisitor;
+import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.plan.RPCNode;
@@ -33,6 +36,7 @@ import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 
@@ -45,6 +49,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import static com.facebook.presto.SystemSessionProperties.getRpcDispatchBatchSize;
+import static com.facebook.presto.SystemSessionProperties.getRpcStreamingMode;
 import static com.facebook.presto.SystemSessionProperties.isRpcFunctionOptimizerEnabled;
 import static java.util.Objects.requireNonNull;
 
@@ -89,7 +95,7 @@ public class RpcFunctionOptimizer
             return PlanOptimizerResult.optimizerResult(plan, false);
         }
 
-        Rewriter rewriter = new Rewriter(idAllocator, variableAllocator, rpcFunctionNamesSupplier.get());
+        Rewriter rewriter = new Rewriter(session, idAllocator, variableAllocator, rpcFunctionNamesSupplier.get());
         PlanNode rewrittenPlan = SimplePlanRewriter.rewriteWith(rewriter, plan, null);
         return PlanOptimizerResult.optimizerResult(rewrittenPlan, rewriter.isPlanChanged());
     }
@@ -97,13 +103,15 @@ public class RpcFunctionOptimizer
     private static class Rewriter
             extends SimplePlanRewriter<Void>
     {
+        private final Session session;
         private final PlanNodeIdAllocator idAllocator;
         private final VariableAllocator variableAllocator;
         private final Set<String> rpcFunctionNames;
         private boolean planChanged;
 
-        private Rewriter(PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator, Set<String> rpcFunctionNames)
+        private Rewriter(Session session, PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator, Set<String> rpcFunctionNames)
         {
+            this.session = requireNonNull(session, "session is null");
             this.idAllocator = requireNonNull(idAllocator, "idAllocator is null");
             this.variableAllocator = requireNonNull(variableAllocator, "variableAllocator is null");
             this.rpcFunctionNames = requireNonNull(rpcFunctionNames, "rpcFunctionNames is null");
@@ -228,6 +236,15 @@ public class RpcFunctionOptimizer
                         RpcExtractionContext context,
                         RowExpressionTreeRewriter<RpcExtractionContext> treeRewriter)
                 {
+                    if (node.getDisplayName().equals("$internal$try")
+                            && node.getArguments().size() == 1
+                            && isLambdaOrBindWithLambda(node.getArguments().get(0))) {
+                        RowExpression result = rewriteTryWithRpcFunction(node, context);
+                        if (result != null) {
+                            return result;
+                        }
+                    }
+
                     if (!rpcFunctionNames.contains(
                             node.getDisplayName().toLowerCase(Locale.ENGLISH))) {
                         return null;
@@ -254,10 +271,176 @@ public class RpcFunctionOptimizer
                         RowExpressionTreeRewriter<RpcExtractionContext> treeRewriter)
                 {
                     // Do not traverse into lambda bodies — RPC calls inside lambdas
-                    // have per-element semantics incompatible with RPCNode batching
+                    // have per-element semantics incompatible with RPCNode batching.
+                    // TRY lambdas are handled specially in rewriteCall above.
                     return node;
                 }
             };
+        }
+
+        private static boolean isLambdaOrBindWithLambda(RowExpression expression)
+        {
+            if (expression instanceof LambdaDefinitionExpression) {
+                return true;
+            }
+            if (expression instanceof SpecialFormExpression
+                    && ((SpecialFormExpression) expression).getForm() == SpecialFormExpression.Form.BIND) {
+                List<RowExpression> bindArgs = ((SpecialFormExpression) expression).getArguments();
+                return bindArgs.get(bindArgs.size() - 1) instanceof LambdaDefinitionExpression;
+            }
+            return false;
+        }
+
+        private RowExpression rewriteTryWithRpcFunction(
+                CallExpression tryCall,
+                RpcExtractionContext context)
+        {
+            RowExpression tryArgument = tryCall.getArguments().get(0);
+            LambdaDefinitionExpression lambda;
+            List<RowExpression> bindVariables;
+
+            if (tryArgument instanceof LambdaDefinitionExpression) {
+                lambda = (LambdaDefinitionExpression) tryArgument;
+                bindVariables = ImmutableList.of();
+            }
+            else {
+                SpecialFormExpression bind = (SpecialFormExpression) tryArgument;
+                List<RowExpression> bindArgs = bind.getArguments();
+                lambda = (LambdaDefinitionExpression) bindArgs.get(bindArgs.size() - 1);
+                bindVariables = bindArgs.subList(0, bindArgs.size() - 1);
+            }
+
+            RowExpression body = lambda.getBody();
+            if (!bindVariables.isEmpty()) {
+                List<String> lambdaParams = lambda.getArguments();
+                ImmutableMap.Builder<String, RowExpression> substitutions = ImmutableMap.builder();
+                for (int i = 0; i < lambdaParams.size(); i++) {
+                    substitutions.put(lambdaParams.get(i), bindVariables.get(i));
+                }
+                body = VariableSubstitutor.substitute(body, substitutions.build());
+            }
+
+            if (!containsRpcFunction(body)) {
+                return null;
+            }
+
+            RowExpression rewrittenBody = RowExpressionTreeRewriter.rewriteWith(
+                    createRpcRewriter(), body, context);
+
+            LambdaDefinitionExpression newLambda = new LambdaDefinitionExpression(
+                    lambda.getSourceLocation(),
+                    ImmutableList.of(),
+                    ImmutableList.of(),
+                    rewrittenBody);
+
+            return new CallExpression(
+                    tryCall.getSourceLocation(),
+                    tryCall.getDisplayName(),
+                    tryCall.getFunctionHandle(),
+                    tryCall.getType(),
+                    ImmutableList.of(newLambda));
+        }
+
+        private boolean containsRpcFunction(RowExpression expression)
+        {
+            if (expression instanceof CallExpression) {
+                CallExpression call = (CallExpression) expression;
+                if (rpcFunctionNames.contains(call.getDisplayName().toLowerCase(Locale.ENGLISH))) {
+                    return true;
+                }
+                return call.getArguments().stream().anyMatch(this::containsRpcFunction);
+            }
+            if (expression instanceof SpecialFormExpression) {
+                return ((SpecialFormExpression) expression).getArguments().stream()
+                        .anyMatch(this::containsRpcFunction);
+            }
+            return false;
+        }
+
+        private static class VariableSubstitutor
+                implements RowExpressionVisitor<RowExpression, Void>
+        {
+            private final Map<String, RowExpression> substitutions;
+
+            VariableSubstitutor(Map<String, RowExpression> substitutions)
+            {
+                this.substitutions = substitutions;
+            }
+
+            static RowExpression substitute(RowExpression expression, Map<String, RowExpression> substitutions)
+            {
+                return expression.accept(new VariableSubstitutor(substitutions), null);
+            }
+
+            @Override
+            public RowExpression visitCall(CallExpression call, Void context)
+            {
+                ImmutableList.Builder<RowExpression> newArgs = ImmutableList.builder();
+                boolean changed = false;
+                for (RowExpression arg : call.getArguments()) {
+                    RowExpression newArg = arg.accept(this, null);
+                    newArgs.add(newArg);
+                    changed |= newArg != arg;
+                }
+                return changed
+                        ? new CallExpression(call.getSourceLocation(), call.getDisplayName(), call.getFunctionHandle(), call.getType(), newArgs.build())
+                        : call;
+            }
+
+            @Override
+            public RowExpression visitInputReference(InputReferenceExpression reference, Void context)
+            {
+                return reference;
+            }
+
+            @Override
+            public RowExpression visitConstant(ConstantExpression literal, Void context)
+            {
+                return literal;
+            }
+
+            @Override
+            public RowExpression visitLambda(LambdaDefinitionExpression lambda, Void context)
+            {
+                // Filter out substitutions that are shadowed by lambda parameters
+                Map<String, RowExpression> filtered = substitutions.entrySet().stream()
+                        .filter(e -> !lambda.getArguments().contains(e.getKey()))
+                        .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+                if (filtered.isEmpty()) {
+                    return lambda;
+                }
+                RowExpression newBody = lambda.getBody().accept(new VariableSubstitutor(filtered), null);
+                if (newBody.equals(lambda.getBody())) {
+                    return lambda;
+                }
+                return new LambdaDefinitionExpression(
+                        lambda.getSourceLocation(),
+                        lambda.getArgumentTypes(),
+                        lambda.getArguments(),
+                        newBody);
+            }
+
+            @Override
+            public RowExpression visitVariableReference(VariableReferenceExpression reference, Void context)
+            {
+                RowExpression replacement = substitutions.get(reference.getName());
+                return replacement != null ? replacement : reference;
+            }
+
+            @Override
+            public RowExpression visitSpecialForm(SpecialFormExpression specialForm, Void context)
+            {
+                ImmutableList.Builder<RowExpression> newArgs = ImmutableList.builder();
+                boolean changed = false;
+                for (RowExpression arg : specialForm.getArguments()) {
+                    RowExpression newArg = arg.accept(this, null);
+                    newArgs.add(newArg);
+                    changed |= newArg != arg;
+                }
+                return changed
+                        ? new SpecialFormExpression(specialForm.getSourceLocation(), specialForm.getForm(), specialForm.getType(), newArgs.build())
+                        : specialForm;
+            }
         }
 
         private static class RpcExtractionContext
@@ -310,10 +493,10 @@ public class RpcFunctionOptimizer
         private Optional<JsonNode> parseOptionsJson(CallExpression rpcCall)
         {
             List<RowExpression> args = rpcCall.getArguments();
-            if (args.size() < 4) {
+            if (args.size() < 3) {
                 return Optional.empty();
             }
-            ConstantExpression optionsArg = extractConstant(args.get(3));
+            ConstantExpression optionsArg = extractConstant(args.get(args.size() - 1));
             if (optionsArg == null || optionsArg.getValue() == null) {
                 return Optional.empty();
             }
@@ -334,20 +517,30 @@ public class RpcFunctionOptimizer
 
         private RPCNode.StreamingMode parseStreamingMode(CallExpression rpcCall)
         {
-            return parseOptionsJson(rpcCall)
+            // Per-function override from constant options JSON takes precedence.
+            Optional<RPCNode.StreamingMode> fromJson = parseOptionsJson(rpcCall)
                     .map(json -> json.path("streaming_mode").asText(""))
                     .filter(mode -> mode.equalsIgnoreCase("batch"))
-                    .map(mode -> RPCNode.StreamingMode.BATCH)
-                    .orElse(RPCNode.StreamingMode.PER_ROW);
+                    .map(mode -> RPCNode.StreamingMode.BATCH);
+            if (fromJson.isPresent()) {
+                return fromJson.get();
+            }
+            // Fall back to session property.
+            return getRpcStreamingMode(session);
         }
 
         private int parseDispatchBatchSize(CallExpression rpcCall)
         {
-            return parseOptionsJson(rpcCall)
+            // Per-function override from constant options JSON takes precedence.
+            Optional<Integer> fromJson = parseOptionsJson(rpcCall)
                     .map(json -> json.path("dispatch_batch_size"))
                     .filter(JsonNode::isNumber)
-                    .map(JsonNode::asInt)
-                    .orElse(0);
+                    .map(JsonNode::asInt);
+            if (fromJson.isPresent()) {
+                return fromJson.get();
+            }
+            // Fall back to session property.
+            return getRpcDispatchBatchSize(session);
         }
     }
 }

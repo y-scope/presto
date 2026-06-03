@@ -67,6 +67,7 @@ import com.facebook.presto.sql.planner.iterative.rule.MergeMinMaxByAggregations;
 import com.facebook.presto.sql.planner.iterative.rule.MergeSumsToVectorSum;
 import com.facebook.presto.sql.planner.iterative.rule.MinMaxByToWindowFunction;
 import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
+import com.facebook.presto.sql.planner.iterative.rule.ParallelizeChainedAggregation;
 import com.facebook.presto.sql.planner.iterative.rule.PickTableLayout;
 import com.facebook.presto.sql.planner.iterative.rule.PlanRemoteProjections;
 import com.facebook.presto.sql.planner.iterative.rule.PreAggregateBeforeGroupId;
@@ -96,9 +97,11 @@ import com.facebook.presto.sql.planner.iterative.rule.PruneValuesColumns;
 import com.facebook.presto.sql.planner.iterative.rule.PruneWindowColumns;
 import com.facebook.presto.sql.planner.iterative.rule.PullConstantsAboveGroupBy;
 import com.facebook.presto.sql.planner.iterative.rule.PullUpExpressionInLambdaRules;
+import com.facebook.presto.sql.planner.iterative.rule.PushAggregationThroughDisjointUnion;
 import com.facebook.presto.sql.planner.iterative.rule.PushAggregationThroughOuterJoin;
 import com.facebook.presto.sql.planner.iterative.rule.PushDownDereferences;
 import com.facebook.presto.sql.planner.iterative.rule.PushDownFilterExpressionEvaluationThroughCrossJoin;
+import com.facebook.presto.sql.planner.iterative.rule.PushFilterThroughSelectingAggregation;
 import com.facebook.presto.sql.planner.iterative.rule.PushLimitThroughMarkDistinct;
 import com.facebook.presto.sql.planner.iterative.rule.PushLimitThroughOffset;
 import com.facebook.presto.sql.planner.iterative.rule.PushLimitThroughOuterJoin;
@@ -147,7 +150,6 @@ import com.facebook.presto.sql.planner.iterative.rule.RewriteCaseToMap;
 import com.facebook.presto.sql.planner.iterative.rule.RewriteConstantArrayContainsToInExpression;
 import com.facebook.presto.sql.planner.iterative.rule.RewriteExcludeColumnsFunctionToProjection;
 import com.facebook.presto.sql.planner.iterative.rule.RewriteFilterWithExternalFunctionToProject;
-import com.facebook.presto.sql.planner.iterative.rule.RewriteRowConstructorInToDisjunction;
 import com.facebook.presto.sql.planner.iterative.rule.RewriteRowExpressions;
 import com.facebook.presto.sql.planner.iterative.rule.RewriteSpatialPartitioningAggregation;
 import com.facebook.presto.sql.planner.iterative.rule.RuntimeReorderJoinSides;
@@ -174,6 +176,7 @@ import com.facebook.presto.sql.planner.iterative.rule.TransformTableFunctionToTa
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedInPredicateSubqueryToDistinctInnerJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedInPredicateSubqueryToSemiJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedLateralToJoin;
+import com.facebook.presto.sql.planner.iterative.rule.materializedview.IncrementalRefreshRule;
 import com.facebook.presto.sql.planner.iterative.rule.materializedview.MaterializedViewRewrite;
 import com.facebook.presto.sql.planner.optimizations.AddExchanges;
 import com.facebook.presto.sql.planner.optimizations.AddExchangesForSingleNodeExecution;
@@ -195,6 +198,8 @@ import com.facebook.presto.sql.planner.optimizations.MergePartialAggregationsWit
 import com.facebook.presto.sql.planner.optimizations.MetadataDeleteOptimizer;
 import com.facebook.presto.sql.planner.optimizations.MetadataQueryOptimizer;
 import com.facebook.presto.sql.planner.optimizations.OptimizeMixedDistinctAggregations;
+import com.facebook.presto.sql.planner.optimizations.OptimizeRowInPredicate;
+import com.facebook.presto.sql.planner.optimizations.OptimizeTopNUsingRowId;
 import com.facebook.presto.sql.planner.optimizations.PayloadJoinOptimizer;
 import com.facebook.presto.sql.planner.optimizations.PhysicalCteOptimizer;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
@@ -393,7 +398,9 @@ public class PlanOptimizers
                 ruleStats,
                 statsCalculator,
                 estimatedExchangesCostCalculator,
-                ImmutableSet.of(new MaterializedViewRewrite(metadata, accessControl))));
+                ImmutableSet.of(
+                        new MaterializedViewRewrite(metadata, accessControl),
+                        new IncrementalRefreshRule(metadata))));
 
         // Cost-based MV selection: selects the lowest-cost plan from MV candidates
         builder.add(new IterativeOptimizer(
@@ -552,6 +559,12 @@ public class PlanOptimizers
                         estimatedExchangesCostCalculator,
                         ImmutableSet.of(new RemoveRedundantIdentityProjections())),
                 new SetFlatteningOptimizer(),
+                new IterativeOptimizer(
+                        metadata,
+                        ruleStats,
+                        statsCalculator,
+                        estimatedExchangesCostCalculator,
+                        ImmutableSet.of(new PushAggregationThroughDisjointUnion(metadata.getFunctionAndTypeManager()))),
                 new ImplementIntersectAndExceptAsUnion(metadata.getFunctionAndTypeManager()),
                 new ReplaceConstantVariableReferencesWithConstants(metadata.getFunctionAndTypeManager()),
                 simplifyRowExpressionOptimizer,
@@ -739,12 +752,7 @@ public class PlanOptimizers
                         estimatedExchangesCostCalculator,
                         ImmutableSet.of(new AddDistinctForSemiJoinBuild())),
                 new KeyBasedSampler(metadata),
-                new IterativeOptimizer(
-                        metadata,
-                        ruleStats,
-                        statsCalculator,
-                        estimatedExchangesCostCalculator,
-                        ImmutableSet.of(new RewriteRowConstructorInToDisjunction(metadata))),
+                new OptimizeRowInPredicate(metadata),
                 new IterativeOptimizer(
                         metadata,
                         ruleStats,
@@ -843,6 +851,8 @@ public class PlanOptimizers
 
         builder.add(new JoinPrefilter(metadata));
 
+        builder.add(new OptimizeTopNUsingRowId(metadata));
+
         builder.add(
                 new IterativeOptimizer(
                         metadata,
@@ -850,6 +860,15 @@ public class PlanOptimizers
                         statsCalculator,
                         estimatedExchangesCostCalculator,
                         ImmutableSet.of(new EliminateCrossJoins())),
+                // Push HAVING-style filter on MAX/MIN/ARBITRARY below the aggregation BEFORE the
+                // following predicatePushDown so the new below-aggregation filter can be pushed
+                // through joins, projections, and into the table scan.
+                new IterativeOptimizer(
+                        metadata,
+                        ruleStats,
+                        statsCalculator,
+                        estimatedExchangesCostCalculator,
+                        ImmutableSet.of(new PushFilterThroughSelectingAggregation(metadata))),
                 predicatePushDown,
                 simplifyRowExpressionOptimizer); // Should always run simplifyOptimizer after predicatePushDown
 
@@ -1125,6 +1144,14 @@ public class PlanOptimizers
                 costCalculator,
                 ImmutableSet.of(
                         new PreAggregateBeforeGroupId(metadata.getFunctionAndTypeManager()))));
+
+        builder.add(new IterativeOptimizer(
+                metadata,
+                ruleStats,
+                statsCalculator,
+                costCalculator,
+                ImmutableSet.of(
+                        new ParallelizeChainedAggregation())));
 
         builder.add(new IterativeOptimizer(
                 metadata,

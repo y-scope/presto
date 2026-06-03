@@ -617,6 +617,18 @@ public class StatsRecordingMetadataManager
     }
 
     @Override
+    public void setMaterializedViewProperties(Session session, QualifiedObjectName viewName, Map<String, Object> properties)
+    {
+        long startTime = System.nanoTime();
+        try {
+            delegate.setMaterializedViewProperties(session, viewName, properties);
+        }
+        finally {
+            stats.recordSetTablePropertiesCall(System.nanoTime() - startTime);
+        }
+    }
+
+    @Override
     public List<QualifiedObjectName> listMaterializedViews(Session session, QualifiedTablePrefix prefix)
     {
         long startTime = System.nanoTime();
@@ -1147,6 +1159,18 @@ public class StatsRecordingMetadataManager
     }
 
     @Override
+    public void setColumnType(Session session, TableHandle tableHandle, ColumnHandle column, Type type)
+    {
+        long startTime = System.nanoTime();
+        try {
+            delegate.setColumnType(session, tableHandle, column, type);
+        }
+        finally {
+            stats.recordSetColumnTypeCall(System.nanoTime() - startTime);
+        }
+    }
+
+    @Override
     public void dropColumn(Session session, TableHandle tableHandle, ColumnHandle column)
     {
         long startTime = System.nanoTime();
@@ -1167,6 +1191,18 @@ public class StatsRecordingMetadataManager
         }
         finally {
             stats.recordRenameColumnCall(System.nanoTime() - startTime);
+        }
+    }
+
+    @Override
+    public void setColumnDefault(Session session, TableHandle tableHandle, String columnName, Object defaultValue)
+    {
+        long startTime = System.nanoTime();
+        try {
+            delegate.setColumnDefault(session, tableHandle, columnName, defaultValue);
+        }
+        finally {
+            stats.recordSetColumnDefaultCall(System.nanoTime() - startTime);
         }
     }
 

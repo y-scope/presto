@@ -25,6 +25,7 @@ import com.facebook.presto.common.predicate.Domain;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.BigintType;
+import com.facebook.presto.common.type.CharType;
 import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.RealType;
@@ -89,6 +90,7 @@ import com.facebook.presto.sql.MaterializedViewUtils;
 import com.facebook.presto.sql.analyzer.Analysis.MergeAnalysis;
 import com.facebook.presto.sql.analyzer.Analysis.TableArgumentAnalysis;
 import com.facebook.presto.sql.analyzer.Analysis.TableFunctionInvocationAnalysis;
+import com.facebook.presto.sql.analyzer.procedure.TableDataRewriteAnalysisContext;
 import com.facebook.presto.sql.parser.ParsingException;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.ExpressionInterpreter;
@@ -189,6 +191,7 @@ import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SampledRelation;
 import com.facebook.presto.sql.tree.Select;
 import com.facebook.presto.sql.tree.SelectItem;
+import com.facebook.presto.sql.tree.SetColumnType;
 import com.facebook.presto.sql.tree.SetOperation;
 import com.facebook.presto.sql.tree.SetProperties;
 import com.facebook.presto.sql.tree.SetSession;
@@ -259,6 +262,7 @@ import static com.facebook.presto.execution.CallTask.extractParameterValuesInOrd
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
 import static com.facebook.presto.metadata.MetadataUtil.getConnectorIdOrThrow;
 import static com.facebook.presto.metadata.MetadataUtil.toSchemaTableName;
+import static com.facebook.presto.spi.StandardErrorCode.COLUMN_NOT_FOUND;
 import static com.facebook.presto.spi.StandardErrorCode.DATATYPE_MISMATCH;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_COLUMN_MASK;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_ROW_FILTER;
@@ -275,6 +279,8 @@ import static com.facebook.presto.spi.function.FunctionKind.AGGREGATE;
 import static com.facebook.presto.spi.function.FunctionKind.WINDOW;
 import static com.facebook.presto.spi.function.table.DescriptorArgument.NULL_DESCRIPTOR;
 import static com.facebook.presto.spi.function.table.GenericTableReturnTypeSpecification.GENERIC_TABLE;
+import static com.facebook.presto.spi.procedure.TableDataRewriteDistributedProcedure.extractSortFieldStrings;
+import static com.facebook.presto.spi.procedure.TableDataRewriteDistributedProcedure.extractZOrderColumns;
 import static com.facebook.presto.spi.security.ViewSecurity.DEFINER;
 import static com.facebook.presto.spi.security.ViewSecurity.INVOKER;
 import static com.facebook.presto.sql.MaterializedViewUtils.buildOwnerSession;
@@ -378,7 +384,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static com.google.common.collect.Iterables.getOnlyElement;
+import static com.google.common.collect.MoreCollectors.onlyElement;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
@@ -924,12 +930,13 @@ class StatementAnalyzer
                     buildSubqueryWithPredicate(viewQuery, tablePredicates.get(toSchemaTableName(viewName)))
                     : viewQuery;
             // Check if the owner has SELECT permission on the base tables
+            String ownerSessionSchema = isLegacyMaterializedViews(session) ? view.getSchema() : viewName.getSchemaName();
             StatementAnalyzer queryAnalyzer = new StatementAnalyzer(
                     analysis,
                     metadata,
                     sqlParser,
                     accessControl,
-                    buildOwnerSession(session, view.getOwner(), metadata.getSessionPropertyManager(), viewName.getCatalogName(), view.getSchema()),
+                    buildOwnerSession(session, view.getOwner(), metadata.getSessionPropertyManager(), viewName.getCatalogName(), ownerSessionSchema),
                     warningCollector);
             queryAnalyzer.analyze(refreshQuery, Scope.create());
 
@@ -945,7 +952,8 @@ class StatementAnalyzer
             analysis.setRefreshMaterializedViewAnalysis(new Analysis.RefreshMaterializedViewAnalysis(
                     tableHandle,
                     targetColumnHandles,
-                    refreshQuery));
+                    refreshQuery,
+                    toSchemaTableName(viewName)));
 
             return createAndAssignScope(node, scope, Field.newUnqualified(node.getLocation(), "rows", BIGINT));
         }
@@ -1377,6 +1385,12 @@ class StatementAnalyzer
         }
 
         @Override
+        protected Scope visitSetColumnType(SetColumnType node, Optional<Scope> scope)
+        {
+            return createAndAssignScope(node, scope);
+        }
+
+        @Override
         protected Scope visitPrepare(Prepare node, Optional<Scope> scope)
         {
             return createAndAssignScope(node, scope);
@@ -1432,9 +1446,8 @@ class StatementAnalyzer
             accessControl.checkCanCallProcedure(session.getRequiredTransactionId(), session.getIdentity(), session.getAccessControlContext(), procedureName);
 
             analysis.setUpdateInfo(call.getUpdateInfo());
-            analysis.setDistributedProcedureType(Optional.of(procedure.getType()));
-            analysis.setProcedureArguments(Optional.of(values));
-            switch (procedure.getType()) {
+            DistributedProcedure.DistributedProcedureType procedureType = procedure.getType();
+            switch (procedureType) {
                 case TABLE_DATA_REWRITE:
                     TableDataRewriteDistributedProcedure tableDataRewriteDistributedProcedure = (TableDataRewriteDistributedProcedure) procedure;
                     QualifiedName qualifiedName = QualifiedName.of(tableDataRewriteDistributedProcedure.getSchema(values), tableDataRewriteDistributedProcedure.getTableName(values));
@@ -1457,6 +1470,8 @@ class StatementAnalyzer
                                     session.getAccessControlContext(),
                                     tableName));
 
+                    List<String> sortFieldStrings = extractSortFieldStrings(values, tableDataRewriteDistributedProcedure.getSortOrderIndex());
+                    Optional<List<String>> zOrderColumns = extractZOrderColumns(sortFieldStrings);
                     String filter = tableDataRewriteDistributedProcedure.getFilter(values);
                     Expression filterExpression = sqlParser.createExpression(filter);
                     QuerySpecification querySpecification = new QuerySpecification(
@@ -1469,11 +1484,11 @@ class StatementAnalyzer
                             Optional.empty(),
                             Optional.empty());
                     analyze(querySpecification, scope);
-                    analysis.setTargetQuery(querySpecification);
 
                     TableHandle tableHandle = metadata.getHandleVersion(session, tableName, Optional.empty())
                             .orElseThrow(() -> (new SemanticException(MISSING_TABLE, call, "Table '%s' does not exist", tableName)));
-                    analysis.setCallTarget(tableHandle);
+                    TableDataRewriteAnalysisContext tableDataRewriteAnalysisContext = new TableDataRewriteAnalysisContext(tableHandle, querySpecification, zOrderColumns);
+                    analysis.setCallDistributedProcedureAnalysis(new Analysis.CallDistributedProcedureAnalysis(procedureType, values, Optional.of(tableDataRewriteAnalysisContext)));
                     break;
                 default:
                     throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Unsupported distributed procedure type: " + procedure.getType());
@@ -2162,7 +2177,7 @@ class StatementAnalyzer
                     if (candidates.size() > 1) {
                         throw new SemanticException(TABLE_FUNCTION_INVALID_COPARTITIONING, name.getOriginalParts().get(0), "Ambiguous reference: multiple table arguments found for name: " + name);
                     }
-                    TableArgumentAnalysis argument = getOnlyElement(candidates);
+                    TableArgumentAnalysis argument = candidates.stream().collect(onlyElement());
                     if (!referencedArguments.add(argument.getArgumentName())) {
                         // multiple references to argument in COPARTITION clause are implicitly prohibited by
                         // ISO/IEC TR REPORT 19075-7, p.33, Feature B203, “More than one copartition specification”
@@ -2372,7 +2387,9 @@ class StatementAnalyzer
                         false);
                 fields.add(field);
                 ColumnHandle columnHandle = columnHandles.get(column.getName());
-                checkArgument(columnHandle != null, "Unknown field %s", field);
+                if (columnHandle == null) {
+                    throw new PrestoException(COLUMN_NOT_FOUND, format("Unknown field %s", field));
+                }
                 analysis.setColumn(field, columnHandle);
                 analysis.addSourceColumns(field, ImmutableSet.of(new SourceColumn(name, column.getName())));
             }
@@ -2651,7 +2668,7 @@ class StatementAnalyzer
 
                 Session materializedViewSession = createViewSession(
                         Optional.of(materializedViewName.getCatalogName()),
-                        Optional.of(materializedViewDefinition.getSchema()),
+                        Optional.of(materializedViewName.getSchemaName()),
                         queryIdentity);
 
                 StatementAnalyzer materializedViewAnalyzer = new StatementAnalyzer(
@@ -2663,8 +2680,31 @@ class StatementAnalyzer
                         warningCollector);
                 materializedViewAnalyzer.analyze(viewQuery, scope);
 
-                Scope queryScope = process(dataTable, scope);
-                RelationType relationType = queryScope.getRelationType().withOnlyVisibleFields().withAlias(materializedViewName.getObjectName(), null);
+                // The storage table is a system-managed implementation detail; access control on it
+                // is bypassed during MV expansion. Direct access by name still goes through the
+                // outer analyzer's accessControl.
+                StatementAnalyzer storageTableAnalyzer = new StatementAnalyzer(
+                        analysis,
+                        metadata,
+                        sqlParser,
+                        new AllowAllAccessControl(),
+                        session,
+                        warningCollector);
+                Scope queryScope = storageTableAnalyzer.analyze(dataTable, scope);
+                // Re-point each field's originTable at the MV name (as processView does) so the
+                // outer ExpressionAnalyzer records column refs against the MV, not the storage table.
+                List<Field> outputFields = queryScope.getRelationType().withOnlyVisibleFields().getAllFields().stream()
+                        .map(field -> Field.newQualified(
+                                field.getNodeLocation(),
+                                QualifiedName.of(materializedViewName.getObjectName()),
+                                field.getName(),
+                                field.getType(),
+                                field.isHidden(),
+                                Optional.of(materializedViewName),
+                                field.getOriginColumnName(),
+                                field.isAliased()))
+                        .collect(toImmutableList());
+                RelationType relationType = new RelationType(outputFields);
                 analysis.unregisterMaterializedViewForAnalysis(materializedView);
 
                 Scope accessControlScope = Scope.builder()
@@ -2793,7 +2833,9 @@ class StatementAnalyzer
 
                     Map<String, Map<SchemaTableName, String>> directColumnMappings = materializedViewDefinition.get().getDirectColumnMappingsAsMap();
 
-                    // Get base query domain we have mapped from view query- if there are not direct mappings, don't filter partition count for predicate
+                    // Rewrite view column domains to base table column domains. Skip columns
+                    // with no direct mapping (computed columns). Bail out entirely if a column
+                    // maps to multiple base tables since the target column name is ambiguous.
                     boolean mappedToOneTable = true;
                     Map<String, Domain> rewrittenDomain = new HashMap<>();
 
@@ -2806,7 +2848,11 @@ class StatementAnalyzer
                             }
                         }
 
-                        if (baseTableMapping == null || baseTableMapping.size() != 1) {
+                        if (baseTableMapping == null || baseTableMapping.isEmpty()) {
+                            continue;
+                        }
+
+                        if (baseTableMapping.size() != 1) {
                             mappedToOneTable = false;
                             break;
                         }
@@ -4036,7 +4082,7 @@ class StatementAnalyzer
                 }
 
                 if (expressions.size() == 1) {
-                    return getOnlyElement(expressions);
+                    return expressions.stream().collect(onlyElement());
                 }
 
                 // otherwise, couldn't resolve name against output aliases, so fall through...
@@ -4386,7 +4432,7 @@ class StatementAnalyzer
 
         private void analyzeGroupingOperations(QuerySpecification node, List<Expression> outputExpressions, List<Expression> orderByExpressions)
         {
-            List<GroupingOperation> groupingOperations = extractExpressions(Iterables.concat(outputExpressions, orderByExpressions), GroupingOperation.class);
+            List<GroupingOperation> groupingOperations = extractExpressions(Stream.concat(outputExpressions.stream(), orderByExpressions.stream()).collect(toImmutableList()), GroupingOperation.class);
             boolean isGroupingOperationPresent = !groupingOperations.isEmpty();
 
             if (isGroupingOperationPresent && !node.getGroupBy().isPresent()) {
@@ -4404,7 +4450,7 @@ class StatementAnalyzer
                 List<Expression> outputExpressions,
                 List<Expression> orderByExpressions)
         {
-            List<FunctionCall> aggregates = extractAggregateFunctions(analysis.getFunctionHandles(), Iterables.concat(outputExpressions, orderByExpressions), functionAndTypeResolver);
+            List<FunctionCall> aggregates = extractAggregateFunctions(analysis.getFunctionHandles(), Stream.concat(outputExpressions.stream(), orderByExpressions.stream()).collect(toImmutableList()), functionAndTypeResolver);
             analysis.setAggregates(node, aggregates);
             return aggregates;
         }
@@ -4507,12 +4553,29 @@ class StatementAnalyzer
                 ViewDefinition.ViewColumn column = columns.get(i);
                 Field field = fieldList.get(i);
                 if (!column.getName().equalsIgnoreCase(field.getName().orElse(null)) ||
-                        !functionAndTypeResolver.canCoerce(field.getType(), column.getType())) {
+                        !areViewColumnTypesCompatible(column.getType(), field.getType())) {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private boolean areViewColumnTypesCompatible(Type storedType, Type analyzedType)
+        {
+            return functionAndTypeResolver.canCoerce(analyzedType, storedType) ||
+                    functionAndTypeResolver.canCoerce(storedType, analyzedType) ||
+                    isCharacterStringCompatibility(storedType, analyzedType);
+        }
+
+        private boolean isCharacterStringCompatibility(Type first, Type second)
+        {
+            return isCharacterStringType(first) && isCharacterStringType(second);
+        }
+
+        private boolean isCharacterStringType(Type type)
+        {
+            return type instanceof CharType || type instanceof VarcharType;
         }
 
         private ExpressionAnalysis analyzeExpression(Expression expression, Scope scope)

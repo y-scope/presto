@@ -40,7 +40,7 @@ import java.util.Optional;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.Iterables.getOnlyElement;
+import static com.google.common.collect.MoreCollectors.onlyElement;
 import static com.google.common.collect.Streams.stream;
 import static com.google.common.graph.Traverser.forTree;
 import static java.lang.String.format;
@@ -175,7 +175,7 @@ public class TableWriteInfo
             case 0:
                 return Optional.empty();
             case 1:
-                return Optional.of(getOnlyElement(allMatches));
+                return Optional.of(allMatches.stream().collect(onlyElement()));
             default:
                 throw new IllegalArgumentException(format("Multiple matches found for class %s", clazz));
         }

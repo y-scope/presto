@@ -413,6 +413,9 @@ Property Name                                           Description             
                                                         are collected.
 ``iceberg.max-statistics-file-cache-size``              Maximum size in bytes that should be consumed by the          ``256MB``                          Yes                 Yes, only needed on coordinator
                                                         statistics file cache.
+
+``iceberg.aggregate-push-down-enabled``                 Controls whether to push down aggregate (MIN/MAX/COUNT) to    ``true``                           Yes                 Yes
+                                                        Iceberg based on data file stats.
 ======================================================= ============================================================= ================================== =================== =============================================
 
 Table Properties
@@ -523,43 +526,139 @@ Session Properties
 
 Session properties set behavior changes for queries executed within the given session.
 
-===================================================== ======================================================================= =================== =============================================
-Property Name                                         Description                                                             Presto Java Support Presto C++ Support
-===================================================== ======================================================================= =================== =============================================
-``iceberg.delete_as_join_rewrite_enabled``            Overrides the behavior of the connector property                        Yes                 No, Equality delete read is not supported
-                                                      ``iceberg.delete-as-join-rewrite-enabled`` in the current session.
+.. list-table::
+   :header-rows: 1
+   :widths: 30 50 10 10
 
-                                                      Deprecated: This property is deprecated and will be removed.  Use
-                                                      ``iceberg.delete_as_join_rewrite_max_delete_columns`` instead.
-``iceberg.delete_as_join_rewrite_max_delete_columns`` Overrides the behavior of the connector property                        Yes                 No, Equality delete read is not supported
-                                                      ``iceberg.delete-as-join-rewrite-max-delete-columns`` in the
-                                                      current session.
-``iceberg.hive_statistics_merge_strategy``            Overrides the behavior of the connector property                        Yes                 Yes
-                                                      ``iceberg.hive-statistics-merge-strategy`` in the current session.
-``iceberg.rows_for_metadata_optimization_threshold``  Overrides the behavior of the connector property                        Yes                 Yes
-                                                      ``iceberg.rows-for-metadata-optimization-threshold`` in the current
-                                                      session.
-``iceberg.target_split_size_bytes``                   Overrides the target split size for all tables in a query in bytes.     Yes                 Yes
-                                                      Set to 0 to use the value in each Iceberg table's
-                                                      ``read.split.target-size`` property.
-``iceberg.affinity_scheduling_file_section_size``     When the ``node_selection_strategy`` or                                 Yes                 Yes
-                                                      ``hive.node-selection-strategy`` property is set to ``SOFT_AFFINITY``,
-                                                      this configuration property will change the size of a file chunk that
-                                                      is hashed to a particular node when determining the which worker to
-                                                      assign a split to. Splits which read data from the same file within
-                                                      the same chunk will hash to the same node. A smaller chunk size will
-                                                      result in a higher probability splits being distributed evenly across
-                                                      the cluster, but reduce locality. 
-                                                      See :ref:`develop/connectors:Node Selection Strategy`.
-``iceberg.parquet_dereference_pushdown_enabled``      Overrides the behavior of the connector property                        Yes                 No
-                                                      ``iceberg.enable-parquet-dereference-pushdown`` in the current session.
-``materialized_view_storage_table_name_prefix``       Prefix for automatically generated materialized view storage table      Yes                 No
-                                                      names. Default: ``__mv_storage__``
-``materialized_view_missing_base_table_behavior``     Behavior when a base table referenced by a materialized view is         Yes                 No
-                                                      missing. Valid values: ``FAIL``, ``IGNORE``. Default: ``FAIL``
-``max_partitions_per_writer``                         Overrides the behavior of the connector property                        Yes                 No
-                                                      ``iceberg.max-partitions-per-writer`` in the current session.
-===================================================== ======================================================================= =================== =============================================
+   * - Property Name
+     - Description
+     - Presto Java Support
+     - Presto C++ Support
+   * - .. _iceberg-sess-delete-as-join-rewrite-enabled:
+
+       ``iceberg.delete_as_join_rewrite_enabled``
+     - Overrides the behavior of the connector property
+       ``iceberg.delete-as-join-rewrite-enabled`` in the current session.
+
+       Deprecated: This property is deprecated and will be removed. Use
+       ``iceberg.delete_as_join_rewrite_max_delete_columns`` instead.
+     - Yes
+     - No, Equality delete read is not supported
+   * - .. _iceberg-sess-delete-as-join-rewrite-max-delete-columns:
+
+       ``iceberg.delete_as_join_rewrite_max_delete_columns``
+     - Overrides the behavior of the connector property
+       ``iceberg.delete-as-join-rewrite-max-delete-columns`` in the current session.
+     - Yes
+     - No, Equality delete read is not supported
+   * - .. _iceberg-sess-hive-statistics-merge-strategy:
+
+       ``iceberg.hive_statistics_merge_strategy``
+     - Overrides the behavior of the connector property
+       ``iceberg.hive-statistics-merge-strategy`` in the current session.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-rows-for-metadata-optimization-threshold:
+
+       ``iceberg.rows_for_metadata_optimization_threshold``
+     - Overrides the behavior of the connector property
+       ``iceberg.rows-for-metadata-optimization-threshold`` in the current session.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-target-split-size-bytes:
+
+       ``iceberg.target_split_size_bytes``
+     - Overrides the target split size for all tables in a query in bytes. Set to 0 to
+       use the value in each Iceberg table's ``read.split.target-size`` property.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-affinity-scheduling-file-section-size:
+
+       ``iceberg.affinity_scheduling_file_section_size``
+     - When the ``node_selection_strategy`` or ``hive.node-selection-strategy`` property
+       is set to ``SOFT_AFFINITY``, this configuration property will change the size of
+       a file chunk that is hashed to a particular node when determining which worker
+       to assign a split to. Splits which read data from the same file within the same
+       chunk will hash to the same node. A smaller chunk size will result in a higher
+       probability of splits being distributed evenly across the cluster, but reduce
+       locality. See :ref:`develop/connectors:Node Selection Strategy`.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-parquet-dereference-pushdown-enabled:
+
+       ``iceberg.parquet_dereference_pushdown_enabled``
+     - Overrides the behavior of the connector property
+       ``iceberg.enable-parquet-dereference-pushdown`` in the current session.
+     - Yes
+     - No
+   * - .. _iceberg-sess-materialized-view-storage-table-name-prefix:
+
+       ``materialized_view_storage_table_name_prefix``
+     - Prefix for automatically generated materialized view storage table names.
+       Default: ``__mv_storage__``
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-materialized-view-missing-base-table-behavior:
+
+       ``materialized_view_missing_base_table_behavior``
+     - Behavior when a base table referenced by a materialized view is missing. Valid
+       values: ``FAIL``, ``IGNORE``. Default: ``FAIL``
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-materialized-view-max-changed-partitions:
+
+       ``materialized_view_max_changed_partitions``
+     - Maximum number of changed partitions to track for materialized view staleness
+       detection. If the number of changed partitions exceeds this threshold, the
+       materialized view falls back to a full recompute. Default: ``100``
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-materialized-view-default-max-snapshots-per-refresh:
+
+       ``materialized_view_default_max_snapshots_per_refresh``
+     - Default upper bound on snapshots consumed per base table per refresh when the
+       materialized view does not override it with the ``max_snapshots_per_refresh``
+       table property. ``0`` means unbounded. Default: ``0``
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-materialized-view-stitching-strategy:
+
+       ``materialized_view_stitching_strategy``
+     - Controls when query-time stitching applies to partially stale materialized views.
+       Only takes effect when ``materialized_view_stale_read_behavior`` is ``USE_STITCHING``.
+
+       - ``ALWAYS`` (default): stitch whenever possible.
+       - ``NEVER``: always use the full view query.
+       - ``AUTOMATIC``: the cost-based optimizer chooses between the stitched union and
+         the full view query; falls back to row-count comparison when stats are unknown.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-materialized-view-incremental-refresh-strategy:
+
+       ``materialized_view_incremental_refresh_strategy``
+     - Controls when incremental (delta) refresh applies to materialized views with
+       ``refresh_type = 'INCREMENTAL'``.
+
+       - ``ALWAYS`` (default): use delta refresh whenever it is buildable.
+       - ``NEVER``: always perform a full refresh.
+       - ``AUTOMATIC``: the cost-based optimizer chooses between delta and full refresh;
+         falls back to row-count comparison when stats are unknown.
+     - Yes
+     - Yes
+   * - .. _iceberg-sess-max-partitions-per-writer:
+
+       ``max_partitions_per_writer``
+     - Overrides the behavior of the connector property
+       ``iceberg.max-partitions-per-writer`` in the current session.
+     - Yes
+     - No
+   * - .. _iceberg-sess-aggregate-push-down-enabled:
+
+       ``aggregate_push_down_enabled``
+     - Overrides the behavior of the connector property
+       ``iceberg.aggregate-push-down-enabled`` in the current session.
+     - Yes
+     - Yes
 
 Caching Support
 ---------------
@@ -1298,6 +1397,8 @@ Argument Name         required   type            Description
 ``sorted_by``                    array of        Specify an array of one or more columns to use for sorting. When
                                  strings         performing a rewrite, the specified sorting definition must be
                                                  compatible with the table's own sorting property, if one exists.
+                                                 Supports standard column sorting (example, ``'col ASC'``) and
+                                                 z-order sorting (example, ``'zorder(col1, col2)'``).
 
 ``options``                      map             Options to be used for data files rewrite. See options table below.
 ===================== ========== =============== =======================================================================
@@ -1310,7 +1411,7 @@ The ``options`` parameter accepts a map of option names to values. The following
 ========================== ======== =============== ========================================================================
 Option Name                Type     Default         Description
 ========================== ======== =============== ========================================================================
-``min-input-files``        integer  1               Minimum number of files in a partition required for rewriting.
+``min-input-files``        integer  5               Minimum number of files in a partition required for rewriting.
                                                     Partitions with fewer files are skipped. This is a **group filter**
                                                     that operates at the partition level.
 
@@ -1321,6 +1422,10 @@ Option Name                Type     Default         Description
 ``max-file-size-bytes``    long     0 (disabled)    Files larger than this threshold (in bytes) are selected for
                                                     rewriting. This is a **file filter** that operates on individual
                                                     files.
+
+``rewrite-all``            boolean  false           When set to ``true``, bypasses all filtering (both group and file
+                                                    level) and rewrites all data files in the table or selected
+                                                    partitions. Useful for simple, complete table rewrites.
 ========================== ======== =============== ========================================================================
 
 **Filter Behavior:**
@@ -1361,12 +1466,12 @@ Examples
         options => map(array['min-file-size-bytes'], array['104857600'])
     );
 
-* Rewrite only partitions with at least 5 files in table ``db.sample``::
+* Rewrite only partitions with at least 10 files in table ``db.sample``::
 
     CALL iceberg.system.rewrite_data_files(
         schema => 'db',
         table_name => 'sample',
-        options => map(array['min-input-files'], array['5'])
+        options => map(array['min-input-files'], array['10'])
     );
 
 * Rewrite small files (< 50MB) OR large files (> 1GB) in partitions with at least 3 files::
@@ -1380,6 +1485,14 @@ Examples
         )
     );
 
+* Rewrite all data files without any filtering::
+
+    CALL iceberg.system.rewrite_data_files(
+        schema => 'db',
+        table_name => 'sample',
+        options => map(array['rewrite-all'], array['true'])
+    );
+
 * Combine options with filter and sorting::
 
     CALL iceberg.system.rewrite_data_files(
@@ -1389,6 +1502,18 @@ Examples
         sorted_by => ARRAY['join_date'],
         options => map(array['min-input-files'], array['3'])
     );
+
+* Use z-order sorting for multi-dimensional data clustering::
+
+    CALL iceberg.system.rewrite_data_files(
+        schema => 'db',
+        table_name => 'sample',
+        sorted_by => ARRAY['zorder(customer_id, order_date)']
+    );
+
+  Z-order sorting creates a space-filling curve that interleaves bits from multiple columns,
+  providing better data locality for queries that filter on multiple dimensions. This is
+  particularly useful for tables with multiple commonly-queried columns.
 
 Rewrite Manifests
 ^^^^^^^^^^^^^^^^^
@@ -1432,52 +1557,118 @@ Presto C++ Support
 
 All above procedures are supported in Presto C++.
 
+Iceberg Functions
+-----------------
+
+Z-Order Function
+^^^^^^^^^^^^^^^^
+
+The ``zorder`` function computes a z-order value for multi-dimensional data clustering.
+Z-order is a space-filling curve that interleaves bits from multiple columns to create
+a single sortable value that preserves spatial locality across multiple dimensions.
+
+**Syntax**::
+
+    zorder(ROW(column1, column2, ...)) -> varbinary
+
+**Description:**
+
+The ``zorder`` function takes a ROW containing multiple columns and returns a VARBINARY
+value representing the z-order curve value. This value can be used for sorting data to
+improve query performance when filtering on multiple columns.
+
+**Supported Column Types:**
+
+* ``TINYINT``, ``SMALLINT``, ``INTEGER``, ``BIGINT``
+* ``REAL``, ``DOUBLE``
+* ``DECIMAL``
+* ``DATE``
+* ``TIMESTAMP``
+
+**Usage:**
+
+The ``zorder`` function is primarily used with the ``rewrite_data_files`` procedure's
+``sorted_by`` parameter to reorganize data files for better multi-dimensional query
+performance.
+
+**Examples:**
+
+* Compute z-order value for two columns::
+
+    SELECT zorder(ROW(customer_id, order_date)) FROM orders;
+
+* Use with ``rewrite_data_files`` to reorganize table data::
+
+    CALL iceberg.system.rewrite_data_files(
+        schema => 'sales',
+        table_name => 'orders',
+        sorted_by => ARRAY['zorder(customer_id, order_date)']
+    );
+
+* Z-order with three dimensions::
+
+    CALL iceberg.system.rewrite_data_files(
+        schema => 'analytics',
+        table_name => 'events',
+        sorted_by => ARRAY['zorder(user_id, event_time, event_type)']
+    );
+
+**Benefits:**
+
+* Improves query performance for filters on multiple columns
+* Better data locality compared to single-column sorting
+* Particularly effective for tables with multiple commonly-queried dimensions
+* Reduces the amount of data scanned when filtering on any combination of the z-ordered columns
+
+**Note:** Z-order is most effective when the columns have similar cardinality and are
+frequently used together in query predicates.
+
 SQL Support
 -----------
 
-==================================== ============= ============ ============================================================================
-SQL Operation                        Presto Java   Presto C++   Comments
-==================================== ============= ============ ============================================================================
-``CREATE SCHEMA``                    Yes           Yes
+======================================== ============= ============ ============================================================================
+SQL Operation                            Presto Java   Presto C++   Comments
+======================================== ============= ============ ============================================================================
+``CREATE SCHEMA``                        Yes           Yes
 
-``CREATE TABLE``                     Yes           Yes
+``CREATE TABLE``                         Yes           Yes
 
-``CREATE VIEW``                      Yes           Yes
+``CREATE VIEW``                          Yes           Yes
 
-``INSERT INTO``                      Yes           No
+``INSERT INTO``                          Yes           No
 
-``CREATE TABLE AS SELECT``           Yes           No
+``CREATE TABLE AS SELECT``               Yes           No
 
-``SELECT``                           Yes           Yes          Read is supported in Presto C++ including those with positional delete files.
+``SELECT``                               Yes           Yes          Read is supported in Presto C++ including those with positional delete files.
 
-``ALTER TABLE``                      Yes           Yes
+``ALTER TABLE``                              Yes           Yes
 
-``ALTER TABLE ADD COLUMN DEFAULT``   Yes           Yes          DDL (metadata update) is supported in both. ``initial-default`` read
-                                                                support (returning the default value for historical rows) is only
-                                                                available in Presto C++. Presto Java returns ``NULL`` for historical rows.
+``ALTER TABLE ADD COLUMN DEFAULT``           Yes           Yes
 
-``ALTER VIEW``                       Yes           Yes
+``ALTER TABLE ALTER COLUMN SET DEFAULT``     Yes           Yes
 
-``TRUNCATE``                         Yes           Yes
+``ALTER VIEW``                               Yes           Yes
 
-``DELETE``                           Yes           No
+``TRUNCATE``                             Yes           Yes
 
-``DROP TABLE``                       Yes           Yes
+``DELETE``                               Yes           No
 
-``DROP VIEW``                        Yes           Yes
+``DROP TABLE``                           Yes           Yes
 
-``DROP SCHEMA``                      Yes           Yes
+``DROP VIEW``                            Yes           Yes
 
-``SHOW CREATE TABLE``                Yes           Yes
+``DROP SCHEMA``                          Yes           Yes
 
-``SHOW COLUMNS``                     Yes           Yes
+``SHOW CREATE TABLE``                    Yes           Yes
 
-``DESCRIBE``                         Yes           Yes
+``SHOW COLUMNS``                         Yes           Yes
 
-``UPDATE``                           Yes           No
+``DESCRIBE``                             Yes           Yes
 
-``MERGE``                            Yes           No
-==================================== ============= ============ ============================================================================
+``UPDATE``                               Yes           No
+
+``MERGE``                                Yes           No
+======================================== ============= ============ ============================================================================
 
 The Iceberg connector supports querying and manipulating Iceberg tables and schemas
 (databases). Here are some examples of the SQL operations supported by Presto:
@@ -1755,30 +1946,30 @@ To set ``write.metadata.delete-after-commit.enabled`` to true and set ``write.me
 
     ALTER TABLE iceberg.web.page_views_v2 SET PROPERTIES ("write.metadata.delete-after-commit.enabled" = true, "write.metadata.previous-versions-max" = 5);
 
-ADD COLUMN with DEFAULT (Iceberg V3, Presto C++ only)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ADD COLUMN with DEFAULT (Iceberg V3)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
 
-    ``ADD COLUMN DEFAULT`` read support is only available in **Presto C++** (Prestissimo).
-    Presto Java executes the DDL and stores the default in Iceberg metadata, but does **not**
-    inject the ``initial-default`` value during reads — historical rows return ``NULL`` in
-    Presto Java. Write-time handling of ``write-default`` is not yet supported in either engine.
+    ``ADD COLUMN DEFAULT`` read support is available in both **Presto Java** and **Presto C++** (Prestissimo).
+    Both engines execute the DDL, store the default in Iceberg metadata, and inject the ``initial-default``
+    value during reads for historical rows. Write-time handling of ``write-default`` is not supported
+    in either engine.
 
 Iceberg Format Version 3 supports default column values for schema evolution. When a column is
 added with a ``DEFAULT`` clause, Presto sets both the ``initial-default`` and ``write-default``
 fields in the Iceberg schema metadata. This is a metadata-only change — no data files are rewritten.
 
-During reads in Presto C++, rows written before the column was added return the ``initial-default``
-value instead of ``NULL``. This enables correct interoperability with Iceberg V3 tables created or
-evolved by other engines (e.g. Spark).
+During reads, rows written before the column was added return the ``initial-default`` value instead
+of ``NULL``. This enables correct interoperability with Iceberg V3 tables created or evolved by
+other engines, such as Spark.
 
 Example — Add a ``country`` column with a default value of ``'IN'``::
 
      ALTER TABLE iceberg.web.orders ADD COLUMN country VARCHAR DEFAULT 'IN';
 
-After this statement, a ``SELECT`` on the table in Presto C++ returns ``'IN'`` for the ``country``
-column in all rows that were written before the column was added::
+After this statement, a ``SELECT`` on the table returns ``'IN'`` for the ``country`` column in all
+rows that were written before the column was added::
 
      SELECT order_id, country FROM iceberg.web.orders;
 
@@ -1787,6 +1978,37 @@ column in all rows that were written before the column was added::
              1 | IN
              2 | IN
              3 | IN
+
+ALTER COLUMN SET DEFAULT (Iceberg V3)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+
+    ``ALTER COLUMN SET DEFAULT`` currently only updates the Iceberg metadata (``write-default`` field).
+    **INSERT support for write-default is not implemented** — inserts will not automatically use
+    the write-default value.
+
+Iceberg Format Version 3 allows updating the ``write-default`` value for an existing column without
+modifying the ``initial-default``. This is useful for schema evolution and maintaining compatibility
+with other Iceberg engines.
+
+The ``ALTER COLUMN SET DEFAULT`` statement updates the ``write-default`` field in the Iceberg
+schema metadata. This is a metadata-only operation — no data files are rewritten.
+
+**Behavior:**
+
+* If the column has no previous default, both ``initial-default`` and ``write-default`` are set to the same value
+* If the column already has an ``initial-default``, only ``write-default`` is updated (preserving ``initial-default``)
+
+Example — Update the ``write-default`` for the ``country`` column::
+
+     ALTER TABLE iceberg.web.orders ALTER COLUMN country SET DEFAULT 'US';
+
+After this statement, the Iceberg metadata is updated, but **INSERT operations do not yet use the
+write-default value automatically**. This functionality will be added in a future release.
+
+This feature requires Iceberg Format Version 3. Attempting to use ``ALTER COLUMN SET DEFAULT`` on
+a table with format version 2 or lower will result in an error.
 
 ALTER VIEW
 ^^^^^^^^^^
@@ -2746,38 +2968,174 @@ Storage
 
 Materialized views use a dedicated Iceberg storage table to persist the pre-computed results. By default, the storage table is created with the prefix ``__mv_storage__`` followed by the materialized view name in the same schema as the view.
 
-Table Properties
-^^^^^^^^^^^^^^^^
+Catalog Configuration
+^^^^^^^^^^^^^^^^^^^^^
 
-The following table properties can be specified when creating a materialized view:
+The following catalog properties affect materialized view storage tables and
+refresh behavior. Storage naming and location properties apply at materialized
+view creation time and can be overridden per-view by using the ``storage_schema`` and
+``storage_table`` table properties.
 
-========================================================== ============================================================================
-Property Name                                              Description
-========================================================== ============================================================================
-``storage_schema``                                         Schema name for the storage table. Defaults to the materialized view's
-                                                           schema.
+.. list-table::
+   :header-rows: 1
+   :widths: 35 45 20
 
-``storage_table``                                          Custom name for the storage table. Defaults to the prefix plus the
-                                                           materialized view name.
+   * - Property Name
+     - Description
+     - Default
+   * - .. _mv-cfg-storage-prefix:
 
-``stale_read_behavior``                                    Behavior when reading from a materialized view that is stale beyond the
-                                                           staleness window. Valid values: ``FAIL`` (throw an error),
-                                                           ``USE_VIEW_QUERY`` (query base tables instead).
+       ``iceberg.materialized-view-storage-prefix``
+     - Prefix applied to auto-generated storage table names.
+     - ``__mv_storage__``
+   * - .. _mv-cfg-default-storage-schema:
 
-``staleness_window``                                       Duration window for staleness tolerance (e.g., ``1h``, ``30m``, ``0s``).
-                                                           Defaults to ``0s`` if only ``stale_read_behavior`` is set. When set to
-                                                           ``0s``, any staleness triggers the configured behavior.
+       ``iceberg.materialized-view-default-storage-schema``
+     - Schema in which storage tables are created when the per-view ``storage_schema``
+       property is not set. Point at a locked-down schema to keep storage tables out of
+       users' reach without affecting materialized view reads.
+     - (the view's own schema)
+   * - .. _mv-cfg-max-changed-partitions:
 
-``refresh_type``                                           Refresh strategy for the materialized view. Currently only ``FULL`` is
-                                                           supported. Default: ``FULL``
-========================================================== ============================================================================
+       ``iceberg.materialized-view-max-changed-partitions``
+     - Maximum number of changed partitions to track for materialized view staleness
+       detection. If the number of changed partitions exceeds this threshold, the
+       materialized view falls back to a full recompute.
+     - ``100``
+   * - .. _mv-cfg-default-max-snapshots-per-refresh:
+
+       ``iceberg.materialized-view-default-max-snapshots-per-refresh``
+     - Default upper bound on snapshots consumed per base table per
+       ``REFRESH MATERIALIZED VIEW`` when the view does not override it with the
+       ``max_snapshots_per_refresh`` table property. Requires Iceberg V3 row lineage;
+       V2 tables fall back to unbounded refresh.
+     - ``0`` (unbounded)
+
+.. _iceberg-mv-table-properties:
+
+.. _iceberg-alter-materialized-view:
+
+Materialized View Properties
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The following table properties can be specified when creating a materialized view.
+Properties marked **Yes** in the *Alterable* column can be changed after creation
+by using :doc:`/sql/alter-materialized-view`; properties not specified in the
+``SET PROPERTIES`` clause keep their current value, and setting these properties to
+``NULL`` is not supported.
+
+.. list-table::
+   :widths: 25 60 15
+   :header-rows: 1
+
+   * - Property Name
+     - Description
+     - Alterable
+   * - ``storage_schema``
+     - Schema name for the storage table. Defaults to the materialized view's schema.
+     - No
+   * - ``storage_table``
+     - Custom name for the storage table. Defaults to the prefix plus the materialized view name.
+     - No
+   * - ``stale_read_behavior``
+     - Behavior when reading from a materialized view that is stale beyond the staleness window.
+       Valid values: ``FAIL`` (throw an error), ``USE_VIEW_QUERY`` (query base tables instead).
+     - Yes
+   * - ``staleness_window``
+     - Duration window for staleness tolerance (e.g., ``1h``, ``30m``, ``0s``).
+       Defaults to ``0s`` if only ``stale_read_behavior`` is set.
+       When set to ``0s``, any staleness triggers the configured behavior.
+     - Yes
+   * - ``refresh_type``
+     - Refresh strategy for the materialized view. Valid values: ``FULL``
+       (always recompute entire view), ``INCREMENTAL`` (recompute only stale
+       partitions when possible, fall back to full otherwise). When not set,
+       uses the ``materialized_view_default_refresh_type`` session property.
+     - Yes
+   * - .. _mv-prop-max-snapshots-per-refresh:
+
+       ``max_snapshots_per_refresh``
+     - Upper bound on snapshots consumed per base table per ``REFRESH MATERIALIZED
+       VIEW``. ``0`` means unbounded. Defaults to the
+       ``materialized_view_default_max_snapshots_per_refresh`` session property.
+       Requires Iceberg V3 row lineage; V2 tables fall back to unbounded refresh.
+     - Yes
 
 The storage table inherits standard Iceberg table properties for partitioning, sorting, and file format.
+
+Example::
+
+    ALTER MATERIALIZED VIEW hourly_sales
+    SET PROPERTIES (staleness_window = '30m', refresh_type = 'INCREMENTAL');
 
 Freshness and Refresh
 ^^^^^^^^^^^^^^^^^^^^^
 
-After running ``REFRESH MATERIALIZED VIEW``, queries read from the pre-computed storage table. The refresh operation uses a full refresh strategy, replacing all data in the storage table with the current query results and recording the new snapshot IDs for all base tables.
+After running ``REFRESH MATERIALIZED VIEW``, queries read from the pre-computed storage table.
+See :doc:`/admin/materialized-views` for general information on refresh behavior.
+
+.. _iceberg-incremental-refresh:
+
+Incremental Refresh
+~~~~~~~~~~~~~~~~~~~
+
+The Iceberg connector supports incremental refresh, which atomically replaces only stale
+partitions rather than recomputing the entire result set. See :ref:`admin/materialized-views:Incremental Refresh`
+for general information.
+
+To enable incremental refresh, set ``refresh_type = 'INCREMENTAL'`` when creating the view::
+
+    CREATE MATERIALIZED VIEW my_view
+    WITH (refresh_type = 'INCREMENTAL', partitioning = ARRAY['region'])
+    AS SELECT ...
+
+Requirements:
+
+* The storage table must be partitioned on identity-transformed columns
+* Stale columns in base tables must map to storage table partition columns through
+  :ref:`column equivalences <admin/materialized-views:Column Equivalences and Passthrough Columns>`
+* Only ``INSERT`` operations on base tables enable partition-level staleness detection;
+  ``DELETE`` or ``UPDATE`` operations cause a full refresh
+
+.. note::
+    If incremental refresh cannot be applied, the engine falls back to a full refresh
+    and emits a warning. ``DELETE`` or ``UPDATE`` on a base table also forces a full
+    refresh — the Iceberg connector only tracks partition-level staleness for
+    append-only changes. See :ref:`admin/materialized-views:Unsupported Patterns` for
+    the full list of engine-level conditions.
+
+.. _iceberg-bounded-refresh:
+
+Bounded Refresh
+~~~~~~~~~~~~~~~
+
+Bounded refresh caps how far each base table advances per ``REFRESH MATERIALIZED VIEW``,
+splitting catch-up into a series of smaller refreshes. Each refresh advances each base's
+watermark by at most N snapshots; subsequent refreshes consume the remainder until the view
+reaches HEAD. Use it when a single refresh would otherwise be too large to complete, e.g.:
+
+* Initial refresh over a base table with a long history.
+* Catch-up after the view has fallen far behind.
+* High-throughput bases where each snapshot covers a large partition or wide commit.
+
+Set the :ref:`max_snapshots_per_refresh <mv-prop-max-snapshots-per-refresh>` table property
+per view, or the :ref:`materialized_view_default_max_snapshots_per_refresh
+<iceberg-sess-materialized-view-default-max-snapshots-per-refresh>` session property as a
+default for all views. The table property overrides the session default.
+
+Example::
+
+    CREATE MATERIALIZED VIEW events_daily
+    WITH (max_snapshots_per_refresh = 100)
+    AS SELECT date(event_time) AS d, COUNT(*) AS n FROM events GROUP BY 1;
+
+    REFRESH MATERIALIZED VIEW events_daily;
+
+Requirements:
+
+* Base tables must use Iceberg V3 (``format-version = '3'``); a V2 base in a bounded view
+  triggers a warning at refresh time and falls back to unbounded.
+* Each base table is bounded independently in a multi-base view.
 
 .. _iceberg-stale-data-handling:
 
@@ -2804,9 +3162,11 @@ rather than the entire view. See :doc:`/admin/materialized-views` for details on
 predicate stitching works.
 
 .. note::
-    Partition-level staleness detection only works for append-only changes (INSERT).
-    DELETE or UPDATE operations on base tables cause the entire view to be treated
-    as stale, requiring full recomputation.
+    If stitching cannot be applied, the engine falls back to a full recompute and emits
+    a warning. ``DELETE`` or ``UPDATE`` on a base table also forces a full recompute —
+    the Iceberg connector only tracks partition-level staleness for append-only changes.
+    See :ref:`admin/materialized-views:Unsupported Patterns` for the full list of
+    engine-level conditions.
 
 Example with staleness handling:
 
@@ -2823,9 +3183,9 @@ Example with staleness handling:
 Limitations
 ^^^^^^^^^^^
 
-- All refreshes recompute the entire result set (incremental refresh not supported)
 - REFRESH does not provide snapshot isolation across multiple base tables (each base table's current snapshot is used independently)
 - Querying materialized views at specific snapshots or timestamps is not supported
+- Incremental refresh requires identity-transformed partition columns; other transforms (bucket, truncate, year, month, day, hour) are not supported as valid refresh columns
 
 Example
 ^^^^^^^
@@ -2864,10 +3224,41 @@ Property Value                                     Description
 File Based Authorization
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-The config file is specified using JSON and is composed of three sections,
+The configuration file is specified using JSON and is composed of four sections,
 each of which is a list of rules that are matched in the order specified
 in the config file. The user is granted the privileges from the first
-matching rule. All regexes default to ``.*`` if not specified.
+matching rule. If no rule is specified with file based authorization,
+the user does not have permissions to access any of the tables or schemas, to set
+session properties or run any procedures on the catalog.
+
+All regexes default to ``.*`` if not specified provided the required fields from the
+corresponding sections are specified. For example, user ``guest`` is the owner of all the schemas,
+user ``admin`` has SELECT privilege on all the tables in all the schemas, all the users can set
+``force_local_scheduling`` session property, but no user is allowed
+to run any procedures as per the following JSON.
+
+.. code-block:: json
+
+    {
+      "schemas": [
+        {
+          "user": "guest",
+          "owner": true
+        }
+      ],
+      "tables": [
+        {
+          "user": "admin",
+          "privileges": ["SELECT"]
+        }
+      ],
+      "sessionProperties": [
+        {
+          "property": "force_local_scheduling",
+          "allow": true
+        }
+      ]
+    }
 
 Schema Rules
 ~~~~~~~~~~~~

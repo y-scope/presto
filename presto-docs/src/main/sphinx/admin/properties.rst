@@ -945,6 +945,19 @@ Only applies to decomposable aggregation functions.
 
 The corresponding session property is :ref:`admin/properties-session:\`\`pre_aggregate_before_grouping_sets\`\``.
 
+``optimizer.parallelize-chained-aggregation``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled, optimizes chained aggregations where the outer grouping keys are a subset of
+the inner grouping keys by inserting a local round-robin exchange above the inner
+aggregation. This parallelizes the outer ``PARTIAL`` across the local node's drivers when
+the inner aggregation's parallelism is below what the node can support.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`parallelize_chained_aggregation\`\``.
+
 ``optimizer.push-aggregation-through-join``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -979,6 +992,18 @@ This reduces the amount of data flowing into the join operator, which can improv
 performance by allowing the aggregation to pre-reduce data before the join is performed.
 
 The corresponding session property is :ref:`admin/properties-session:\`\`push_partial_aggregation_through_join\`\``.
+
+``optimizer.push-semi-join-through-union``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled, pushes semi-joins through ``UNION`` sources so that each union
+branch performs the semi-join independently. This can improve performance for
+``IN`` and ``EXISTS`` queries where the semi-join probe side is a ``UNION``.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`push_semi_join_through_union\`\``.
 
 ``optimizer.push-projection-through-cross-join``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1063,6 +1088,31 @@ join and thereby produces more optimal plans.
 
 Extract expressions which have constant value from filter and assignment expressions, and replace the expressions with
 constant value.
+
+``optimizer.simplify-aggregations-over-constant``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled, replaces supported aggregation functions over constant arguments
+with constant expressions. This can improve performance for queries that apply
+aggregations such as ``MIN``, ``MAX``, ``ARBITRARY``, or ``APPROX_DISTINCT`` to
+constant inputs.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`simplify_aggregations_over_constant\`\``.
+
+``optimizer.simplify-coalesce-over-join-keys``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled, simplifies redundant ``COALESCE`` expressions over equi-join keys
+based on join type. This can produce simpler plans and enable additional join
+optimizations, including bucketed join optimizations.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`simplify_coalesce_over_join_keys\`\``.
 
 ``optimizer.history-based-optimizer-plan-canonicalization-strategies``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1173,6 +1223,18 @@ during query optimization. When set to ``false``, this parameter prevents histog
 being collected by ``ANALYZE``, and also prevents the existing histograms from being used
 during query optimization. This behavior can be controlled on a per-query basis using the
 ``optimizer_use_histograms`` session property.
+
+``optimizer.skip-pushdown-through-exchange-for-remote-projection``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled, skips pushing remote projections through exchange nodes. This can
+preserve exchanges around projections that call external functions, where fixed
+parallelism or exchange placement is needed to control execution.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`skip_pushdown_through_exchange_for_remote_projection\`\``.
 
 ``optimizer.table-scan-shuffle-parallelism-threshold``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1589,6 +1651,122 @@ Valid values are ``FAIL`` (throw an error) or ``USE_VIEW_QUERY`` (query base tab
 
 The corresponding session property is :ref:`admin/properties-session:\`\`materialized_view_stale_read_behavior\`\``.
 
+Grouped Execution Properties
+----------------------------
+
+``grouped-execution-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``true``
+
+Enables grouped execution for queries on bucketed tables. Grouped execution schedules
+operations in lifespans (one per bucket), processing a subset of data at a time to
+reduce memory usage.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`grouped_execution\`\``.
+
+``partition-aware-grouped-execution-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+When enabled alongside ``grouped-execution-enabled``, schedules each (bucket, partition-values)
+pair as a separate lifespan instead of processing all partitions per bucket in a single lifespan.
+This reduces per-lifespan hash table size for joins and aggregations on bucketed + partitioned tables.
+
+The feature activates when partition columns appear as equi-join keys or GROUP BY keys, and at
+least 2 distinct partition values exist. When not applicable, queries fall back to standard
+grouped execution automatically.
+
+The corresponding session property is :ref:`admin/properties-session:\`\`partition_aware_grouped_execution\`\``.
+
+Cluster Overload Properties
+---------------------------
+
+These properties control cluster-overload throttling, which monitors worker CPU and
+memory utilization and throttles query admission when the cluster is under heavy load.
+Cluster-overload throttling is independent of per-resource-group concurrency, memory,
+and CPU limits, which continue to apply regardless of these settings.
+
+``cluster-overload.enable-throttling``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+Enables cluster-overload throttling. When enabled, the coordinator periodically
+checks worker health and prevents new queries from starting when the cluster is
+overloaded. When disabled, no overload checks are performed and all queries are
+admitted immediately (subject to other admission gates such as resource group limits).
+
+``cluster-overload.overload-policy-type``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``string``
+* **Allowed values:** ``overload_worker_cnt_based_throttling``, ``overload_worker_pct_based_throttling``
+* **Default value:** ``overload_worker_cnt_based_throttling``
+
+The policy used to determine whether the cluster is overloaded.
+``overload_worker_cnt_based_throttling`` declares the cluster overloaded when the
+number of overloaded workers exceeds ``cluster-overload.allowed-overload-workers-cnt``.
+``overload_worker_pct_based_throttling`` declares it overloaded when the fraction of
+overloaded workers exceeds ``cluster-overload.allowed-overload-workers-pct``.
+
+``cluster-overload.allowed-overload-workers-cnt``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``0``
+
+Maximum number of workers that may be in an overloaded state before the cluster is
+considered overloaded. Only used when ``cluster-overload.overload-policy-type`` is set
+to ``overload_worker_cnt_based_throttling``.
+
+``cluster-overload.allowed-overload-workers-pct``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``double``
+* **Default value:** ``0.01``
+
+Maximum fraction of workers (between 0 and 1) that may be in an overloaded state
+before the cluster is considered overloaded. Only used when
+``cluster-overload.overload-policy-type`` is set to
+``overload_worker_pct_based_throttling``.
+
+``cluster.overload-check-cache-ttl-secs``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``integer``
+* **Default value:** ``5``
+
+How frequently (in seconds) the coordinator re-evaluates the cluster overload state.
+Between checks, the most recently computed state is cached and reused.
+
+``cluster-overload.bypass-resource-groups``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``string``
+* **Default value:** (empty)
+
+Comma-separated list of fully-qualified resource group ids (dot-separated segments,
+such as ``global.admin, global.etl.priority``) that bypass cluster-overload throttling.
+Listed groups are still subject to all other admission gates — per-group concurrency,
+memory, and CPU limits continue to apply.
+
+A resource group bypasses throttling when it lies on the same root-to-leaf path as any
+configured entry: equal to a listed group, an ancestor of one, or a descendant of one.
+Sibling groups that do not appear in the list remain throttled. Path-based matching is
+required because the admission check runs at every ancestor in the resource group
+hierarchy; without it a non-listed ancestor would veto a listed leaf group.
+
+The bypass set is snapshotted at coordinator startup; changes require a coordinator
+restart. A ``throttlingBypassCount`` JMX counter on ``ClusterResourceChecker`` tracks
+how many times the bypass was applied.
+
+Malformed entries (such as ``global..admin``) cause a startup failure.
+
 Resource Manager Properties
 ---------------------------
 
@@ -1621,3 +1799,67 @@ or HTTP/S. HTTPS are supported using the same internal communication HTTPS
 configs.
 
 To enable SSL/TLS, see :doc:`/security/internal-communication`.
+
+Driver-side Metadata Sidecar Properties
+---------------------------------------
+
+When :doc:`Presto on Spark </admin/spark>` runs on a native (Velox) execution engine,
+the driver can optionally launch a short-lived ``presto_server`` sidecar at bootstrap
+to register native-only functions into ``FunctionAndTypeManager`` before planning
+(analogous to :doc:`/plugin/native-sidecar-plugin` on the coordinator). The
+sidecar is shut down before query execution and is **disabled by default**.
+
+``built-in-sidecar-functions-enabled``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+Enables the bootstrap step that fetches native function metadata and registers it
+into ``FunctionAndTypeManager``. Must be paired with ``metadata-sidecar.enabled``.
+
+``metadata-sidecar.enabled``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``boolean``
+* **Default value:** ``false``
+
+Enables the driver-side sidecar lifecycle.
+
+``metadata-sidecar.executable-path``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``string``
+* **Default value:** (unset)
+
+Absolute path to the ``presto_server`` binary on the driver host. Required when
+``metadata-sidecar.enabled=true`` unless a custom ``SidecarBinaryLocator`` binding
+is provided.
+
+``metadata-sidecar.program-arguments``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``string``
+* **Default value:** (empty)
+
+Extra whitespace-separated arguments for the sidecar binary. ``--etc_dir`` is always
+added automatically.
+
+``metadata-sidecar.startup-timeout``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``duration``
+* **Default value:** ``2m``
+
+Maximum wait for the sidecar to become reachable on its HTTP port before bootstrap
+fails.
+
+``metadata-sidecar.storage-oncall-name``, ``metadata-sidecar.storage-user-name``, ``metadata-sidecar.storage-service-name``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** ``string``
+* **Default value:** (empty)
+
+Optional values written into the sidecar's ``config.properties`` to satisfy
+required-property checks in deployment-specific native worker initialization paths.
+Leave unset if not required by your deployment.
