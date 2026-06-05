@@ -6325,18 +6325,22 @@ void to_json(json& j, const std::shared_ptr<ColumnHandle>& p) {
 }
 
 void from_json(const json& j, std::shared_ptr<ColumnHandle>& p) {
-  if (j.contains("customSerializedValue")) {
-    String type = j["@type"];
-    std::string binaryData = velox::encoding::Base64::decode(
-        j["customSerializedValue"].get<std::string>());
-    getConnectorProtocol(type).deserialize(binaryData, p);
-    return;
-  }
   String type;
   try {
     type = p->getSubclassKey(j);
   } catch (json::parse_error& e) {
     throw ParseError(std::string(e.what()) + " ColumnHandle  ColumnHandle");
+  }
+
+  if (j.contains("customSerializedValue")) {
+    VELOX_CHECK(
+        !type.empty() && type[0] != '$',
+        "Internal handle type '{}' should not have customSerializedValue",
+        type);
+    std::string binaryData = velox::encoding::Base64::decode(
+        j["customSerializedValue"].get<std::string>());
+    getConnectorProtocol(type).deserialize(binaryData, p);
+    return;
   }
   getConnectorProtocol(type).from_json(j, p);
 }
