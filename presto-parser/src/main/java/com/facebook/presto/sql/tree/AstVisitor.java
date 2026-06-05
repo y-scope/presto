@@ -677,6 +677,11 @@ public abstract class AstVisitor<R, C>
         return visitStatement(node, context);
     }
 
+    protected R visitSetColumnDefault(SetColumnDefault node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
     protected R visitAnalyze(Analyze node, C context)
     {
         return visitStatement(node, context);
@@ -827,6 +832,10 @@ public abstract class AstVisitor<R, C>
         return visitTransactionMode(node, context);
     }
 
+    protected R visitSetColumnType(SetColumnType node, C context)
+    {
+        return visitStatement(node, context);
+    }
     protected R visitTransactionAccessMode(TransactionAccessMode node, C context)
     {
         return visitTransactionMode(node, context);

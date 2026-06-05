@@ -10,7 +10,7 @@
 
     <groupId>com.facebook.presto</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.298-SNAPSHOT</version>
+    <version>0.299-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -44,7 +44,7 @@
         <air.maven.version>3.3.9</air.maven.version>
 
         <dep.antlr.version>4.13.2</dep.antlr.version>
-        <dep.airlift.version>0.227</dep.airlift.version>
+        <dep.airlift.version>0.230</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.slice.version>0.38</dep.slice.version>
         <dep.testing-mysql-server-5.version>0.6</dep.testing-mysql-server-5.version>
@@ -58,12 +58,12 @@
         <dep.joda.version>2.14.0</dep.joda.version>
         <dep.tempto.version>1.55</dep.tempto.version>
         <dep.testng.version>7.5</dep.testng.version>
-        <dep.lucene.version>9.12.0</dep.lucene.version>
+        <dep.lucene.version>9.12.3</dep.lucene.version>
         <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
         <dep.parquet.version>1.16.0</dep.parquet.version>
-        <dep.iceberg.version>1.10.0</dep.iceberg.version>
+        <dep.iceberg.version>1.10.1</dep.iceberg.version>
         <dep.asm.version>9.9.1</dep.asm.version>
-        <dep.gcs.version>1.9.17</dep.gcs.version>
+        <dep.gcs.version>2.2.28</dep.gcs.version>
         <dep.alluxio.version>313</dep.alluxio.version>
         <dep.slf4j.version>2.0.16</dep.slf4j.version>
         <dep.kafka.version>3.9.2</dep.kafka.version>
@@ -75,19 +75,19 @@
         <dep.testcontainers.version>2.0.3</dep.testcontainers.version>
         <dep.docker-java.version>3.4.1</dep.docker-java.version>
         <dep.jayway.version>2.9.0</dep.jayway.version>
-        <dep.ratis.version>3.1.3</dep.ratis.version>
+        <dep.ratis.version>3.2.2</dep.ratis.version>
         <dep.errorprone.version>2.37.0</dep.errorprone.version>
         <dep.guava.version>32.1.0-jre</dep.guava.version>
-        <dep.jackson.version>2.15.4</dep.jackson.version>
+        <dep.jackson.version>2.18.6</dep.jackson.version>
         <dep.j2objc.version>3.0.0</dep.j2objc.version>
         <dep.avro.version>1.12.1</dep.avro.version>
         <dep.commons.compress.version>1.27.1</dep.commons.compress.version>
-        <dep.protobuf-java.version>4.30.2</dep.protobuf-java.version>
-        <dep.jetty.version>12.0.29</dep.jetty.version>
-        <dep.netty.version>4.2.12.Final</dep.netty.version>
+        <dep.protobuf-java.version>4.34.1</dep.protobuf-java.version>
+        <dep.jetty.version>12.0.34</dep.jetty.version>
+        <dep.netty.version>4.2.13.Final</dep.netty.version>
         <dep.reactor-netty.version>1.3.3</dep.reactor-netty.version>
         <dep.snakeyaml.version>2.5</dep.snakeyaml.version>
-        <dep.gson.version>2.12.1</dep.gson.version>
+        <dep.gson.version>2.14.0</dep.gson.version>
         <dep.commons.lang3.version>3.18.0</dep.commons.lang3.version>
         <dep.guice.version>6.0.0</dep.guice.version>
         <dep.arrow.version>18.3.0</dep.arrow.version>
@@ -109,14 +109,14 @@
         <air.test.jvmsize>4g</air.test.jvmsize>
         <grpc.version>1.75.0</grpc.version>
         <air.javadoc.lint>-missing</air.javadoc.lint>
-        <dep.commons.codec.version>1.17.2</dep.commons.codec.version>
+        <dep.commons.codec.version>1.21.0</dep.commons.codec.version>
         <aws.sdk.version>2.32.9</aws.sdk.version>
         <dep.jts.version>1.20.0</dep.jts.version>
 
         <dep.fastutil.version>8.5.2</dep.fastutil.version>
         <dep.datasketches-memory.version>2.2.0</dep.datasketches-memory.version>
         <dep.datasketches-java.version>5.0.1</dep.datasketches-java.version>
-        <dep.io.opentelemetry.version>1.58.0</dep.io.opentelemetry.version>
+        <dep.io.opentelemetry.version>1.62.0</dep.io.opentelemetry.version>
 
         <release.autoPublish>true</release.autoPublish>
     </properties>
@@ -242,6 +242,7 @@
         <module>presto-sql-helpers/presto-sql-invoked-functions-plugin</module>
         <module>presto-sql-helpers/presto-native-sql-invoked-functions-plugin</module>
         <module>presto-lance</module>
+        <module>presto-flight-shim</module>
     </modules>
 
     <dependencyManagement>
@@ -478,6 +479,12 @@
                 <groupId>javax.inject</groupId>
                 <artifactId>javax.inject</artifactId>
                 <version>1</version>
+            </dependency>
+
+            <dependency>
+                <groupId>javax.annotation</groupId>
+                <artifactId>javax.annotation-api</artifactId>
+                <version>1.3.2</version>
             </dependency>
 
             <dependency>
@@ -1554,7 +1561,7 @@
             <dependency>
                 <groupId>com.singlestore</groupId>
                 <artifactId>singlestore-jdbc-client</artifactId>
-                <version>1.1.9</version>
+                <version>1.2.11</version>
             </dependency>
 
             <dependency>
@@ -1567,7 +1574,7 @@
             <dependency>
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
-                <version>42.7.9</version>
+                <version>42.7.11</version>
             </dependency>
 
             <dependency>
@@ -1680,7 +1687,7 @@
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.18.1</version>
+                <version>0.23.0</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.apache.httpcomponents</groupId>
@@ -1955,42 +1962,6 @@
                     <exclusion>
                         <groupId>commons-logging</groupId>
                         <artifactId>commons-logging</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>com.google.cloud.bigdataoss</groupId>
-                <artifactId>util</artifactId>
-                <version>${dep.gcs.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.google.guava</groupId>
-                        <artifactId>guava</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>com.fasterxml.jackson.core</groupId>
-                        <artifactId>jackson-core</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <artifactId>commons-logging</artifactId>
-                        <groupId>commons-logging</groupId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>com.google.cloud.bigdataoss</groupId>
-                <artifactId>gcsio</artifactId>
-                <version>${dep.gcs.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.google.guava</groupId>
-                        <artifactId>guava</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>com.fasterxml.jackson.core</groupId>
-                        <artifactId>jackson-core</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -2746,7 +2717,7 @@
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-dbcp2</artifactId>
-                <version>2.12.0</version>
+                <version>2.14.0</version>
             </dependency>
 
             <dependency>

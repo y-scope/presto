@@ -239,9 +239,19 @@ public interface Metadata
     void renameColumn(Session session, TableHandle tableHandle, ColumnHandle source, String target);
 
     /**
+     * Set the default value for the specified column
+     */
+    void setColumnDefault(Session session, TableHandle tableHandle, String columnName, Object defaultValue);
+
+    /**
      * Add the specified column to the table.
      */
     void addColumn(Session session, TableHandle tableHandle, ColumnMetadata column);
+
+    /**
+     * Set the specified type to the column.
+     */
+    void setColumnType(Session session, TableHandle tableHandle, ColumnHandle column, Type type);
 
     /**
      * Drop the specified column.
@@ -458,6 +468,11 @@ public interface Metadata
      * Drops the specified materialized view.
      */
     void dropMaterializedView(Session session, QualifiedObjectName viewName);
+
+    /**
+     * Set properties on the specified materialized view.
+     */
+    void setMaterializedViewProperties(Session session, QualifiedObjectName viewName, Map<String, Object> properties);
 
     /**
      * List materialized views in the specified schema prefix.

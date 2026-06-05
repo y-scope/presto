@@ -231,8 +231,17 @@ SystemConfig::SystemConfig() {
           NUM_PROP(kLargestSizeClassPages, 256),
           BOOL_PROP(kEnableVeloxTaskLogging, false),
           BOOL_PROP(kEnableVeloxExprSetLogging, false),
-          NUM_PROP(kLocalShuffleMaxPartitionBytes, 268435456),
+          NUM_PROP(kLocalShuffleMaxPartitionBytes, 65536),
           STR_PROP(kShuffleName, ""),
+          BOOL_PROP(kExchangeMaterializationEnabled, false),
+          NUM_PROP(
+              kExchangeMaterializationPartitioningRowBatchBufferSize,
+              16L << 20),
+          NUM_PROP(kExchangeMaterializationOutputBufferMaxBytes, 1L << 30),
+          NUM_PROP(
+              kExchangeMaterializationOutputBufferPerPartitionMaxBytes,
+              130L * 1024),
+          NUM_PROP(kExchangeMaterializationReclaimDrainThresholdRatio, 0.67),
           STR_PROP(kRemoteFunctionServerCatalogName, ""),
           STR_PROP(kRemoteFunctionServerSerde, "presto_page"),
           BOOL_PROP(kHttpEnableAccessLog, false),
@@ -282,6 +291,7 @@ SystemConfig::SystemConfig() {
           BOOL_PROP(kAggregationSpillEnabled, true),
           BOOL_PROP(kOrderBySpillEnabled, true),
           NUM_PROP(kMaxSpillBytes, 100UL << 30), // 100GB
+          NUM_PROP(kBroadcastExchangeSourceReadBufferBytes, 1 << 20), // 1MB
           BOOL_PROP(kBroadcastJoinTableCachingEnabled, false),
           BOOL_PROP(kExchangeLazyFetchingEnabled, false),
           NUM_PROP(kRequestDataSizesMaxWaitSec, 10),
@@ -451,6 +461,11 @@ bool SystemConfig::aggregationSpillEnabled() const {
 
 bool SystemConfig::orderBySpillEnabled() const {
   return optionalProperty<bool>(kOrderBySpillEnabled).value();
+}
+
+uint64_t SystemConfig::broadcastExchangeSourceReadBufferBytes() const {
+  return optionalProperty<uint64_t>(kBroadcastExchangeSourceReadBufferBytes)
+      .value();
 }
 
 bool SystemConfig::broadcastJoinTableCachingEnabled() const {
@@ -760,6 +775,36 @@ uint64_t SystemConfig::ssdCacheMaxEntries() const {
 
 std::string SystemConfig::shuffleName() const {
   return optionalProperty(kShuffleName).value();
+}
+
+bool SystemConfig::exchangeMaterializationEnabled() const {
+  return optionalProperty<bool>(kExchangeMaterializationEnabled)
+      .value_or(false);
+}
+
+int64_t SystemConfig::exchangeMaterializationPartitioningRowBatchBufferSize()
+    const {
+  return optionalProperty<int64_t>(
+             kExchangeMaterializationPartitioningRowBatchBufferSize)
+      .value_or(16L << 20);
+}
+
+int64_t SystemConfig::exchangeMaterializationOutputBufferMaxBytes() const {
+  return optionalProperty<int64_t>(kExchangeMaterializationOutputBufferMaxBytes)
+      .value_or(1L << 30);
+}
+
+int64_t SystemConfig::exchangeMaterializationOutputBufferPerPartitionMaxBytes()
+    const {
+  return optionalProperty<int64_t>(
+             kExchangeMaterializationOutputBufferPerPartitionMaxBytes)
+      .value_or(130L * 1024);
+}
+
+double SystemConfig::exchangeMaterializationReclaimDrainThresholdRatio() const {
+  return optionalProperty<double>(
+             kExchangeMaterializationReclaimDrainThresholdRatio)
+      .value_or(0.67);
 }
 
 bool SystemConfig::enableSerializedPageChecksum() const {

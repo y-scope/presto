@@ -67,6 +67,8 @@ statement
     | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
         ALTER (COLUMN)? column=identifier DROP NOT NULL                #alterColumnDropNotNull
     | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
+        ALTER (COLUMN)? column=identifier SET DEFAULT expression       #setColumnDefault
+    | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
         SET PROPERTIES properties                                      #setTableProperties
     | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
         CREATE (OR REPLACE)? BRANCH (IF NOT EXISTS)? name=string
@@ -81,6 +83,8 @@ statement
         DROP BRANCH (IF EXISTS)? name=string                           #dropBranch
     | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
         DROP TAG (IF EXISTS)? name=string                              #dropTag
+    | ALTER TABLE (IF EXISTS)? tableName=qualifiedName
+        ALTER COLUMN columnName=identifier SET DATA TYPE type          #setColumnType
     | ANALYZE qualifiedName (WITH properties)?                         #analyze
     | CREATE TYPE qualifiedName AS (
         '(' sqlParameterDeclaration (',' sqlParameterDeclaration)* ')'
@@ -95,6 +99,8 @@ statement
         viewSecurity?
         (WITH properties)? AS (query | '('query')')                    #createMaterializedView
     | DROP MATERIALIZED VIEW (IF EXISTS)? qualifiedName                #dropMaterializedView
+    | ALTER MATERIALIZED VIEW (IF EXISTS)? qualifiedName
+        SET PROPERTIES properties                                      #setMaterializedViewProperties
     | REFRESH MATERIALIZED VIEW qualifiedName
         (WHERE where=booleanExpression)?                               #refreshMaterializedView
     | CREATE (OR REPLACE)? TEMPORARY? FUNCTION functionName=qualifiedName
@@ -705,7 +711,7 @@ nonReserved
     | BEFORE | BERNOULLI | BRANCH
     | CALL | CALLED | CASCADE | CATALOGS | COLUMN | COLUMNS | COMMENT | COMMIT | COMMITTED | COPARTITION | CURRENT | CURRENT_ROLE
     | DATA | DATE | DAY | DEFAULT | DEFINER | DESC | DESCRIPTOR | DETERMINISTIC | DISABLED | DISTRIBUTED | DAYS
-    | EMPTY | ENABLED | ENFORCED | EXCLUDING | EXPLAIN | EXTERNAL
+    | EMPTY | ENABLED | ENFORCED | EXCLUDING | EXECUTE | EXPLAIN | EXTERNAL
     | FETCH | FILTER | FIRST | FOLLOWING | FORMAT | FUNCTION | FUNCTIONS
     | GRANT | GRANTED | GRANTS | GRAPHVIZ | GROUPS
     | HOUR
