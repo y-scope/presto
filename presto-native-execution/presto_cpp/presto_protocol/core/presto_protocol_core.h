@@ -1059,9 +1059,9 @@ void from_json(const json& j, DistinctLimitNode& p);
 } // namespace facebook::presto::protocol
 namespace facebook::presto::protocol {
 struct ConnectorDistributedProcedureHandle : public JsonEncodedSubclass {
-  static std::string serialize(ConnectorDistributedProcedureHandle& p) {
-    VELOX_NYI(
-        "Serialization not implemented for ConnectorDistributedProcedureHandle");
+  static std::string serialize(
+      const ConnectorDistributedProcedureHandle& /* handle */) {
+    VELOX_NYI("ConnectorDistributedProcedureHandle::serialize not implemented");
   }
   static std::shared_ptr<ConnectorDistributedProcedureHandle> deserialize(
       const std::string& data,
