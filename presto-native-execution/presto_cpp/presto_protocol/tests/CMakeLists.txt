@@ -37,6 +37,7 @@ add_test(
 )
 add_dependencies(presto_protocol_test presto_protocol)
 
+target_include_directories(presto_protocol_test SYSTEM PRIVATE ${FOLLY_INCLUDE_DIRS})
 target_link_libraries(
   presto_protocol_test
   GTest::gtest

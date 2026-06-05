@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include <arpa/inet.h>
+#include <folly/Endian.h>
 #include <gtest/gtest.h>
 
 #include "presto_cpp/presto_protocol/core/ConnectorProtocol.h"
@@ -21,7 +21,7 @@
 using namespace facebook::presto::protocol;
 
 static void writeUTF(std::ostringstream& oss, const std::string& s) {
-  uint16_t len = htons(static_cast<uint16_t>(s.length()));
+  uint16_t len = folly::Endian::big(static_cast<uint16_t>(s.length()));
   oss.write(reinterpret_cast<const char*>(&len), sizeof(len));
   oss.write(s.data(), s.length());
 }
@@ -29,7 +29,7 @@ static void writeUTF(std::ostringstream& oss, const std::string& s) {
 static std::string readUTF(std::istringstream& iss) {
   uint16_t len;
   iss.read(reinterpret_cast<char*>(&len), sizeof(len));
-  len = ntohs(len);
+  len = folly::Endian::big(len);
   std::string s(len, '\0');
   iss.read(&s[0], len);
   return s;
