@@ -37,7 +37,6 @@ add_test(
 )
 add_dependencies(presto_protocol_test presto_protocol)
 
-target_include_directories(presto_protocol_test SYSTEM PRIVATE ${FOLLY_INCLUDE_DIRS})
 target_link_libraries(
   presto_protocol_test
   GTest::gtest
@@ -50,7 +49,7 @@ target_link_libraries(
   velox_presto_serializer
   Boost::filesystem
   ${RE2}
-  ${FOLLY_LIBRARIES}
+  Folly::folly
   ${DOUBLE_CONVERSION}
   ${GLOG}
   ${GFLAGS_LIBRARIES}
