@@ -18,6 +18,7 @@ import com.facebook.airlift.configuration.testing.ConfigAssertions;
 import com.facebook.airlift.units.DataSize;
 import com.facebook.airlift.units.Duration;
 import com.facebook.presto.CompressionCodec;
+import com.facebook.presto.spi.MaterializedViewRefreshType;
 import com.facebook.presto.spi.MaterializedViewStaleReadBehavior;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationIfToFilterRewriteStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.CteMaterializationStrategy;
@@ -30,6 +31,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig.PartitioningPrecisionStra
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PushDownFilterThroughCrossJoinStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.RandomizeOuterJoinNullKeyStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.SingleStreamSpillerChoice;
+import com.facebook.presto.sql.planner.iterative.rule.materializedview.MaterializedViewRewriteStrategy;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
 
@@ -71,6 +73,7 @@ public class TestFeaturesConfig
                 .setSizeBasedJoinDistributionTypeEnabled(true)
                 .setGroupedExecutionEnabled(true)
                 .setRecoverableGroupedExecutionEnabled(false)
+                .setPartitionAwareGroupedExecutionEnabled(false)
                 .setMaxFailedTaskPercentage(0.3)
                 .setConcurrentLifespansPerTask(0)
                 .setFastInequalityJoins(true)
@@ -135,9 +138,11 @@ public class TestFeaturesConfig
                 .setExchangeCompressionCodec(CompressionCodec.NONE)
                 .setExchangeChecksumEnabled(false)
                 .setEnableIntermediateAggregations(false)
+                .setEnableParallelizeChainedAggregations(false)
                 .setPushAggregationThroughJoin(true)
                 .setPushPartialAggregationThroughJoin(false)
                 .setPushSemiJoinThroughUnion(false)
+                .setPushAggregationThroughDisjointUnion(false)
                 .setSimplifyCoalesceOverJoinKeys(false)
                 .setPushdownThroughUnnest(false)
                 .setSimplifyAggregationsOverConstant(false)
@@ -204,7 +209,10 @@ public class TestFeaturesConfig
                 .setLegacyMaterializedViews(true)
                 .setAllowLegacyMaterializedViewsToggle(false)
                 .setMaterializedViewAllowFullRefreshEnabled(false)
+                .setMaterializedViewDefaultRefreshType(MaterializedViewRefreshType.FULL)
                 .setMaterializedViewStaleReadBehavior(MaterializedViewStaleReadBehavior.USE_VIEW_QUERY)
+                .setMaterializedViewStitchingStrategy(MaterializedViewRewriteStrategy.ALWAYS)
+                .setMaterializedViewIncrementalRefreshStrategy(MaterializedViewRewriteStrategy.ALWAYS)
                 .setVerboseRuntimeStatsEnabled(false)
                 .setAggregationIfToFilterRewriteStrategy(AggregationIfToFilterRewriteStrategy.DISABLED)
                 .setAnalyzerType("BUILTIN")
@@ -265,7 +273,8 @@ public class TestFeaturesConfig
                 .setCteFilterAndProjectionPushdownEnabled(true)
                 .setGenerateDomainFilters(false)
                 .setRewriteExpressionWithConstantVariable(true)
-                .setRewriteRowConstructorInToDisjunction(false)
+                .setOptimizeRowInPredicate(false)
+                .setPushFilterThroughSelectingAggregation(false)
                 .setOptimizeConditionalApproxDistinct(true)
                 .setDefaultWriterReplicationCoefficient(3.0)
                 .setDefaultViewSecurityMode(DEFINER)
@@ -301,6 +310,7 @@ public class TestFeaturesConfig
                 .setTableScanShuffleParallelismThreshold(0.1)
                 .setTableScanShuffleStrategy(FeaturesConfig.ShuffleForTableScanStrategy.DISABLED)
                 .setSkipPushdownThroughExchangeForRemoteProjection(false)
+                .setPullConstantProjectionAboveExchange(false)
                 .setUseConnectorProvidedSerializationCodecs(false)
                 .setRemoteFunctionNamesForFixedParallelism("")
                 .setRemoteFunctionFixedParallelismTaskCount(10));
@@ -333,6 +343,7 @@ public class TestFeaturesConfig
                 .put("optimizer.size-based-join-distribution-type-enabled", "false")
                 .put("grouped-execution-enabled", "false")
                 .put("recoverable-grouped-execution-enabled", "true")
+                .put("partition-aware-grouped-execution-enabled", "true")
                 .put("max-failed-task-percentage", "0.8")
                 .put("concurrent-lifespans-per-task", "1")
                 .put("fast-inequality-joins", "false")
@@ -371,6 +382,7 @@ public class TestFeaturesConfig
                 .put("optimizer.push-aggregation-through-join", "false")
                 .put("optimizer.push-partial-aggregation-through-join", "true")
                 .put("optimizer.push-semi-join-through-union", "true")
+                .put("optimizer.push-aggregation-through-disjoint-union", "true")
                 .put("optimizer.simplify-coalesce-over-join-keys", "true")
                 .put("optimizer.pushdown-through-unnest", "true")
                 .put("optimizer.simplify-aggregations-over-constant", "true")
@@ -393,6 +405,7 @@ public class TestFeaturesConfig
                 .put("exchange.compression-codec", "LZ4")
                 .put("exchange.checksum-enabled", "true")
                 .put("optimizer.enable-intermediate-aggregations", "true")
+                .put("optimizer.parallelize-chained-aggregation", "true")
                 .put("optimizer.force-single-node-output", "false")
                 .put("pages-index.eager-compaction-enabled", "true")
                 .put("experimental.filter-and-project-min-output-page-size", "1MB")
@@ -453,7 +466,10 @@ public class TestFeaturesConfig
                 .put("experimental.legacy-materialized-views", "false")
                 .put("experimental.allow-legacy-materialized-views-toggle", "true")
                 .put("materialized-view-allow-full-refresh-enabled", "true")
+                .put("materialized-view-default-refresh-type", "INCREMENTAL")
                 .put("materialized-view-stale-read-behavior", "FAIL")
+                .put("materialized-view-stitching-strategy", "AUTOMATIC")
+                .put("materialized-view-incremental-refresh-strategy", "NEVER")
                 .put("analyzer-type", "CRUX")
                 .put("pre-process-metadata-calls", "true")
                 .put("verbose-runtime-stats-enabled", "true")
@@ -514,7 +530,8 @@ public class TestFeaturesConfig
                 .put("optimizer.skip-hash-generation-for-join-with-table-scan-input", "true")
                 .put("optimizer.generate-domain-filters", "true")
                 .put("optimizer.rewrite-expression-with-constant-variable", "false")
-                .put("optimizer.rewrite-row-constructor-in-to-disjunction", "true")
+                .put("optimizer.optimize-row-in-predicate", "true")
+                .put("optimizer.push-filter-through-selecting-aggregation", "true")
                 .put("optimizer.optimize-constant-approx-distinct", "false")
                 .put("optimizer.default-writer-replication-coefficient", "5.0")
                 .put("default-view-security-mode", INVOKER.name())
@@ -549,6 +566,7 @@ public class TestFeaturesConfig
                 .put("optimizer.table-scan-shuffle-parallelism-threshold", "0.3")
                 .put("optimizer.table-scan-shuffle-strategy", "ALWAYS_ENABLED")
                 .put("optimizer.skip-pushdown-through-exchange-for-remote-projection", "true")
+                .put("optimizer.pull-constant-projection-above-exchange", "true")
                 .put("use-connector-provided-serialization-codecs", "true")
                 .put("optimizer.remote-function-names-for-fixed-parallelism", "remote_.*")
                 .put("optimizer.remote-function-fixed-parallelism-task-count", "100")
@@ -577,6 +595,7 @@ public class TestFeaturesConfig
                 .setSizeBasedJoinDistributionTypeEnabled(false)
                 .setGroupedExecutionEnabled(false)
                 .setRecoverableGroupedExecutionEnabled(true)
+                .setPartitionAwareGroupedExecutionEnabled(true)
                 .setMaxFailedTaskPercentage(0.8)
                 .setConcurrentLifespansPerTask(1)
                 .setFastInequalityJoins(false)
@@ -615,6 +634,7 @@ public class TestFeaturesConfig
                 .setAggregationPartitioningMergingStrategy(TOP_DOWN)
                 .setPushAggregationThroughJoin(false)
                 .setPushSemiJoinThroughUnion(true)
+                .setPushAggregationThroughDisjointUnion(true)
                 .setSimplifyCoalesceOverJoinKeys(true)
                 .setPushdownThroughUnnest(true)
                 .setSimplifyAggregationsOverConstant(true)
@@ -635,6 +655,7 @@ public class TestFeaturesConfig
                 .setExchangeCompressionCodec(CompressionCodec.LZ4)
                 .setExchangeChecksumEnabled(true)
                 .setEnableIntermediateAggregations(true)
+                .setEnableParallelizeChainedAggregations(true)
                 .setForceSingleNodeOutput(false)
                 .setPagesIndexEagerCompactionEnabled(true)
                 .setFilterAndProjectMinOutputPageSize(new DataSize(1, MEGABYTE))
@@ -698,7 +719,10 @@ public class TestFeaturesConfig
                 .setLegacyMaterializedViews(false)
                 .setAllowLegacyMaterializedViewsToggle(true)
                 .setMaterializedViewAllowFullRefreshEnabled(true)
+                .setMaterializedViewDefaultRefreshType(MaterializedViewRefreshType.INCREMENTAL)
                 .setMaterializedViewStaleReadBehavior(MaterializedViewStaleReadBehavior.FAIL)
+                .setMaterializedViewStitchingStrategy(MaterializedViewRewriteStrategy.AUTOMATIC)
+                .setMaterializedViewIncrementalRefreshStrategy(MaterializedViewRewriteStrategy.NEVER)
                 .setVerboseRuntimeStatsEnabled(true)
                 .setAggregationIfToFilterRewriteStrategy(AggregationIfToFilterRewriteStrategy.FILTER_WITH_IF)
                 .setAnalyzerType("CRUX")
@@ -759,7 +783,8 @@ public class TestFeaturesConfig
                 .setCteFilterAndProjectionPushdownEnabled(false)
                 .setGenerateDomainFilters(true)
                 .setRewriteExpressionWithConstantVariable(false)
-                .setRewriteRowConstructorInToDisjunction(true)
+                .setOptimizeRowInPredicate(true)
+                .setPushFilterThroughSelectingAggregation(true)
                 .setOptimizeConditionalApproxDistinct(false)
                 .setDefaultWriterReplicationCoefficient(5.0)
                 .setDefaultViewSecurityMode(INVOKER)
@@ -795,6 +820,7 @@ public class TestFeaturesConfig
                 .setTableScanShuffleParallelismThreshold(0.3)
                 .setTableScanShuffleStrategy(FeaturesConfig.ShuffleForTableScanStrategy.ALWAYS_ENABLED)
                 .setSkipPushdownThroughExchangeForRemoteProjection(true)
+                .setPullConstantProjectionAboveExchange(true)
                 .setUseConnectorProvidedSerializationCodecs(true)
                 .setRemoteFunctionNamesForFixedParallelism("remote_.*")
                 .setPushPartialAggregationThroughJoin(true)

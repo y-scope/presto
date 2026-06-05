@@ -13,8 +13,11 @@
  */
 package com.facebook.presto.iceberg;
 
+import com.facebook.presto.Session;
+import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
@@ -25,9 +28,13 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.io.CloseableIterator;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.hadoop.ParquetReader;
+import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,6 +47,7 @@ import static com.facebook.presto.iceberg.CatalogType.HADOOP;
 import static com.facebook.presto.iceberg.FileFormat.PARQUET;
 import static com.facebook.presto.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 import static com.facebook.presto.iceberg.IcebergQueryRunner.getIcebergDataDirectoryPath;
+import static com.facebook.presto.iceberg.IcebergSessionProperties.PUSHDOWN_FILTER_ENABLED;
 import static java.lang.String.format;
 import static org.apache.iceberg.SnapshotSummary.TOTAL_DATA_FILES_PROP;
 import static org.apache.iceberg.SnapshotSummary.TOTAL_DELETE_FILES_PROP;
@@ -120,7 +128,7 @@ public class TestRewriteDataFilesProcedure
                             "(5, 'foo'), (6, 'bar'), " +
                             "(9, 'foo')");
 
-            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s')", tableName, TEST_SCHEMA), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 7);
 
             table.refresh();
             assertHasSize(table.snapshots(), 8);
@@ -181,7 +189,7 @@ public class TestRewriteDataFilesProcedure
                             "(5, 'foo'), (6, 'bar'), " +
                             "(8, 'bar')");
 
-            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s')", tableName, TEST_SCHEMA), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 7);
 
             table.refresh();
             assertHasSize(table.snapshots(), 8);
@@ -231,8 +239,14 @@ public class TestRewriteDataFilesProcedure
             // do not support rewrite files filtered by non-identity columns
             assertQueryFails(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c1 > 3')", tableName, TEST_SCHEMA), ".*");
 
+            String tableName1 = "my_table";
+            String schema = "my_schema";
+            System.out.println(getQueryRunner().execute(
+                    format("explain (type distributed) CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c2 = ''bar''')",
+                            tableName1, schema)
+            ).toString());
             // select 5 files to rewrite
-            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c2 = ''bar''')", tableName, TEST_SCHEMA), 5);
+            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c2 = ''bar''', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 5);
             table.refresh();
             assertHasSize(table.snapshots(), 6);
             //The number of data files is 6，and the number of delete files is 0
@@ -249,6 +263,47 @@ public class TestRewriteDataFilesProcedure
                             "(5, 'foo'), (6, 'bar'), " +
                             "(7, 'foo'), (8, 'bar'), " +
                             "(9, 'foo'), (10, 'bar')");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithFilterPushdownEnabled()
+    {
+        String tableName = "example_partition_filter_pushdown_table";
+        String schemaName = getSession().getSchema().get();
+        Session sessionWithFilterPushdown = pushdownFilterEnabled();
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (c1 integer, c2 varchar) with (partitioning = ARRAY['c2'])");
+
+            // create 1 files for each partition (c2 = 'foo' or 'bar')
+            assertUpdate("INSERT INTO " + tableName + " values(1, 'foo'), (2, 'foo'), (3, 'foo'), (4, 'foo'), (5, 'foo')", 5);
+            assertUpdate("INSERT INTO " + tableName + " values(1, 'bar'), (2, 'bar'), (3, 'bar'), (4, 'bar'), (5, 'bar')", 5);
+
+            // Does not support rewriting files when native-only filter push down is enabled
+            assertQueryFails(sessionWithFilterPushdown, format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c1 > 3')", tableName, schemaName),
+                    "Cannot execute rewrite_data_files when native-only filter push down is enabled.");
+            assertQueryFails(sessionWithFilterPushdown, format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c2 = ''bar''')", tableName, schemaName),
+                    "Cannot execute rewrite_data_files when native-only filter push down is enabled.");
+            assertQueryFails(sessionWithFilterPushdown, format("call system.rewrite_data_files(table_name => '%s', schema => '%s')", tableName, schemaName),
+                    "Cannot execute rewrite_data_files when native-only filter push down is enabled.");
+
+            // select 1 files to rewrite
+            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c2 = ''bar''', options => map(array['rewrite-all'], array['true']))", tableName, schemaName), 5);
+
+            Table table = loadTable(tableName);
+            //The number of data files is 2，and the number of delete files is 0
+            assertHasDataFiles(table.currentSnapshot(), 2);
+            assertHasDeleteFiles(table.currentSnapshot(), 0);
+
+            assertQuery("select * from " + tableName,
+                    "values(1, 'foo'), (1, 'bar'), " +
+                            "(2, 'foo'), (2, 'bar'), " +
+                            "(3, 'foo'), (3, 'bar'), " +
+                            "(4, 'foo'), (4, 'bar'), " +
+                            "(5, 'foo'), (5, 'bar')");
         }
         finally {
             dropTable(tableName);
@@ -283,7 +338,7 @@ public class TestRewriteDataFilesProcedure
             assertQueryFails(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c1 > 3')", tableName, TEST_SCHEMA), ".*");
 
             // the filter is `true` means select all files to rewrite
-            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => '1 = 1')", tableName, TEST_SCHEMA), 10);
+            assertUpdate(format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', filter => '1 = 1', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 10);
 
             table.refresh();
             assertHasSize(table.snapshots(), 6);
@@ -386,7 +441,7 @@ public class TestRewriteDataFilesProcedure
             assertQueryFails(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'a > 3')", tableName, TEST_SCHEMA), ".*");
             assertQueryFails(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c > 3')", tableName, TEST_SCHEMA), ".*");
 
-            assertUpdate(format("call system.rewrite_data_files(table_name => '%s', schema => '%s')", tableName, TEST_SCHEMA), 3);
+            assertUpdate(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 3);
             table.refresh();
             assertHasSize(table.snapshots(), 5);
             //The number of data files is 3，and the number of delete files is 0
@@ -404,7 +459,7 @@ public class TestRewriteDataFilesProcedure
             //The number of data files is 3，and the number of delete files is 1
             assertHasDataFiles(table.currentSnapshot(), 3);
             assertHasDeleteFiles(table.currentSnapshot(), 1);
-            assertUpdate(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c is null')", tableName, TEST_SCHEMA), 0);
+            assertUpdate(format("call system.rewrite_data_files(table_name => '%s', schema => '%s', filter => 'c is null', options => map(array['rewrite-all'], array['true']))", tableName, TEST_SCHEMA), 0);
 
             table.refresh();
             assertHasSize(table.snapshots(), 7);
@@ -877,8 +932,7 @@ public class TestRewriteDataFilesProcedure
 
             // min-file-size-bytes filters files BELOW threshold (too small)
             // Should select the two small files and combine them
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-file-size-bytes'], array['%d']))",
-                    TEST_SCHEMA, tableName, threshold), 2);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'min-file-size-bytes'], array['1', '%d']))", TEST_SCHEMA, tableName, threshold), 2);
 
             table.refresh();
             // Two small files combined into one, large file unchanged = 2 total files
@@ -925,8 +979,7 @@ public class TestRewriteDataFilesProcedure
 
             // max-file-size-bytes filters files ABOVE threshold (too large)
             // Should select the two large files and combine them
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['max-file-size-bytes'], array['%d']))",
-                    TEST_SCHEMA, tableName, threshold), 10);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'max-file-size-bytes'], array['1', '%d']))", TEST_SCHEMA, tableName, threshold), 10);
 
             table.refresh();
             // Two large files combined into one, small file unchanged = 2 total files
@@ -981,8 +1034,7 @@ public class TestRewriteDataFilesProcedure
             // min-file-size-bytes selects files < minThreshold (the 2 small files)
             // max-file-size-bytes selects files > maxThreshold (the 1 large file)
             // Medium files should be skipped (not too small, not too large)
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-file-size-bytes', 'max-file-size-bytes'], array['%d', '%d']))",
-                    TEST_SCHEMA, tableName, minThreshold, maxThreshold), 17);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'min-file-size-bytes', 'max-file-size-bytes'], array['1', '%d', '%d']))", TEST_SCHEMA, tableName, minThreshold, maxThreshold), 17);
 
             table.refresh();
             // 2 small files + 1 large file -> 1 combined file
@@ -1037,8 +1089,7 @@ public class TestRewriteDataFilesProcedure
             // File size filter selects: small files from A (3) and small files from B (2)
             // Group filter then selects: only files from partitions with >= 3 files (partition A only)
             // Result: Only partition A's 3 small files are rewritten
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'min-file-size-bytes'], array['3', '%d']))",
-                    TEST_SCHEMA, tableName, threshold), 3);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'min-file-size-bytes'], array['3', '%d']))", TEST_SCHEMA, tableName, threshold), 3);
 
             table.refresh();
             // Partition 'A': 3 small files -> 1 file, large file unchanged
@@ -1120,6 +1171,314 @@ public class TestRewriteDataFilesProcedure
         }
     }
 
+    @Test
+    public void testRewriteAllOption()
+    {
+        String tableName = "test_rewrite_all_option";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (id integer, category varchar, value varchar) WITH (partitioning = ARRAY['category'])");
+
+            // Create files with varying sizes across partitions
+            // Partition A: 3 small files
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'A', 'val1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'A', 'val2')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'A', 'val3')", 1);
+
+            // Partition B: 2 files
+            assertUpdate("INSERT INTO " + tableName + " VALUES (4, 'B', 'val4')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (5, 'B', 'val5')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 5);
+
+            // Without rewrite-all, min-input-files=4 would skip all partitions (A has 3, B has 2)
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files'], array['4']))",
+                    TEST_SCHEMA, tableName), 0);
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 5); // No change
+
+            // With rewrite-all=true, all files should be rewritten regardless of min-input-files
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['rewrite-all'], array['true']))",
+                    TEST_SCHEMA, tableName), 5);
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 2); // 1 file per partition
+
+            // Verify data integrity
+            assertQuery("SELECT * FROM " + tableName + " ORDER BY id",
+                    "VALUES (1, 'A', 'val1'), (2, 'A', 'val2'), (3, 'A', 'val3'), (4, 'B', 'val4'), (5, 'B', 'val5')");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteAllOverridesFileFilters()
+    {
+        String tableName1 = "test_rewrite_all_min_filter";
+        String tableName2 = "test_rewrite_all_max_filter";
+        String tableName3 = "test_rewrite_all_no_filter";
+
+        try {
+            // Test 1: Use only min-file-size-bytes with a very high threshold
+            // This should select files that are SMALLER than the threshold (which is all)
+            assertUpdate("CREATE TABLE " + tableName1 + " (id integer, value varchar)");
+            assertUpdate("INSERT INTO " + tableName1 + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName1 + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName1 + " VALUES (3, 'c')", 1);
+
+            Table table1 = loadTable(tableName1);
+            table1.refresh();
+            assertHasDataFiles(table1.currentSnapshot(), 3);
+
+            long veryLargeThreshold = 999999999L;
+            // Set min-input-files=1 since we only have 3 files
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'min-file-size-bytes'], array['1', '%d']))", TEST_SCHEMA, tableName1, veryLargeThreshold), 3); // All files are smaller than threshold
+            table1.refresh();
+            assertHasDataFiles(table1.currentSnapshot(), 1);
+            assertQuery("SELECT * FROM " + tableName1 + " ORDER BY id", "VALUES (1, 'a'), (2, 'b'), (3, 'c')");
+
+            // Test 2: Use only max-file-size-bytes with a very small threshold
+            // This should select files that are LARGER than the threshold (which is all)
+            assertUpdate("CREATE TABLE " + tableName2 + " (id integer, value varchar)");
+            assertUpdate("INSERT INTO " + tableName2 + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName2 + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName2 + " VALUES (3, 'c')", 1);
+
+            Table table2 = loadTable(tableName2);
+            table2.refresh();
+            assertHasDataFiles(table2.currentSnapshot(), 3);
+
+            long verySmallThreshold = 1L;
+            // Set min-input-files=1 since we only have 3 files
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['min-input-files', 'max-file-size-bytes'], array['1', '%d']))", TEST_SCHEMA, tableName2, verySmallThreshold), 3); // All files are larger than threshold
+            table2.refresh();
+            assertHasDataFiles(table2.currentSnapshot(), 1);
+            assertQuery("SELECT * FROM " + tableName2 + " ORDER BY id", "VALUES (1, 'a'), (2, 'b'), (3, 'c')");
+
+            // Test 3: With rewrite-all=true, ignore the filters entirely
+            assertUpdate("CREATE TABLE " + tableName3 + " (id integer, value varchar)");
+            assertUpdate("INSERT INTO " + tableName3 + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName3 + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName3 + " VALUES (3, 'c')", 1);
+
+            Table table3 = loadTable(tableName3);
+            table3.refresh();
+            assertHasDataFiles(table3.currentSnapshot(), 3);
+
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', options => map(array['rewrite-all'], array['true']))",
+                    TEST_SCHEMA, tableName3), 3);
+            table3.refresh();
+            assertHasDataFiles(table3.currentSnapshot(), 1);
+            assertQuery("SELECT * FROM " + tableName3 + " ORDER BY id", "VALUES (1, 'a'), (2, 'b'), (3, 'c')");
+        }
+        finally {
+            dropTable(tableName1);
+            dropTable(tableName2);
+            dropTable(tableName3);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithZOrderFunction()
+            throws IOException
+    {
+        String tableName = "test_zorder_sorted_by";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (orderkey bigint, partkey bigint, comment varchar)");
+
+            // Insert test data with values that will show UTF-8 string sort order vs numeric order
+            // UTF-8 string order: "1" < "10" < "2" < "20" < "3" < "30"
+            // Numeric order: 1 < 2 < 3 < 10 < 20 < 30
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 100, 'test1'), (10, 200, 'test10'), (2, 300, 'test2')", 3);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (20, 400, 'test20'), (3, 500, 'test3')", 2);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (30, 600, 'test30')", 1);
+
+            Table table = loadTable(tableName);
+            assertHasDataFiles(table.currentSnapshot(), 3);
+
+            // Test rewrite_data_files with sorted_by using zorder function
+            // The zorder function now uses ROW type: zorder(ROW(orderkey, partkey))
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey, partkey)'], options => map(array['rewrite-all'], array['true']))",
+                    TEST_SCHEMA, tableName), 6);
+
+            table.refresh();
+            // Verify files were rewritten into a single file
+            assertHasDataFiles(table.currentSnapshot(), 1);
+
+            // Verify all data is still correct after rewrite
+            assertQuery("SELECT * FROM " + tableName + " ORDER BY orderkey",
+                    "VALUES (1, 100, 'test1'), (2, 300, 'test2'), (3, 500, 'test3'), " +
+                            "(10, 200, 'test10'), (20, 400, 'test20'), (30, 600, 'test30')");
+
+            // Get the file path
+            MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
+            assertEquals(result.getOnlyColumnAsSet().size(), 1);
+            String filePath = String.valueOf(result.getOnlyValue());
+
+            // Verify the file is sorted by zorder(ROW(orderkey, partkey))
+            // Read both columns to verify z-order considers both dimensions
+            List<Long> orderkeys = readParquetColumn(filePath, "orderkey");
+            List<Long> partkeys = readParquetColumn(filePath, "partkey");
+
+            // Verify all rows are present
+            assertEquals(orderkeys.size(), 6, "File should contain all 6 rows");
+            assertEquals(partkeys.size(), 6, "File should contain all 6 rows");
+
+            // Compute expected z-order for our test data
+            // Input pairs: (1,100), (10,200), (2,300), (20,400), (3,500), (30,600)
+            // Z-order interleaves bits from both columns
+            // For our specific test values, the expected order after z-order sorting is:
+            // (1,100), (10,200), (2,300), (20,400), (3,500), (30,600)
+            // This demonstrates z-order considers both dimensions together
+            List<Long> expectedOrderkeys = ImmutableList.of(1L, 10L, 2L, 20L, 3L, 30L);
+            List<Long> expectedPartkeys = ImmutableList.of(100L, 200L, 300L, 400L, 500L, 600L);
+
+            assertEquals(orderkeys, expectedOrderkeys,
+                    "File should be sorted by z-order(orderkey, partkey). " +
+                            "Expected orderkeys: " + expectedOrderkeys + ", Actual: " + orderkeys);
+            assertEquals(partkeys, expectedPartkeys,
+                    "File should be sorted by z-order(orderkey, partkey). " +
+                            "Expected partkeys: " + expectedPartkeys + ", Actual: " + partkeys);
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithMixedZOrderAndColumnsFails()
+    {
+        String tableName = "test_mixed_zorder_columns";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (orderkey bigint, partkey bigint, comment varchar)");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 100, 'test1'), (2, 200, 'test2')", 2);
+
+            // Test that mixing zorder with regular column names fails
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey, partkey)', 'comment'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Cannot mix zorder function with regular column names in sorted_by.*");
+
+            // Also test the reverse order
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['comment', 'zorder(orderkey, partkey)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Cannot mix zorder function with regular column names in sorted_by.*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithZOrderOnDecimalFails()
+    {
+        String tableName = "test_zorder_decimal";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (id bigint, price decimal(10,2), quantity bigint)");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 99.99, 10), (2, 149.50, 5)", 2);
+
+            // Test that using decimal type in zorder fails
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(price, quantity)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Cannot use column of type .* in ZOrdering, the type is unsupported.*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithInvalidZOrderColumnsFails()
+    {
+        String tableName = "test_invalid_zorder_columns";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (orderkey bigint, partkey bigint, comment varchar)");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 100, 'test1'), (2, 200, 'test2')", 2);
+
+            // Test that using non-existent column in zorder fails with clear error
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(invalid_column, partkey)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Z-order column\\(s\\) not found in table: \\[invalid_column\\].*");
+
+            // Test with multiple invalid columns
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(invalid1, invalid2, partkey)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Z-order column\\(s\\) not found in table: \\[invalid1, invalid2\\].*");
+
+            // Test with all invalid columns
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(nonexistent1, nonexistent2)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Z-order column\\(s\\) not found in table: \\[nonexistent1, nonexistent2\\].*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithMalformedZOrderFails()
+    {
+        String tableName = "test_malformed_zorder";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (orderkey bigint, partkey bigint, comment varchar)");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 100, 'test1'), (2, 200, 'test2')", 2);
+
+            // Test malformed zorder expression (missing closing parenthesis)
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey, partkey'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Malformed zorder\\(\\.\\.\\.\\) expression.*");
+
+            // Test malformed zorder expression (invalid syntax)
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey partkey)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Malformed zorder\\(\\.\\.\\.\\) expression.*");
+
+            // Test malformed zorder expression (extra characters)
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey, partkey))'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Malformed zorder\\(\\.\\.\\.\\) expression.*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteDataFilesWithMultipleZOrderFails()
+    {
+        String tableName = "test_multiple_zorder";
+        try {
+            assertUpdate("CREATE TABLE " + tableName + " (orderkey bigint, partkey bigint, suppkey bigint, comment varchar)");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 100, 1000, 'test1'), (2, 200, 2000, 'test2')", 2);
+
+            // Test multiple zorder expressions
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['zorder(orderkey, partkey)', 'zorder(suppkey)'], options => map(array['rewrite-all'], array['true']))",
+                            TEST_SCHEMA, tableName),
+                    ".*Multiple zorder\\(\\.\\.\\.\\) expressions are not supported in sorted_by.*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    private Session pushdownFilterEnabled()
+    {
+        return Session.builder(getQueryRunner().getDefaultSession())
+                .setCatalogSessionProperty(ICEBERG_CATALOG, PUSHDOWN_FILTER_ENABLED, "true")
+                .build();
+    }
+
     private Table loadTable(String tableName)
     {
         Catalog catalog = CatalogUtil.loadCatalog(HadoopCatalog.class.getName(), ICEBERG_CATALOG, getProperties(), new Configuration());
@@ -1179,5 +1538,28 @@ public class TestRewriteDataFilesProcedure
         catch (Exception e) {
             // do nothing
         }
+    }
+
+    private List<Long> readParquetColumn(String path, String columnName)
+            throws IOException
+    {
+        List<Long> values = new ArrayList<>();
+        org.apache.hadoop.fs.Path filePath = new org.apache.hadoop.fs.Path(path);
+        Configuration configuration = new Configuration();
+
+        try (ParquetReader<Group> reader = ParquetReader.builder(new GroupReadSupport(), filePath)
+                .withConf(configuration)
+                .build()) {
+            Group record;
+            while ((record = reader.read()) != null) {
+                for (int i = 0; i < record.getType().getFieldCount(); i++) {
+                    if (record.getType().getFieldName(i).equals(columnName)) {
+                        values.add(record.getLong(i, 0));
+                        break;
+                    }
+                }
+            }
+        }
+        return values;
     }
 }
