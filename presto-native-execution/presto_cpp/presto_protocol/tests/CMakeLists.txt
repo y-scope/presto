@@ -49,7 +49,7 @@ target_link_libraries(
   velox_presto_serializer
   Boost::filesystem
   ${RE2}
-  Folly::folly
+  ${FOLLY_LIBRARIES}
   ${DOUBLE_CONVERSION}
   ${GLOG}
   ${GFLAGS_LIBRARIES}

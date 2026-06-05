@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include <folly/Endian.h>
+#include <folly/lang/Bits.h>
 #include <gtest/gtest.h>
 
 #include "presto_cpp/presto_protocol/core/ConnectorProtocol.h"
