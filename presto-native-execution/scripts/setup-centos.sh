@@ -94,6 +94,11 @@ function install_xxhash {
     -DXXHASH_BUILD_XXHSUM=OFF
 }
 
+function install_libarchive {
+  # CLP requires LibArchive's development files at configure time.
+  dnf install -y libarchive-devel
+}
+
 function install_presto_deps {
   run_and_time install_presto_deps_from_package_managers
   run_and_time install_gperf
@@ -101,6 +106,7 @@ function install_presto_deps {
   run_and_time install_datasketches
   run_and_time install_opentelemetry_cpp
   run_and_time install_xxhash
+  run_and_time install_libarchive
 }
 
 if [[ $# -ne 0 ]]; then

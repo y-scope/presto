@@ -42,7 +42,7 @@ jobs:
         env:
           DEPENDENCY_DIR: "${{ runner.temp }}/clp-deps"
         run: |
-          presto-native-execution/scripts/setup-centos.sh install_opentelemetry_cpp install_xxhash
+          presto-native-execution/scripts/setup-centos.sh install_opentelemetry_cpp install_xxhash install_libarchive
 
       - name: Install Github CLI for using apache/infrastructure-actions/stash
         run: |
