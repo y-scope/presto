@@ -38,6 +38,12 @@ jobs:
           cd presto-native-execution
           make velox-submodule
 
+      - name: Install CLP connector dependencies
+        env:
+          DEPENDENCY_DIR: "${{ runner.temp }}/clp-deps"
+        run: |
+          presto-native-execution/scripts/setup-centos.sh install_opentelemetry_cpp install_xxhash install_libarchive
+
       - name: Install Github CLI for using apache/infrastructure-actions/stash
         run: |
           curl -L https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_amd64.rpm > gh_2.63.2_linux_amd64.rpm
