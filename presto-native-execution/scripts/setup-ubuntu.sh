@@ -20,6 +20,8 @@ set -eufx -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../velox/scripts/setup-ubuntu.sh"
 SUDO="${SUDO:-"sudo --preserve-env"}"
 DATASKETCHES_VERSION="5.2.0"
+OPENTELEMETRY_CPP_VERSION="1.27.0"
+XXHASH_VERSION="0.8.3"
 
 function install_proxygen {
   # proxygen requires python and gperf
@@ -37,9 +39,38 @@ function install_datasketches {
   cmake_install_dir datasketches-cpp -DBUILD_TESTS=OFF
 }
 
+function install_opentelemetry_cpp {
+  # The version and build configuration must stay in sync with the
+  # opentelemetry-cpp dependency of CLP (taskfiles/deps/main.yaml in
+  # y-scope/clp), which links against it in clp_s::search.
+  wget_and_untar https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v${OPENTELEMETRY_CPP_VERSION}.tar.gz opentelemetry-cpp
+  cmake_install_dir opentelemetry-cpp \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_STANDARD=20 \
+    -DOPENTELEMETRY_INSTALL=ON \
+    -DWITH_BENCHMARK=OFF \
+    -DWITH_EXAMPLES=OFF \
+    -DWITH_FUNC_TESTS=OFF \
+    -DWITH_OTLP_GRPC=OFF \
+    -DWITH_OTLP_HTTP=ON
+}
+
+function install_xxhash {
+  # The version and build configuration must stay in sync with the xxHash
+  # dependency of CLP (taskfiles/deps/main.yaml in y-scope/clp), which
+  # requires xxHash's CMake package config.
+  wget_and_untar https://github.com/Cyan4973/xxHash/archive/refs/tags/v${XXHASH_VERSION}.tar.gz xxHash
+  cmake_install_dir xxHash/cmake_unofficial \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DXXHASH_BUILD_XXHSUM=OFF
+}
+
 function install_presto_deps {
   run_and_time install_proxygen
   run_and_time install_datasketches
+  run_and_time install_opentelemetry_cpp
+  run_and_time install_xxhash
 }
 
 if [[ $# -ne 0 ]]; then
